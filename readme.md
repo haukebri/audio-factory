@@ -44,3 +44,22 @@ The planned distribution contains tool source, not model weights or game assets.
 - [Milestone 2 — Portable workflow](docs/milestone/02-portable-workflow.md)
 - [Milestone 3 — Standalone verification](docs/milestone/03-standalone-verification.md)
 - [Milestone 4 — Distribution readiness](docs/milestone/04-distribution-readiness.md)
+
+## Fixture checks
+
+The extracted service, QA and portable-bundle checks use deterministic audio and
+FFmpeg, without generation or CLAP model downloads. Prepare only the pinned signal
+packages (also suitable for Linux fixture checks; generation still requires Apple
+Silicon). Run these commands from the tool root with Bash or Zsh:
+
+```sh
+uv venv --python 3.11.15 .runtime/mlx-venv
+uv pip sync --python .runtime/mlx-venv/bin/python <(rg '^(numpy|soundfile|cffi|pycparser|typing-extensions)==' requirements.lock)
+pnpm build
+pnpm test:audio-factory
+```
+
+Use this minimal environment setup only before installing the full generation
+environment: syncing this subset into an existing full environment removes its
+other packages. If full setup is already installed, use that environment directly.
+The suite removes its own temporary runs and retained/copied fixture bundles.
