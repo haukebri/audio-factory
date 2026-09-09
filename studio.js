@@ -3,10 +3,10 @@ const uid = () => crypto.randomUUID().replaceAll('-', '');
 let pendingAction = Promise.resolve();
 let csrf, candidates = [], jobs = [], selected, busy = false;
 const say = message => { $('status').textContent = message; };
-const drafts = ['prompt', 'constraints', 'events', 'duration', 'attempts', 'minutes'];
+const drafts = ['prompt', 'constraints', 'events', 'duration', 'attempts', 'minutes', 'mode'];
 function remember(key, value) { localStorage.setItem('studio-' + key, JSON.stringify(value)); }
 function recall(key, fallback) { try { return JSON.parse(localStorage.getItem('studio-' + key)) ?? fallback; } catch { return fallback; } }
-for (const id of drafts) { $(id).value = recall(id, $(id).value); $(id).addEventListener('input', () => remember(id, $(id).value)); }
+for (const id of drafts) { $(id).value = recall(id, $(id).value); $(id).addEventListener($(id).tagName === 'SELECT' ? 'change' : 'input', () => remember(id, $(id).value)); }
 $('blind').checked = recall('blind', false);
 async function api(path, value, key) {
   const response = await fetch('/studio/' + path, { method: value === undefined ? 'GET' : 'POST',
@@ -129,10 +129,15 @@ function renderLibrary() {
 async function refreshQa() {
   const ready = await api('readiness');
   const qa = ready.judge;
-  $('qa-readiness').textContent = `QA setup: ${qa.status}. ${qa.progress || qa.error || 'Prepare the selected local CLAP model, or generate to run setup automatically.'}`;
+  $('qa-readiness').textContent = `QA setup: ${qa.status}. ${qa.progress || qa.error || 'Prepare the selected local CLAP model before automatic mode. Manual generation also runs setup.'}`;
 }
 $('setup-qa').onclick = () => action(async () => { await api('qa/setup', {}); await refreshQa(); });
 $('cancel-qa').onclick = () => action(async () => { await api('qa/cancel', {}); await refreshQa(); });
+function budgetText(job) {
+  const seconds = (job.input.budget?.minutes ?? 0) * 60;
+  const elapsed = job.budget_started_at ? Math.max(0, Math.floor((Date.now() - Date.parse(job.budget_started_at)) / 1000)) : 0;
+  return `Budget: ${elapsed}s elapsed · ${Math.max(0, seconds - elapsed)}s remaining`;
+}
 async function refresh() {
   await refreshQa();
   const [nextJobs, nextCandidates] = await Promise.all([api('jobs'), api('candidates')]);
@@ -143,14 +148,20 @@ async function refresh() {
     for (const c of candidates) node('option', `${c.candidate_sha256.slice(0,8)} · ${title(c)}`, $('compare'), { value: c.candidate_sha256 });
     $('compare').value = previous;
   }
-  const signature = JSON.stringify(jobs);
-  if ($('jobs').dataset.signature === signature) return;
+  const signature = JSON.stringify(jobs) + jobs.map(job => Boolean(job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000)).join();
+  if ($('jobs').dataset.signature === signature) {
+    for (const job of jobs) $(`budget-${job.id}`).textContent = budgetText(job);
+    return;
+  }
   $('jobs').dataset.signature = signature; $('jobs').replaceChildren();
   if (!jobs.length) node('p', 'No requests yet.', $('jobs'));
   for (const job of [...jobs].sort((a, b) => b.started_at.localeCompare(a.started_at))) {
     const box = node('div', undefined, $('jobs'), { class: 'job' });
     node('p', job.input.request.prompt, box);
-    node('p', `${job.id.slice(0,8)} · ${job.status} · ${job.progress || 'queued'} · attempt ${job.attempt ?? 1}/${job.input.budget?.attempts ?? 1}`, box);
+    node('p', `${job.id.slice(0,8)} · ${job.status} / ${job.outcome ?? 'pending'} · ${job.progress || 'queued'} · attempt ${job.attempt ?? 1}/${job.input.budget?.attempts ?? 1}`, box);
+    node('p', budgetText(job), box, { id: `budget-${job.id}` });
+    for (const attempt of job.attempts ?? []) node('p', `Seed ${attempt.seed}: ${attempt.reason}${attempt.result ? ' → ' + (attempt.result.outcome ?? attempt.result.evaluation?.verdict ?? 'needs_review') : ''}`, box);
+    if (job.status === 'interrupted' && job.attempts) button('Recover saved candidate', box, async () => { await api(`jobs/${job.id}/recover`, {}); await refresh(); });
     if (job.error) node('p', job.error, box);
     if (job.status === 'interrupted') button('Acknowledge uncertain outcome', box, async () => {
       await api(`jobs/${job.id}/acknowledge`, {}); await refresh(); say('Interrupted outcome acknowledged. Evidence is preserved; a new request may now be started.');
@@ -158,20 +169,27 @@ async function refresh() {
     if (['running', 'canceling'].includes(job.status)) button('Cancel job', box, async () => { await api(`jobs/${job.id}/cancel`, {}); await refresh(); say('Cancellation saved. Owned work is stopping or draining.'); });
     else if (!jobs.some(next => next.parent_id === job.id) && !job.resumed_by) {
       const exhausted = (job.attempt ?? 1) >= (job.input.budget?.attempts ?? 1) || job.status === 'exhausted' || job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000;
-      if (exhausted) node('p', 'Budget exhausted. Start a new request to continue.', box);
+      if (exhausted) {
+        node('p', 'Budget exhausted. All takes remain available for review.', box);
+        button('Continue with composer budget', box, async () => {
+          const key = recall('continue-' + job.id, uid()); remember('continue-' + job.id, key);
+          await api(`jobs/${job.id}/continue`, { budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } }, key);
+          await refresh(); say('Additional budget recorded as a linked continuation.');
+        });
+      }
       else button(job.status === 'interrupted' ? 'Resume with new attempt' : 'Retry with new seed', box, async () => {
         const key = recall('retry-' + job.id, uid()); remember('retry-' + job.id, key);
         await api(`jobs/${job.id}/retry`, {}, key); await refresh(); say('New attempt saved; reconnecting will attach to it.');
       });
     }
-    const c = job.result?.candidate_sha256 ?? job.candidate_ids.at(-1);
-    if (c) button('Listen to take', box, () => select(c));
+    const c = ['running', 'canceling'].includes(job.status) ? job.candidate_ids.at(-1) : job.result?.candidate_sha256 ?? job.candidate_ids.at(-1);
+    if (c) { node('p', `Current candidate: ${c.slice(0,8)}`, box); button('Listen to take', box, () => select(c)); }
     else if (!['running', 'canceling'].includes(job.status)) node('p', 'No playable take. Retry if budget remains, or start a new request.', box);
   }
 }
 $('compose').onsubmit = event => { event.preventDefault(); action(async () => {
   const prompt = [$('prompt').value.trim(), $('events').value ? `Intended event count: ${$('events').value}.` : '', $('constraints').value.trim() ? `Constraints: ${$('constraints').value.trim()}` : ''].filter(Boolean).join('\n');
-  const input = { request: { prompt, duration_seconds: Number($('duration').value) }, budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } };
+  const input = { mode: $('mode').value, request: { prompt, duration_seconds: Number($('duration').value) }, budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } };
   const previous = recall('submission', null);
   const pending = previous && JSON.stringify(previous.input) === JSON.stringify(input) ? previous : { key: uid(), input };
   remember('submission', pending);

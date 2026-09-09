@@ -65,14 +65,14 @@ export async function createStudio({ port = 8767, ...options }) {
         let job; try { job = await jobs.submit(req.headers['idempotency-key'], input); } catch (error) { error.status ??= 400; throw error; }
         json(res, 202, job); return;
       }
-      const jobMatch = /^\/studio\/jobs\/([a-f0-9]{32})(?:\/(cancel|resume|retry|acknowledge))?$/.exec(path);
+      const jobMatch = /^\/studio\/jobs\/([a-f0-9]{32})(?:\/(cancel|resume|retry|acknowledge|recover|continue))?$/.exec(path);
       if (jobMatch) {
         const [, id, action] = jobMatch;
         if (!jobs.get(id)) fail(404, 'Unknown job');
         if (req.method === 'GET' && !action) { json(res, 200, jobs.get(id)); return; }
         if (req.method === 'POST' && action) {
-          await body(req);
-          json(res, 202, action === 'acknowledge' ? await jobs.acknowledge(id) : action === 'cancel' ? await jobs.cancel(id) : action === 'retry' ? await jobs.retry(id, req.headers['idempotency-key']) : await jobs.resume(id, req.headers['idempotency-key'])); return;
+          const input = await body(req);
+          json(res, 202, action === 'recover' ? await jobs.recover(id) : action === 'continue' ? await jobs.continue(id, req.headers['idempotency-key'], input.budget) : action === 'acknowledge' ? await jobs.acknowledge(id) : action === 'cancel' ? await jobs.cancel(id) : action === 'retry' ? await jobs.retry(id, req.headers['idempotency-key']) : await jobs.resume(id, req.headers['idempotency-key'])); return;
         }
       }
       if (req.method === 'GET' && path === '/studio/candidates') { json(res, 200, jobs.store.listCandidates()); return; }

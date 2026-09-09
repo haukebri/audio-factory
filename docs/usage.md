@@ -256,11 +256,11 @@ loading models and remains available for history, native playback and verified
 bundle downloads after compute exits. Ctrl-C stops owned work and closes the
 studio; `status`/`stop` still address the legacy temporary service on port 8766.
 The listening workspace accepts prompts, constraints, event count, duration and
-manual attempt/time budgets. Draft inputs survive refresh. Choose a take to play
+manual or automatic review with attempt/time budgets. Draft inputs survive refresh. Choose a take to play
 its original/prepared audio, compare, save a separate adjusted cut, and approve
 or reject with reasons. Feedback success follows persistence; export downloads
-the verified complete TAR. Blind review hides automatic evidence. No judge is
-connected yet; the UI uses signal-only QA and does not run automatic retries.
+the verified complete TAR. Blind review hides automatic evidence. Delivered clips receive the experimental Larger CLAP General score/signal policy.
+Prepare QA before using automatic mode; a missing judge stops for review.
 Keep offline maintenance sequential with studio work.
 
 `make`/`generate` and studio jobs use `workflow.mjs`: setup, generation, source
@@ -285,14 +285,16 @@ losing durable jobs or feedback.
 
 | Method and endpoint | Result |
 | --- | --- |
-| `POST /studio/jobs` | `{ "request": <generation request>, "qa": <optional QA request>, "budget": {"attempts": 3, "minutes": 20} }`; required `Idempotency-Key`; returns 202 and durable job immediately |
-| `GET /studio/readiness` | Local model/environment presence and unavailable judge; setup verifies files before generation |
-| `GET /studio/jobs` or `/studio/jobs/<job-id>` | Persisted request, seed, status/progress, candidate IDs, result/error |
+| `POST /studio/jobs` | `{ "mode": "automatic", "request": <generation request>, "qa": <optional QA request>, "budget": {"attempts": 3, "minutes": 20} }`; required `Idempotency-Key`; returns 202 and durable job immediately |
+| `GET /studio/readiness` | Local generation presence and QA setup progress; explicit QA setup verifies the selected judge |
+| `GET /studio/jobs` or `/studio/jobs/<job-id>` | Persisted request, outcome, attempt seeds/reasons, status/progress, candidate IDs, result/error |
 | `POST /studio/jobs/<job-id>/cancel` | `{}`; stop/drain owned work; repeated cancellation is safe |
 | `POST /studio/jobs/<job-id>/resume` | `{}` with a **new** `Idempotency-Key`; explicitly authorize a new attempt after canceled/failed/interrupted work |
 | `POST /studio/jobs/<job-id>/retry` | Explicit new seed within the persisted budget; new idempotency key, same key reattaches |
+| `POST /studio/jobs/<job-id>/recover` | `{}`; resume verified checkpoints under the same ID; uncertain operations stop without replay |
+| `POST /studio/jobs/<job-id>/continue` | `{ "budget": {"attempts": 3, "minutes": 20} }` and a new idempotency key; record additional budget and a linked continuation |
 | `POST /studio/jobs/<job-id>/acknowledge` | Explicitly acknowledge an interrupted, uncertain outcome without generation; preserve evidence and allow a new request |
-| `POST /studio/candidates/<sha256>/cut` | Existing cut request semantics; preserve a new candidate with separate feedback and no inherited automatic verdict |
+| `POST /studio/candidates/<sha256>/cut` | Existing cut request semantics; preserve a new candidate with separate feedback and a fresh delivered-clip evaluation when the parent was evaluated |
 | `GET /studio/candidates` or `/studio/candidates/<sha256>` | Verified immutable candidates, including source-only evidence |
 | `GET /studio/candidates/<sha256>/source` or `/audio` | Registered WAV bytes; native single-range playback supported |
 | `GET` / `POST /studio/candidates/<sha256>/feedback` | Read history / append an immutable human feedback event |
@@ -301,7 +303,7 @@ losing durable jobs or feedback.
 JSON mutations retain the 16 KiB body bound. Idempotency keys contain 1–128
 letters, digits, `_` or `-`. Repeating the same key/body returns the same durable
 job, including after restart; conflicts return 409 and contention returns 429.
-There is no queue or automatic regeneration. Restart records unfinished work as
+There is no queue. Automatic mode retries only judged rejection within the selected budget. Restart records unfinished work as
 `interrupted` and refuses new generation until explicit resume or acknowledgement. Resume records
 its new attempt identity before launch; retry that same resume key on disconnect.
 Completed sources left before candidate publication are rescued before another
@@ -313,11 +315,31 @@ Feedback bodies use the store contract: `event_id` (32 lowercase hex),
 `wrong_sound`, `extra_events`, `background_noise`, `artifacts`, `bad_trim`, `other`.
 Identical events are idempotent; stale/conflicting updates return 409. Playback
 never creates a human label. Source-only snapshots remain separate immutable
-records from delivered cuts, and automatic evaluation is not yet connected.
+records from delivered cuts. Human decisions override which take you select/export without changing automatic verdict history.
 
 Studio budgets allow 1–10 total attempts and 1–60 wall-clock minutes, starting
 after the first setup. Manual listening time counts toward that deadline;
 accepted QA drains safely if the deadline expires. Retrying or resuming a
-budgeted request cannot reset its budget. Start a new request for a new budget.
+budgeted request cannot reset its budget. Use the explicit continuation action to record additional budget and retain the parent request link.
 Cut adjustment uses isolated temporary output, preserves the original and prior
 feedback, and drains before studio shutdown.
+
+For CLI automation with the studio stopped, use `./run workflow workflow.json my-durable-key`.
+The JSON has the same shape as `POST /studio/jobs`; for example:
+
+```json
+{"mode":"automatic","request":{"prompt":"A short wooden knock","duration_seconds":1},"budget":{"attempts":3,"minutes":20}}
+```
+
+Keep the key and input unchanged when reconnecting. The command prints the durable
+job, including `outcome`: `auto_accepted`, `rejected` (manual mode), `needs_review`,
+`exhausted`, `cancelled`, or `operational-error`. Automatic defaults are three
+attempts and 20 minutes after initial setup; each judge has a 120-second deadline.
+Generation intent stays fixed and every new seed is persisted before launch.
+A trim-related verdict tries at most one alternate detected region or a cut
+expanded by 100 ms on each side. Every delivered derivative is preserved before
+judging; neither region choice nor highest similarity grants acceptance.
+Uncertainty, unavailable QA and operational failures never trigger another generation.
+After restart, use `recover` to reuse completed source/cut/judge evidence; an
+in-flight operation without a verified result remains unresolved. Persisted
+cancellation stays cancelled. `make`/`generate` retain their single-attempt interface.

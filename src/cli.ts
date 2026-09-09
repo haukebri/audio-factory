@@ -110,11 +110,12 @@ function summary(report: Report) {
   };
 }
 const requestFile = async (path: string) => JSON.parse(await readFile(path, "utf8"));
-if (command === "make" || command === "generate") {
-  if (!process.argv[3]) throw new Error("make requires <request.json> [qa.json]");
-  const request = await requestFile(process.argv[3]);
+if (command === "make" || command === "generate" || command === "workflow") {
+  if (!process.argv[3]) throw new Error("make requires <request.json> [qa.json]; workflow requires <workflow.json> <idempotency-key>");
+  const workflow = command === "workflow" ? await requestFile(process.argv[3]) : null;
+  const request = workflow ? workflow.request : await requestFile(process.argv[3]);
   if (!validateRequest(request)) throw new Error(JSON.stringify(validateRequest.errors));
-  const qa = process.argv[4]
+  const qa = workflow ? workflow.qa ?? { clap: true, target: String((request as { prompt: string }).prompt).slice(0, 200) } : process.argv[4]
     ? await requestFile(process.argv[4])
     : {
         clap: true,
@@ -130,10 +131,11 @@ if (command === "make" || command === "generate") {
   process.once("SIGTERM", interrupt);
   process.once("SIGINT", interrupt);
   try {
-    const job = await jobs.submit(randomBytes(16).toString("hex"), { request, qa });
+    const job = await jobs.submit(workflow ? process.argv[4] : randomBytes(16).toString("hex"), workflow ?? { request, qa });
     await jobs.wait();
-    if (job.status !== "completed") throw new Error(job.error ?? job.status);
-    console.log(JSON.stringify(job.result));
+    if (workflow) console.log(JSON.stringify(job));
+    if (job.status !== "completed" && !(workflow && job.status === "exhausted")) throw new Error(job.error ?? job.status);
+    if (!workflow) console.log(JSON.stringify(job.result));
   } finally {
     process.off("SIGTERM", interrupt);
     process.off("SIGINT", interrupt);
@@ -217,6 +219,6 @@ if (command === "make" || command === "generate") {
   process.exitCode = result.status ?? 1;
 } else {
   throw new Error(
-    "Usage: audio:factory make <request.json> [qa.json]|analyze <id> [qa.json]|cut <id> [cut.json | start end]|retain <audio-path>|studio|status|start|stop|setup|setup-qa|inspect <id>",
+    "Usage: audio:factory make <request.json> [qa.json]|workflow <workflow.json> <idempotency-key>|analyze <id> [qa.json]|cut <id> [cut.json | start end]|retain <audio-path>|studio|status|start|stop|setup|setup-qa|inspect <id>",
   );
 }

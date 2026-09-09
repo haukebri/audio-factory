@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store, studio service, review workspace and CLAP judge integration are complete; automatic retries and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service, review workspace, CLAP judge and bounded automatic retries are complete; evaluation, final integration/migration and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -81,7 +81,7 @@ Product integration:
 - [x] Durable candidate assets, source-only evidence and immutable human feedback survive process restart, relocation and deletion of owned temporary output (task 01 deterministic checks).
 - [x] History, rejected candidates and feedback survive refresh, process restart and the next generation (task 02 controlled service/browser checks).
 - [x] LAION Larger CLAP General scores actual audio with pinned provenance, a versioned decision policy and explicit failure states (task 04 real CPU contrasts, policy fixtures and studio replay smoke; quality remains experimental).
-- [ ] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work.
+- [x] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work (task 05 controlled policy/backend, crash/relocation, browser and cleanup checks).
 - [x] CLI/agent access uses the same workflow and decision records as the studio (task 02 shared workflow and durable store).
 - [x] Local auth/origin/path boundaries, accessibility, playback, error states and cleanup have direct checks (tasks 02–03 service/browser evidence).
 - [ ] Human feedback exports and repeatable evaluation/policy rollback work; synthetic fixture labels are excluded from real quality metrics.

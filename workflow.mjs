@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { randomInt, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { MlxBackend } from "./dist/backend.js";
 import { config, hash, root as factoryRoot, validateRequest } from "./dist/config.js";
 import { processIdentity } from "./dist/ownership.js";
@@ -12,101 +14,196 @@ import { judge } from './judge.mjs';
 import { openReviewStore } from "./review-store.mjs";
 
 export function workflowInput(input) {
-  if (!input || Object.keys(input).some(key => !["request", "qa", "budget"].includes(key)) || !validateRequest(input.request))
+  if (!input || Object.keys(input).some(key => !["request", "qa", "budget", "mode"].includes(key)) || !validateRequest(input.request))
     throw new Error(`Invalid workflow request: ${JSON.stringify(validateRequest.errors)}`);
   const request = { ...input.request, duration_seconds: input.request.duration_seconds ?? config.default_duration_seconds };
   const qa = input.qa ?? { clap: true, target: request.prompt.slice(0, 200), alternatives: ["Radio static noise", "A helicopter flying", "Silence"] };
   qaRequest("analyses", qa);
-  const budget = input.budget;
+  if (input.mode !== undefined && !['manual', 'automatic'].includes(input.mode)) throw new Error('Invalid review mode');
+  const budget = input.budget ?? (input.mode === 'automatic' ? { attempts: 3, minutes: 20 } : undefined);
   if (budget !== undefined && (!budget || Object.keys(budget).sort().join(',') !== 'attempts,minutes' ||
       !Number.isInteger(budget.attempts) || budget.attempts < 1 || budget.attempts > 10 ||
       !Number.isInteger(budget.minutes) || budget.minutes < 1 || budget.minutes > 60)) throw new Error('Invalid attempt/time budget');
-  return { request, qa, ...(budget ? { budget } : {}) };
+  return { request, qa, ...(input.mode ? { mode: input.mode } : {}), ...(budget ? { budget } : {}) };
 }
 
 // The CLI and studio both use this single setup/generation/QA/cut/bundle workflow.
-export async function runWorkflow(job, { root, token, store, save, signal, backend = new MlxBackend(), setup = ensureSetup, computePort = config.port, fixture = false }) {
-  let ready = false;
-  let budgetTimer;
-  const factory = await createFactory({ root, token, backend, fresh: true, ready: () => ready });
+export async function runWorkflow(job, { root, token, store, save, signal, backend = new MlxBackend(), setup = ensureSetup, computePort = config.port, fixture = false, evaluate = judge }) {
+  const attempt = job.attempts?.at(-1) ?? (job.checkpoint ??= { id: job.id, seed: job.input.request.seed });
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener('abort', cancel);
+  if (signal.aborted) cancel();
+  const operationSignal = controller.signal;
   const abort = () => { void backend.stop?.(); };
-  signal.addEventListener("abort", abort);
-  const stage = async status => { job.progress = status; await save(); signal.throwIfAborted(); if (job.budget_exhausted) throw new Error("Time budget exhausted"); };
+  operationSignal.addEventListener('abort', abort);
+  let timer, ready = false;
+  const factory = await createFactory({ root, token, backend, fresh: true, ready: () => ready, computeBusy: () => job.progress !== 'generating' });
+  const checkBudget = () => {
+    if (job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000) {
+      job.budget_exhausted = true; controller.abort();
+    }
+    operationSignal.throwIfAborted();
+  };
+  const stage = async status => {
+    checkBudget();
+    if (factory.busy()) throw new Error('Another accepted compute operation must finish before workflow recovery');
+    job.progress = status; attempt.inflight = status; await save();
+    operationSignal.throwIfAborted();
+  };
+  const preserve = async (evidence, source, audio = null, evaluation = null) => {
+    const candidate = store.saveCandidate({ attempt_id: attempt.id, fixture, evidence, evaluation }, source, audio);
+    if (!job.candidate_ids.includes(candidate.candidate_sha256)) job.candidate_ids.push(candidate.candidate_sha256);
+    attempt.candidate_id = candidate.candidate_sha256;
+    attempt.inflight = null;
+    await save();
+    return candidate;
+  };
   try {
-    // Acquire the compute port before setup or any temporary-output cleanup.
-    await new Promise((resolve, reject) => { factory.server.once("error", reject); factory.server.listen(computePort, "127.0.0.1", resolve); });
-    const url = `http://127.0.0.1:${factory.server.address().port}`;
-    const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
-    const call = async (path, value) => {
-      const response = await fetch(`${url}${path}`, { method: value === undefined ? "GET" : "POST", headers: { ...headers, "Idempotency-Key": job.id },
-        ...(value === undefined ? {} : { body: JSON.stringify(value) }), signal: AbortSignal.timeout(config.timeout_ms + 30000) });
-      if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-      return response;
-    };
-    await stage("setup");
-    await setup(job.input.qa.clap === true, signal);
-    signal.throwIfAborted();
+    await new Promise((resolve, reject) => { factory.server.once('error', reject); factory.server.listen(computePort, '127.0.0.1', resolve); });
+    // Candidate publication may have completed just before the job checkpoint write.
+    const saved = store.listCandidates().filter(c => c.attempt_id === attempt.id);
+    for (const c of saved) if (!job.candidate_ids.includes(c.candidate_sha256)) job.candidate_ids.push(c.candidate_sha256);
+    let candidate = attempt.candidate_id ? store.loadCandidate(attempt.candidate_id) : null;
+    const matchingCut = saved.filter(c => c.evidence.cut && (!attempt.cut_input || isDeepStrictEqual(c.evidence.cut.request, attempt.cut_input)));
+    candidate = matchingCut.find(c => c.evaluation) ?? matchingCut[0] ??
+      (candidate?.evidence.cut ? candidate : null) ?? saved.filter(c => !c.evidence.cut).sort((a,b) => b.evidence.analyses.length - a.evidence.analyses.length)[0] ?? candidate;
+    const key = attempt.id;
+    const runId = hash(key).slice(0, 32);
+    if (!candidate && attempt.inflight === 'generating') {
+      const generation = JSON.parse(await readFile(join(root, 'out/runs', runId, 'run.json'), 'utf8'));
+      candidate = await preserve({ generation, analyses: [], cut_failure: null, reason: 'Recovered completed generation' }, await readFile(join(root, generation.audio_path)));
+    }
+    if (attempt.inflight === 'setup' || candidate && (
+      attempt.inflight === 'generating' ||
+      attempt.inflight === 'analyzing' && candidate.evidence.analyses.length ||
+      attempt.inflight === 'cutting' && candidate.evidence.cut && isDeepStrictEqual(candidate.evidence.cut.request, attempt.cut_input ?? {}) ||
+      attempt.inflight === 'evaluating' && candidate.evaluation
+    )) attempt.inflight = null;
+    if (attempt.inflight && !candidate) throw new Error('Interrupted operation has no verified result; explicit new attempt required');
+    if (!candidate) {
+      // Automatic mode never downloads a missing judge in response to a rejected sound.
+      await stage('setup');
+      if (!job.budget_started_at) await setup(job.input.mode !== 'automatic' && job.input.qa.clap === true, operationSignal);
+      attempt.inflight = null;
+    }
     if (job.input.budget) {
       job.budget_started_at ??= new Date().toISOString();
       await save();
       const remaining = job.input.budget.minutes * 60000 - (Date.now() - Date.parse(job.budget_started_at));
-      if (remaining <= 0) { job.budget_exhausted = true; throw new Error('Time budget exhausted; start a new request to continue'); }
-      budgetTimer = setTimeout(() => { job.budget_exhausted = true; abort(); }, remaining);
+      if (remaining <= 0) { job.budget_exhausted = true; throw new Error('Time budget exhausted'); }
+      timer = setTimeout(() => { job.budget_exhausted = true; controller.abort(); }, remaining);
     }
-    await backend.start?.();
-    signal.throwIfAborted();
-    const preserved = new Set(store.listCandidates().map(candidate => candidate.evidence.generation.id));
-    // Recover completed sources left between generation and candidate publication, including legacy sessions.
-    for (const runId of await readdir(join(root, "out/runs"))) {
-      if (!/^[a-f0-9]{32}$/.test(runId)) continue;
-      let generation;
-      try { generation = JSON.parse(await readFile(join(root, "out/runs", runId, "run.json"), "utf8")); }
-      catch (error) { if (error.code === "ENOENT") continue; throw error; }
-      if (generation.status === "completed" && !preserved.has(runId)) store.saveCandidate({ attempt_id: runId, fixture, evaluation: null,
-        evidence: { generation, analyses: [], cut_failure: null, reason: "Recovered source before temporary session cleanup" } },
-        await readFile(join(root, "out/runs", runId, "audio.wav")));
+    if (!candidate) {
+      await backend.start?.();
+      operationSignal.throwIfAborted();
+      const preserved = new Set(store.listCandidates().map(c => c.evidence.generation.id));
+      for (const id of await readdir(join(root, 'out/runs'))) {
+        if (!/^[a-f0-9]{32}$/.test(id)) continue;
+        let generation;
+        try { generation = JSON.parse(await readFile(join(root, 'out/runs', id, 'run.json'), 'utf8')); }
+        catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        if (generation.status === 'completed' && !preserved.has(id)) store.saveCandidate({ attempt_id: id, fixture, evaluation: null,
+          evidence: { generation, analyses: [], cut_failure: null, reason: 'Recovered source before temporary session cleanup' } }, await readFile(join(root, 'out/runs', id, 'audio.wav')));
+      }
+      await factory.beginSession(); ready = true;
+      await stage('generating');
+      const response = await fetch(`http://127.0.0.1:${factory.server.address().port}/v1/sound-effects`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': key },
+        body: JSON.stringify({ ...job.input.request, seed: attempt.seed }), signal: AbortSignal.timeout(config.timeout_ms + 30000),
+      });
+      await response.arrayBuffer();
+      if (!response.ok) throw new Error(`Generation failed: ${response.status}`);
+      const generation = JSON.parse(await readFile(join(root, 'out/runs', runId, 'run.json'), 'utf8'));
+      candidate = await preserve({ generation, analyses: [], cut_failure: null, reason: 'Source preserved before QA' }, await readFile(join(root, generation.audio_path)));
     }
-    await factory.beginSession();
-    ready = true;
-    await stage("generating");
-    const response = await call("/v1/sound-effects", job.input.request);
-    await response.arrayBuffer();
-    const id = response.headers.get("x-run-id");
-    const generation = await (await call(`/v1/runs/${id}`)).json();
-    const source = await readFile(join(root, generation.audio_path));
-    const preserve = async (evidence, audio = null, evaluation = null) => {
-      const candidate = store.saveCandidate({ attempt_id: job.id, fixture, evidence, evaluation }, source, audio);
-      if (!job.candidate_ids.includes(candidate.candidate_sha256)) job.candidate_ids.push(candidate.candidate_sha256);
-      await save();
-      return candidate.candidate_sha256;
+    const generation = candidate.evidence.generation;
+    const source = store.readAsset(candidate.candidate_sha256, 'source');
+    const directory = join(root, 'out/runs', generation.id);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'run.json'), JSON.stringify(generation));
+    await writeFile(join(directory, 'audio.wav'), source);
+    for (const report of candidate.evidence.analyses) {
+      await mkdir(join(directory, 'analyses', report.id), { recursive: true });
+      await writeFile(join(directory, 'analyses', report.id, 'report.json'), JSON.stringify(report));
+    }
+    let analysis = candidate.evidence.analyses.at(-1);
+    const qa = async (kind, input) => {
+      if (attempt.inflight) {
+        // Reuse completed reports; never let qaOperation retry an uncertain subprocess.
+        const reports = await readdir(join(directory, kind)).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
+        for (const id of reports) {
+          let report;
+          try { report = JSON.parse(await readFile(join(directory, kind, id, 'report.json'), 'utf8')); } catch (e) { if (e.code === 'ENOENT') continue; throw e; }
+          if (report.status === 'completed' && isDeepStrictEqual(report.request, input)) return report;
+        }
+        throw new Error('Interrupted QA has no completed result; explicit review required');
+      }
+      if (kind === 'cuts') attempt.cut_input = input;
+      await stage(kind === 'cuts' ? 'cutting' : 'analyzing');
+      return qaOperation(root, generation.id, kind, input);
     };
-    // Preserve generated bytes even if cancellation or QA prevents a delivered cut.
-    await preserve({ generation, analyses: [], cut_failure: null, reason: "Source preserved before QA" });
-    await stage("analyzing");
-    const analysis = await (await call(`/v1/runs/${id}/analyses`, job.input.qa)).json();
-    await preserve({ generation, analyses: [analysis], cut_failure: null, reason: "Source and QA preserved before cut" });
-    await stage("cutting");
-    const cutResponse = await call(`/v1/runs/${id}/cuts`, {});
-    await cutResponse.arrayBuffer();
-    const location = cutResponse.headers.get("location");
-    if (!location?.startsWith(`/v1/runs/${id}/cuts/`)) throw new Error("Invalid cut metadata location");
-    const cut = await (await call(location)).json();
-    const evidence = JSON.parse(await readFile(cut.delivery.metadata, "utf8"));
-    let candidate = await preserve(evidence, await readFile(cut.delivery.audio));
-    let evaluation = null;
-    if (job.input.qa.clap) {
-      await stage('evaluating');
-      evaluation = await judge(cut.delivery.audio, job.input.request.prompt, { signal });
-      candidate = await preserve(evidence, await readFile(cut.delivery.audio), evaluation);
+    if (!analysis) {
+      analysis = await qa('analyses', job.input.mode === 'automatic' ? { clap: false } : job.input.qa);
+      candidate = await preserve({ generation, analyses: [analysis], cut_failure: null, reason: 'Source and QA preserved before cut' }, source);
     }
-    return { id, audio: cut.delivery.audio, candidate_sha256: candidate, evaluation,
+    if (analysis.status !== 'completed') throw new Error(analysis.error ?? 'Analysis failed');
+    const cut = async input => {
+      const report = await qa('cuts', input);
+      if (report.status !== 'completed') throw new Error(report.error ?? 'Cut failed');
+      // Rebuild portable delivery paths after relocation without recomputing the cut.
+      const audio = await readFile(join(directory, 'cuts', report.id, 'audio.wav'));
+      const delivery = JSON.parse(execFileSync(process.execPath, [join(factoryRoot, 'bundle.mjs'), root, JSON.stringify(report)], { encoding: 'utf8', timeout: 10000 }));
+      const evidence = JSON.parse(await readFile(delivery.metadata, 'utf8'));
+      return preserve(evidence, source, audio);
+    };
+    if (!candidate.evidence.cut) {
+      try { candidate = await cut({}); }
+      catch (error) {
+        if (error.status !== 422) throw error;
+        attempt.inflight = null; await save();
+        return { id: generation.id, candidate_sha256: candidate.candidate_sha256, evaluation: null, outcome: 'rejected', reason_tags: ['no_active_region'] };
+      }
+    }
+    const score = async c => {
+      if (c.evaluation || !job.input.qa.clap) return c;
+      if (attempt.inflight) throw new Error('Interrupted judge has no saved verdict; explicit review required');
+      await stage('evaluating');
+      const audio = store.readAsset(c.candidate_sha256, 'audio');
+      const path = join(directory, 'judge-input.wav');
+      await writeFile(path, audio);
+      const evaluation = await evaluate(path, job.input.request.prompt, { signal: operationSignal });
+      return preserve(c.evidence, source, audio, evaluation);
+    };
+    candidate = await score(candidate);
+    checkBudget();
+    if (!attempt.alternate && candidate.evaluation?.reason_tags.some(tag => ['active_boundary', 'silence', 'bad_trim'].includes(tag))) {
+      const bounds = candidate.evidence.cut.bounds;
+      const region = analysis.result?.regions?.find(r => Math.round(r.start_seconds * bounds.sample_rate) !== bounds.start_sample || Math.round(r.end_seconds * bounds.sample_rate) !== bounds.end_sample);
+      const input = region ? { start_seconds: region.start_seconds, end_seconds: region.end_seconds } : {
+        start_seconds: Math.max(0, bounds.start_sample / bounds.sample_rate - 0.1),
+        end_seconds: Math.min(generation.audio.seconds, bounds.end_sample / bounds.sample_rate + 0.1),
+      };
+      attempt.alternate = input; await save();
+    }
+    if (attempt.alternate && !attempt.alternate_done) {
+      if (!isDeepStrictEqual(candidate.evidence.cut.request, attempt.alternate)) candidate = await cut(attempt.alternate);
+      candidate = await score(candidate);
+      attempt.alternate_done = true; await save();
+    }
+    checkBudget();
+    const evaluation = candidate.evaluation;
+    return { id: generation.id, audio: join(root, '.runtime/studio/candidates', candidate.candidate_sha256, 'audio.wav'), candidate_sha256: candidate.candidate_sha256, evaluation,
+      outcome: evaluation?.evidence?.error && !/ENOENT|missing|not installed/i.test(evaluation.evidence.error) ? 'operational-error' : evaluation?.verdict ?? 'needs_review',
+      reason_tags: evaluation?.reason_tags ?? ['judge_disabled'],
       qa: { regions: analysis.result?.regions, rhythmic_warning: analysis.result?.rhythm?.suspected,
         clap: { status: analysis.result?.clap?.status, error: analysis.result?.clap?.error, ranking: analysis.result?.clap?.scores?.[0]?.ranking } },
-      report: `${root}/out/runs/${id}/analyses/${analysis.id}/report.json` };
+      report: join(directory, 'analyses', analysis.id, 'report.json') };
   } finally {
-    clearTimeout(budgetTimer);
-    signal.removeEventListener("abort", abort);
-    await factory.close(); // Accepted QA drains within its existing subprocess deadlines.
+    clearTimeout(timer);
+    signal.removeEventListener('abort', cancel);
+    operationSignal.removeEventListener('abort', abort);
+    await factory.close();
     await backend.stop?.();
   }
 }
@@ -150,7 +247,16 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     for (const name of readdirSync(jobsPath).filter(name => /^[a-f0-9]{32}\.json$/.test(name))) {
       const job = JSON.parse(readFileSync(join(jobsPath, name), "utf8"));
       if (name !== `${job.id}.json`) throw new Error("Job identity mismatch");
-      if (["running", "canceling"].includes(job.status)) {
+      for (const id of job.candidate_ids) store.loadCandidate(id);
+      for (const result of [job.result, ...(job.attempts ?? []).map(a => a.result)]) {
+        if (result?.audio && result.candidate_sha256) result.audio = join(directory, 'candidates', result.candidate_sha256, 'audio.wav');
+      }
+      if (job.status === 'canceling') {
+        job.status = 'canceled'; job.outcome = 'cancelled';
+        job.error = 'Cancellation retained across restart; no operation was replayed.';
+        await save(job);
+      }
+      if (job.status === "running") {
         job.status = "interrupted";
         job.error = "Outcome uncertain; inspect preserved evidence and explicitly resume. No generation was replayed.";
         await save(job);
@@ -165,19 +271,43 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     const operation = { job, controller };
     active = operation;
     job.status = "running";
+    delete job.finished_at; delete job.error;
     job.progress = "queued";
+    job.attempts ??= [{ id: job.id, seed: job.input.request.seed, reason: job.parent_id ? 'Explicit human retry / continuation' : 'Initial request' }];
+    job.used_seeds ??= [];
+    for (const a of job.attempts) if (!job.used_seeds.includes(a.seed)) job.used_seeds.push(a.seed);
     const persisted = save(job);
     operation.promise = (async () => {
       try {
         await persisted;
         controller.signal.throwIfAborted();
-        job.result = await execute(job, { root, token, store, save: () => save(job), signal: controller.signal, ...execution });
-        job.status = controller.signal.aborted ? "canceled" : "completed";
+        while (true) {
+          const attempt = job.attempts.at(-1);
+          job.result = attempt.result ?? await execute(job, { root, token, store, save: () => save(job), signal: controller.signal, ...execution });
+          attempt.result = job.result;
+          job.outcome = job.result.outcome ?? job.result.evaluation?.verdict ?? 'needs_review';
+          await save(job);
+          controller.signal.throwIfAborted();
+          if (job.input.mode !== 'automatic' || job.outcome !== 'rejected') break;
+          if (job.attempt >= job.input.budget.attempts || Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000) {
+            job.outcome = 'exhausted'; break;
+          }
+          job.attempt++;
+          let seed;
+          do { seed = randomInt(2147483648); } while (job.used_seeds.includes(seed));
+          job.used_seeds.push(seed);
+          job.attempts.push({ id: hash(`${job.id}:${job.attempt}`).slice(0,32), seed,
+            reason: job.result.reason_tags?.join(', ') || 'Automatic rejection', previous_candidate_id: job.result.candidate_sha256 });
+          job.progress = 'retry_pending';
+          await save(job); // Persist the new seed and reason before any new cleanup or generation.
+        }
+        job.status = job.outcome === 'operational-error' ? 'failed' : job.outcome === 'exhausted' ? 'exhausted' : 'completed';
       } catch (error) {
         job.status = controller.signal.aborted ? "canceled" : "failed";
+        job.outcome = controller.signal.aborted ? 'cancelled' : 'operational-error';
         job.error = String(error);
       } finally {
-        if (job.budget_exhausted) { job.status = "exhausted"; job.error = "Time budget exhausted. Start a new request to continue."; }
+        if (job.budget_exhausted && !controller.signal.aborted) { job.status = "exhausted"; job.outcome = 'exhausted'; job.error = "Time budget exhausted. Explicit additional budget is required to continue."; }
         job.finished_at = new Date().toISOString();
         try { await save(job); } finally { active = undefined; }
       }
@@ -219,12 +349,36 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           }
           const cut = await qaOperation(temporary, run.id, 'cuts', input);
           if (cut.status !== 'completed') throw new Error(cut.error);
-          const evaluation = candidate.evaluation ? await judge(cut.delivery.audio, run.request.prompt) : null;
-          return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation,
-            evidence: JSON.parse(await readFile(cut.delivery.metadata, 'utf8')) }, store.readAsset(id, 'source'), await readFile(cut.delivery.audio));
+          const evidence = JSON.parse(await readFile(cut.delivery.metadata, 'utf8'));
+          const source = store.readAsset(id, 'source'), audio = await readFile(cut.delivery.audio);
+          const saved = store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation: null, evidence }, source, audio);
+          if (!candidate.evaluation) return saved;
+          const evaluation = await (execution.evaluate ?? judge)(cut.delivery.audio, run.request.prompt);
+          return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation, evidence }, source, audio);
         } finally { await rm(temporary, { recursive: true, force: true }); }
       })();
       try { return await cutting; } finally { cutting = undefined; }
+    },
+    async recover(id) {
+      const job = jobs.get(id);
+      if (!job || job.status !== 'interrupted' || !job.attempts) throw Object.assign(new Error('No recoverable workflow checkpoint'), { status: 409 });
+      return start(job);
+    },
+    async continue(id, key, budget) {
+      const job = jobs.get(id);
+      if (!job || ['running', 'canceling', 'interrupted'].includes(job.status)) throw Object.assign(new Error('Finish or acknowledge the previous request first'), { status: 409 });
+      const input = workflowInput({ ...job.input, budget });
+      if (!budget) throw Object.assign(new Error('Explicit additional budget required'), { status: 400 });
+      if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error('New continuation key required'), { status: 400 });
+      const existing = jobs.get(hash(key).slice(0,32));
+      if (job.continuation?.key === key && JSON.stringify(job.continuation.budget) === JSON.stringify(budget) && existing) return existing;
+      if (existing || job.continuation && (job.continuation.key !== key || JSON.stringify(job.continuation.budget) !== JSON.stringify(budget))) throw Object.assign(new Error('Continuation conflict'), { status: 409 });
+      if (closing || active || cutting || preparing) throw Object.assign(new Error('Factory busy'), { status: 429 });
+      let seed = job.continuation?.seed;
+      if (seed === undefined) do { seed = randomInt(2147483648); } while (job.used_seeds.includes(seed));
+      job.continuation ??= { key, budget, seed, recorded_at: new Date().toISOString(), reason: 'Explicit additional human budget' };
+      await save(job);
+      return this.submit(key, { ...input, request: { ...input.request, seed } }, { id: job.id, attempt: 0, used_seeds: job.used_seeds });
     },
     async acknowledge(id) {
       const job = jobs.get(id);
@@ -246,7 +400,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       if (active || cutting || preparing) throw Object.assign(new Error('Factory busy'), { status: 429 });
       job.retry_key = key;
       await save(job);
-      const request = { ...job.input.request }; delete request.seed;
+      const request = { ...job.input.request };
+      do { request.seed = randomInt(2147483648); } while (job.used_seeds?.includes(request.seed));
       return this.submit(key, { ...job.input, request }, job);
     },
     list: () => [...jobs.values()], get: id => jobs.get(id),
@@ -254,7 +409,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       if (typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error("Idempotency-Key required"), { status: 400 });
       input = workflowInput(input);
       const id = hash(key).slice(0, 32);
-      const signature = hash(JSON.stringify({ request: { prompt: input.request.prompt, duration_seconds: input.request.duration_seconds, seed: input.request.seed }, qa: Object.fromEntries(Object.entries(input.qa).sort()), ...(input.budget ? { budget: input.budget } : {}) }));
+      const signature = hash(JSON.stringify({ request: { prompt: input.request.prompt, duration_seconds: input.request.duration_seconds, seed: input.request.seed }, qa: Object.fromEntries(Object.entries(input.qa).sort()), ...(input.budget ? { budget: input.budget } : {}), ...(input.mode ? { mode: input.mode } : {}) }));
       const existing = jobs.get(id);
       if (existing) {
         if (existing.signature !== signature) throw Object.assign(new Error("Idempotency key conflict"), { status: 409 });
@@ -265,6 +420,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
         throw Object.assign(new Error("Interrupted outcome requires explicit resume before new generation"), { status: 409 });
       const job = { id, signature, input: { ...input, request: { ...input.request, seed: input.request.seed ?? randomInt(2147483648) } },
         started_at: new Date().toISOString(), candidate_ids: [],
+        used_seeds: [...(resuming?.used_seeds ?? [])],
         ...(resuming ? { attempt: (resuming.attempt ?? 1) + 1, budget_started_at: resuming.budget_started_at, parent_id: resuming.id } : { attempt: 1 }) };
       // Reserve synchronously before the first persistence await.
       const started = start(job);

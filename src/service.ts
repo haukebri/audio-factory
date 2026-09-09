@@ -76,6 +76,7 @@ export async function createFactory(options: {
   token: string;
   backend: Backend;
   ready?: () => boolean;
+  computeBusy?: () => boolean;
   fresh?: boolean;
   shutdown?: () => void;
 }) {
@@ -214,7 +215,7 @@ export async function createFactory(options: {
           const input = await body(req);
           qaRequest(kind, input);
           if (closing) throw new HttpError(503, "Service stopping");
-          if (active || maintenance || qaActive) {
+          if (active || maintenance || qaActive || options.computeBusy?.()) {
             res.setHeader("Retry-After", "1");
             throw new HttpError(429, "Factory busy");
           }
@@ -278,7 +279,7 @@ export async function createFactory(options: {
       if (options.ready?.() === false) throw new HttpError(503, "Backend starting");
       if (unavailable) throw new HttpError(503, unavailable);
       if (closing) throw new HttpError(503, "Service stopping");
-      if (active || maintenance || qaActive) {
+      if (active || maintenance || qaActive || options.computeBusy?.()) {
         res.setHeader("Retry-After", "1");
         throw new HttpError(429, "Factory busy; retry with the same key");
       }

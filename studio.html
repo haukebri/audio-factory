@@ -14,8 +14,8 @@
 <label for="constraints">Constraints</label><textarea id="constraints" maxlength="300" rows="2" placeholder="No voices, no music, quiet background"></textarea>
 <div class="pair"><div><label for="events">Event count (optional)</label><input id="events" type="number" min="1" max="100" step="1"></div><div><label for="duration">Duration / seconds</label><input id="duration" type="number" min="0.5" max="30" step="0.1" value="3" required></div></div>
 <div class="pair"><div><label for="attempts">Attempt budget</label><input id="attempts" type="number" min="1" max="10" value="3" required></div><div><label for="minutes">Time budget / minutes</label><input id="minutes" type="number" min="1" max="60" value="20" required></div></div>
-<label for="mode">Review mode</label><select id="mode"><option>Manual listening</option><option disabled>Automatic retries — coming in the next task</option></select>
-<p class="hint">Retries are explicit. Time budget starts after setup. Delivered clips receive experimental CLAP/signal evaluation. Listen and record your own decision.</p>
+<label for="mode">Review mode</label><select id="mode"><option value="manual">Manual listening</option><option value="automatic">Automatic retries</option></select>
+<p class="hint">Automatic mode retries rejected sounds within your budget. Uncertainty stops for review. Time budget starts after setup. Delivered clips receive experimental CLAP/signal evaluation. Listen and record your own decision.</p>
 <p id="qa-readiness" role="status">Checking QA setup…</p><button id="setup-qa" type="button">Prepare QA model</button><button id="cancel-qa" type="button">Cancel QA setup</button>
 <p id="readiness">Checking local setup…</p><button class="primary" id="generate">Generate candidate</button>
 </form></section>
