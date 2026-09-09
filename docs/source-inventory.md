@@ -83,3 +83,19 @@ Small-SFX through task 07; the Medium GGUF migration belongs to task 08.
 Ignored verification checkouts, model/runtime symlinks, private sessions, audio,
 TARs, screenshots and evaluation datasets are local evidence, not distribution
 inputs. No weights, tokens or generated audio were added to tracked source.
+
+## M2 Medium migration inventory — task 08
+
+Generation now uses `GgufBackend`, the pinned sa3.cpp/GGML source and five explicit
+GGUF artifacts in `config.json`; `setup.mjs` owns build verification and
+`download_models.py` resumes verified local downloads. `signal-requirements.lock`
+is the five-package subset of the unchanged historical `requirements.lock`.
+Signal analysis uses `.runtime/signal-venv`; Larger CLAP General and its locks are
+unchanged. `backend.test.mjs` adds focused process/argument/fallback checks.
+The config and run schemas, setup presence checks, CLI/workflow default, runtime
+provenance, smoke process matching and user/agent documentation describe Medium.
+Historical runtime/model references above remain extraction evidence.
+See [task 08 evidence](tasks/m02/08-medium-gguf-generation.md#evidence) for exact pins,
+validation and input/final hashes. Build environments, upstream source, binaries,
+partial downloads, weights, original MLX assets, candidates and browser evidence
+remain ignored; no runner changes, commits or publication are part of this task.

@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store, studio service, review workspace, CLAP judge, bounded automatic retries and feedback evaluation tooling are complete; pre-migration integration is verified; the Medium GGUF migration and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service, review workspace, CLAP judge, bounded automatic retries and feedback evaluation tooling are complete; the Medium GGUF F16 default and its studio integration are verified; measured quality improvement remains pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -75,9 +75,9 @@ If data or targets are insufficient, keep the tested product usable with explici
 
 Product integration:
 
-Task 07 [integrated evidence](../tasks/m02/07-integrated-verification.md#evidence) verifies the current MLX generator through the real browser/shared workflow, Larger CLAP delivered-audio judging, technical playback, explicitly synthetic feedback, complete exports and relocated restart. One real request stopped at uncertainty; zero real human labels means quality_not_established.
+Task 07 [integrated evidence](../tasks/m02/07-integrated-verification.md#evidence) verifies the pre-migration MLX generator through the real browser/shared workflow, Larger CLAP delivered-audio judging, technical playback, explicitly synthetic feedback, complete exports and relocated restart. One real request stopped at uncertainty; zero real human labels means quality_not_established.
 
-- [ ] Stable Audio 3 Medium GGUF F16 is the verified default generator, including the exact requested SAME-L file and matching components, with retained export, QA and lifecycle checks (task 08).
+- [x] Stable Audio 3 Medium GGUF F16 is the verified default generator, including the exact requested SAME-L file and matching components, with retained export, QA and lifecycle checks (task 08).
 
 - [x] Prompt → generation → playback → human approval/rejection → verified export works in one browser workflow (task 03 controlled synthetic journey; no human listening claim).
 - [x] Durable candidate assets, source-only evidence and immutable human feedback survive process restart, relocation and deletion of owned temporary output (task 01 deterministic checks).

@@ -3,11 +3,11 @@
 Run commands from the Audio Factory checkout root. The [root launcher](../run)
 installs missing Node dependencies with the frozen lockfile and compiles the tool.
 Generation requires Apple Silicon macOS, Node >=22.11, pnpm (pinned to 9.15.9),
-uv, Git and FFmpeg; setup also invokes Python 3. Preflight those tools, network
+uv, Git, curl, FFmpeg and the Xcode Metal compiler; setup also invokes Python 3. Preflight those tools, network
 access to GitHub/Hugging Face and package sources, free disk space (setup requires
-at least 3 GiB), and ownership of port 8766 before starting expensive work.
+5,754,163,808 missing-model bytes plus 5 GiB build/cache reserve), and ownership of port 8766 before starting expensive work.
 
-Fresh standalone setup and two real MLX/CLAP jobs are verified in
+Historical standalone setup and two real MLX/CLAP jobs are verified in
 [task 07](tasks/m01/07-fresh-installation.md#evidence) and
 [task 08](tasks/m01/08-real-job-smoke.md#evidence). See the
 [README installation sequence](../readme.md#install-and-generate) for tested
@@ -34,11 +34,18 @@ optional seed is an integer from 0 to 2147483647. Unknown fields are rejected.
 The command prepares missing components, generates, analyzes, **already cuts
 region 1**, and shuts down on success or failure. It prints JSON containing `id`,
 prepared `audio`, advisory `qa` summary and detailed `report` path. Each model
-operation runs in a subprocess that exits afterward. The pinned official Stable
-Audio 3 MLX backend uses Small-SFX F16 DiT, F32 SAME-S decoder and F16 T5Gemma,
-eight steps and no extra duration padding. There is no alternate backend or cloud
-fallback. Generation has a 10-minute deadline; automatic setup and manual startup
-allow 20-minute waits. Follow the same process and readiness/progress evidence;
+operation runs in a subprocess that exits afterward. The pinned sa3.cpp Metal
+backend uses Medium DiT F16, the exact SAME-L F16, conditioner F32, T5Gemma F32
+and its GGUF tokenizer. Explicit settings are eight steps, CFG 1, zero padding,
+LogSNR(2000,-6.2,0,2), monolithic decoding and no flash attention. Runtime peak
+normalization/limiting are disabled; PCM16 conversion then -3 dB FFmpeg attenuation
+preserves the existing source/export contract. New provenance names every component,
+encoding, runtime/GGML revision, effective settings and resolved seed. Old MLX
+records keep their original metadata; mixed bundles remain readable. No cross-backend
+byte reproducibility or acoustic improvement is claimed.
+Generation has a 3-minute deadline; automatic setup and manual startup allow
+90 minutes (60 for downloads, 30 for build). There is no alternate backend or cloud
+fallback. Follow the same process and readiness/progress evidence;
 several minutes of setup silence do not justify launching a duplicate job.
 
 The signal-only example avoids CLAP setup. To request CPU CLAP, use
@@ -128,13 +135,17 @@ temporary. The legacy manual service retains its temporary-session behavior.
 
 `.runtime/` holds reusable environments, the runtime checkout, private token and
 logs; `.runtime/retained/` survives subsequent sessions. Hugging Face caches and
-copies in consuming projects also survive. Model downloads use the Hugging Face
-hub cache (normally `~/.cache/huggingface/hub`, configurable with `HF_HOME` or
-`HF_HUB_CACHE`); MLX files in `.runtime/official-sa3/` link to that cache, and
-`.runtime/qa-model.json` records CLAP paths. Keep the same cache configuration
-after setup. Generation subprocesses use `HF_HUB_OFFLINE=1`; CLAP loads local
-files only. Explicit setup/repair still fetches runtime/package/model metadata
-and may need network even when weight bytes are cached. Never clear unrelated output, caches
+copies in consuming projects also survive. Generation downloads resume into `.runtime/sa3-gguf/models/*.partial`, verify exact
+sizes/SHA-256 and publish the complete files there. The runtime checkout and static
+Metal executables live under `.runtime/sa3-gguf/`; `build-manifest.json` binds the
+executables to source/GGML pins and build settings. Setup verifies source cleanliness,
+binary/model hashes and Metal availability; inference rejects a CPU backend log.
+CMake 4.1.0 lives in `.runtime/gguf-build-venv`; `signal-requirements.lock` supplies
+`.runtime/signal-venv`. Existing MLX files/environments remain historical and are
+unused by new generation. CLAP still uses the Hugging Face cache and paths in
+`.runtime/qa-model.json`. Inference uses explicit local files and ignores SA3/GGML
+environment overrides and `.env` files. Explicit setup can contact package/runtime
+sources even when weights are cached. Never clear unrelated output, caches
 or retained candidates as a recovery shortcut. Do not start a session during
 offline review. No service or model process should remain after completing work.
 
@@ -152,7 +163,7 @@ fetches the pinned runtime, syncs exact dependency locks and reuses verified cac
 Revision/dependency mismatches require explicit repair. Hash mismatches or a changed
 CLAP manifest are reported, not silently replaced: preserve and investigate the
 named artifact before any targeted repair; do not remove all caches. Inspect
-`out/work/mlx-job-*/inference.log`, `export.log` and run/QA records on job failure.
+`out/work/gguf-job-*/inference.log`, `export.log` and run/QA records on job failure.
 Record created environments, downloads and retained/copied paths as they happen,
 including verification and cleanup state so a retry does not duplicate work.
 
@@ -170,10 +181,10 @@ a failed/interrupted result is not a completed candidate.
 ./run stop
 ```
 
-`start` prepares missing MLX **and CLAP** components and waits up to 20 minutes
+`start` prepares missing Medium GGUF **and CLAP** components and waits up to 90 minutes
 for readiness. `serve` is its foreground counterpart. The API binds only
 `127.0.0.1:8766`. Manual sessions shut down after **30 seconds idle** with no
-active generation/QA; health polling does not keep them alive. Allow 10 minutes
+active generation/QA; health polling does not keep them alive. Allow 3 minutes
 for generation responses. Stop requests acknowledge `stopping` and drain accepted
 work before exit; the CLI waits for shutdown. Disconnection does not cancel an
 accepted generation. New work is refused while stopping.
@@ -270,7 +281,7 @@ candidates and immutable feedback persist under `.runtime/studio/`, outside
 `out/`. One workflow owner and one compute job are allowed; when the studio is
 open, agents submit to its API instead of launching another `make`. Both public
 studio and temporary compute ports must be free; unrelated listeners are never
-terminated. Setup allows 20 minutes, generation 10 minutes, and QA/cut retain
+terminated. Setup allows 90 minutes, generation 3 minutes, and QA/cut retain
 their configured operation deadlines. Cancellation persists `canceling`, stops
 owned generation/setup and drains accepted QA before `canceled`.
 

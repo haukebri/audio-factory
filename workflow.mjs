@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFile
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { MlxBackend } from "./dist/backend.js";
+import { GgufBackend } from "./dist/backend.js";
 import { config, hash, root as factoryRoot, validateRequest } from "./dist/config.js";
 import { processIdentity } from "./dist/ownership.js";
 import { qaRequest, qaOperation } from "./dist/qa.js";
@@ -29,7 +29,7 @@ export function workflowInput(input) {
 }
 
 // The CLI and studio both use this single setup/generation/QA/cut/bundle workflow.
-export async function runWorkflow(job, { root, token, store, save, signal, backend = new MlxBackend(), setup = ensureSetup, computePort = config.port, fixture = false, evaluate = judge }) {
+export async function runWorkflow(job, { root, token, store, save, signal, backend = new GgufBackend(), setup = ensureSetup, computePort = config.port, fixture = false, evaluate = judge }) {
   const attempt = job.attempts?.at(-1) ?? (job.checkpoint ??= { id: job.id, seed: job.input.request.seed });
   const controller = new AbortController();
   const cancel = () => controller.abort();
@@ -321,7 +321,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
   return {
     store,
     readiness: () => ({ generation: execution.fixture ? 'fixture' :
-      existsSync(`${factoryRoot}/.runtime/mlx-venv/bin/python`) && config.models.every(m => existsSync(`${factoryRoot}/.runtime/official-sa3/optimized/mlx/models/mlx/${m.file}`)) ? 'installed' : 'setup_required', judge: qaSetup }),
+      existsSync(`${factoryRoot}/.runtime/sa3-gguf/build-manifest.json`) && config.models.every(m => existsSync(`${factoryRoot}/.runtime/sa3-gguf/models/${m.file}`)) ? 'installed' : 'setup_required', judge: qaSetup }),
     async setupQa(cancel = false) {
       if (cancel) { preparing?.controller.abort(); return qaSetup; }
       if (preparing) return qaSetup;

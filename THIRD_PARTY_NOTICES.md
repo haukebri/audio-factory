@@ -18,13 +18,50 @@ The source distribution is intended to contain project source, docs, schemas, ex
 
 ## Separately downloaded runtime and models
 
-`run` installs Node packages; `setup.mjs` clones the runtime and syncs `requirements.lock`; `download_models.py` downloads the three hash-checked artifacts below. `src/backend.ts` executes the pinned MLX script and system FFmpeg. `qa-setup.py` syncs `qa-requirements.lock` and downloads the eight CLAP files; `qa.py` loads them locally through Transformers/PyTorch. Export companions preserve generation license references through `bundle.mjs`/`export-lineage.mjs`; references and QA results do not confer rights.
+`run` installs Node packages. `setup.mjs` builds the pinned Metal runtime below,
+installs CMake 4.1.0 and `signal-requirements.lock` into private environments, and
+`download_models.py` resumes and verifies five GGUF artifacts. `src/backend.ts`
+executes `sa3-generate` and system FFmpeg. Larger CLAP General and its separate
+`qa-requirements.lock` remain unchanged. No downloaded runtime, binary or weights
+are included in this source distribution.
 
-### Stable Audio runtime
+### Current Medium GGUF runtime and artifacts
+
+Runtime: [sa3.cpp at 07db5c7980c8c6cc945c4f9d35959b3114246d95](https://github.com/betweentwomidnights/sa3.cpp/tree/07db5c7980c8c6cc945c4f9d35959b3114246d95),
+[MIT, copyright 2026 betweentwomidnights](https://github.com/betweentwomidnights/sa3.cpp/blob/07db5c7980c8c6cc945c4f9d35959b3114246d95/LICENSE).
+Its pinned [GGML fork at fff93d2714e934822100586ce241267e8cc821af](https://github.com/betweentwomidnights/ggml/tree/fff93d2714e934822100586ce241267e8cc821af)
+is [MIT, copyright 2023–2026 The ggml authors](https://github.com/betweentwomidnights/ggml/blob/fff93d2714e934822100586ce241267e8cc821af/LICENSE).
+Setup builds only generation/device-check executables, with static GGML libraries
+and Apple Metal/Accelerate system frameworks. Full upstream notices remain in the
+local checkout. [CMake 4.1.0](https://github.com/Kitware/CMake/blob/v4.1.0/Copyright.txt)
+is a separately installed BSD-3-Clause build tool; Xcode/Apple SDKs are operator tools.
+
+Medium artifacts are from `thepatch/stable-audio-3-medium-GGUF` revision
+`380a7b25ba6b3b12563b01193227580a9ae7dac0`; shared text artifacts are from
+`thepatch/t5gemma-b-b-ul2-GGUF` revision `26caadf5cb1b6523370caff61f6a32337f46625e`.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| [stable-audio-3-medium-conditioner-v1.0-F32.gguf](https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-conditioner-v1.0-F32.gguf) | 793184 | `8482cc42559f665db517fd469e0dd073de36071ebbdbe0ef4d38b5392fe6c724` |
+| [stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf](https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf) | 2908081472 | `3f49edcbc724815339166323ca58a85bdb21215c5dee0237e396231b1c3ee50f` |
+| [stable-audio-3-medium-same-l-v1.0-F16.gguf](https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-same-l-v1.0-F16.gguf) | 1705121536 | `78d0592a7e1c6bce72d8177b2d291b820f6aafa4a428d5d61ada53286df1fc86` |
+| [t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/resolve/26caadf5cb1b6523370caff61f6a32337f46625e/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf) | 1126329120 | `23868718e395c555608e33128994c39a23d509281011e52173ff28a64ab6c43c` |
+| [t5gemma-b-b-ul2-v1.0-vocab.gguf](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/resolve/26caadf5cb1b6523370caff61f6a32337f46625e/t5gemma-b-b-ul2-v1.0-vocab.gguf) | 13838496 | `d58ef75568789d5d394a67231c853803bd24778d136aa0d1990210bcdd485d32` |
+
+The pinned [Medium agreement](https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/blob/380a7b25ba6b3b12563b01193227580a9ae7dac0/LICENSE.md)
+is the Stability AI Community License (July 5, 2024). The shared encoder/tokenizer's
+[Gemma agreement](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/blob/26caadf5cb1b6523370caff61f6a32337f46625e/LICENSE.md)
+and [NOTICE](https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/blob/26caadf5cb1b6523370caff61f6a32337f46625e/NOTICE)
+retain the Gemma terms and attribution. The existing agreement copies and credits
+below continue to apply. Owner license authorization is recorded in task 12 and
+explicitly reused by M2 task 08; no publication or new grant of rights is claimed.
+New companions use the pinned Medium agreement; historical companions are unchanged.
+
+### Historical MLX runtime
 
 Runtime: [Stability-AI/stable-audio-3 at 779434a908193105335fd8d833418603625b2859](https://github.com/Stability-AI/stable-audio-3/tree/779434a908193105335fd8d833418603625b2859), sparse checkout `optimized/mlx` under `.runtime/official-sa3`. Its exact root [LICENSE](https://github.com/Stability-AI/stable-audio-3/blob/779434a908193105335fd8d833418603625b2859/LICENSE) is MIT, copyright 2026 Stability AI, reproduced below. The runtime README also points generally to the Community License; that pointer must not be used to apply MIT to weights. Preserve both the code license and model terms if repackaging the runtime. No upstream runtime code or model is modified or redistributed in this source-only inventory.
 
-### Stable Audio MLX artifacts
+### Historical Stable Audio MLX artifacts
 
 All three come from [stabilityai/stable-audio-3-optimized at da6edc54ddba10bfd79a077102ded687f80e882b](https://huggingface.co/stabilityai/stable-audio-3-optimized/tree/da6edc54ddba10bfd79a077102ded687f80e882b/MLX). These are the official MLX conversion, not a GGUF conversion or the Medium model used in the card's example.
 
@@ -42,7 +79,7 @@ The incorporated [AUP effective July 31, 2025](https://stability.ai/2025-accepta
 
 The exact [LICENSE_GEMMA.md](https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/LICENSE_GEMMA.md), dated April 1, 2026, and [NOTICE](https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/NOTICE) establish the encoder terms and attribution above. Google's [terms](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) (last modified February 21, 2024) were also reviewed. Gemma redistribution requires the agreement, notice, modification notices where applicable and enforceable use restrictions; merely copying this document would not satisfy every obligation for a future bundled/hosted model product. Google claims no rights in Gemma outputs, leaving responsibility with users; this does not license the final audio or erase Stability's restrictions. Google's gated model card returned HTTP 401 without login; the exact optimized artifact's public card, Gemma agreement and runtime encoder identification supply the needed evidence without accepting gated terms.
 
-Task 11 corrected `config.json` so new companions reference the official pinned MLX agreement above. Older companions retain the inherited reference to `thepatch/stable-audio-3-small-sfx-GGUF` revision `fcbd756cde8f9cc4d0213433d868063593d6ca22`. That historical reference is **not authoritative evidence for these MLX artifacts**; use the exact official references above. Existing provenance is not rewritten.
+Task 11 corrected the historical MLX configuration so its companions reference the official pinned MLX agreement above. Older companions retain the inherited reference to `thepatch/stable-audio-3-small-sfx-GGUF` revision `fcbd756cde8f9cc4d0213433d868063593d6ca22`. That historical reference is **not authoritative evidence for these MLX artifacts**; use the exact official references above. Existing provenance is not rewritten.
 
 ### CLAP artifacts
 

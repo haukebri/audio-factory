@@ -73,9 +73,9 @@ test("WAV generation preserves idempotency, failures, disconnects and restart ev
     const record = await (await fetch(`${url}/v1/runs/${id}`, { headers })).json();
     assert.equal(record.status, "completed");
     assert.equal(record.request.seed, 42);
-    assert.equal(record.runtime.backend, "mlx");
+    assert.equal(record.runtime.backend, "metal");
     assert.equal(record.audio.sample_rate, 44100);
-    assert.equal(record.models.length, 3);
+    assert.equal(record.models.length, 5);
     assert.deepEqual(await readFile(join(root, "out", "runs", id, "audio.wav")), wav());
     fail = true;
     const failure = post("failure", request);

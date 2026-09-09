@@ -26,7 +26,7 @@ model/output rights remain separate.
 
 ## Generate and evaluate
 
-Preflight Apple Silicon macOS, Node >=22.11, pnpm, uv, Python 3, Git, FFmpeg,
+Preflight Apple Silicon macOS, Node >=22.11, pnpm, uv, Python 3, Git, curl, FFmpeg, Xcode/Metal compiler,
 network/download access, disk space and port ownership as described in the guide.
 The normal operation is one temporary job, from the tool checkout:
 
@@ -35,10 +35,10 @@ The normal operation is one temporary job, from the tool checkout:
 ```
 
 `generate` is an alias. The launcher installs missing project dependencies and
-compiles tooling. First use prepares pinned MLX components and missing weights;
+compiles tooling. First use builds pinned sa3.cpp with Metal and downloads the five Medium GGUF files;
 later jobs reuse verified caches. Optional CLAP uses a separate CPU environment.
 Setup can take several minutes; progress is in `.runtime/setup.log`. Allow the
-20-minute automatic setup/manual startup wait and 10-minute generation deadline;
+90-minute automatic setup/manual startup wait and 3-minute generation deadline;
 follow the same process and readiness/log evidence instead of duplicating a quiet
 job. Generation, QA and normalized region-1 export complete before shutdown, even
 on failure. Each model subprocess exits after its operation. The returned JSON
@@ -48,8 +48,12 @@ Use `prompt`, `duration_seconds` and optional `seed` as in the linked examples.
 Describe source/action/material and acoustic environment. Five-second canvases
 have inherited source listening evidence; 0.5–30 seconds are supported. Request a
 single dry event when needed, but do not assume the model obeyed the event count.
-Keep the pinned MLX backend/settings; no alternative backend/cloud fallback. The
-source's C++ variants produced duration-dependent static.
+Keep the pinned Medium DiT F16 and exact SAME-L F16, conditioner/T5Gemma F32 and
+tokenizer. No quantized, MLX, CPU or cloud fallback counts as success. Setup reserves
+5 GiB beyond missing model bytes (5,754,163,808 total). New candidates retain exact
+runtime/GGML revisions, model hashes, encodings and effective settings; old MLX
+candidates keep their original metadata. Do not claim cross-backend reproducibility
+or improved acoustic quality from the migration alone.
 
 For semantic comparison pass `examples/qa-clap.json` instead. Supply a short
 target and plausible unwanted alternatives. For a hiss, compare hissing with swish,
@@ -163,7 +167,7 @@ and preserve wanted evidence before restarting.
 `pnpm test:audio-factory` checks service, lifecycle, signal QA and portable lineage
 with fixtures; see the [fixture prerequisites](../../../readme.md#fixture-checks).
 The local browser studio uses the same workflow. `pnpm audio:smoke` runs and retains two real
-MLX/CLAP jobs and verifies session cleanup; retain wanted output first. Reuse the
+Medium/CLAP jobs and verifies session cleanup; retain wanted output first. Reuse the
 guide's recorded smoke evidence when inputs are unchanged. Linux instructions
 cover fixtures only, not generation. Real inference and technical checks do not
 establish semantic acceptance. Leave no

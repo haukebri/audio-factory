@@ -28,7 +28,7 @@ async function stopped() {
   assert.equal((await run(["status"])).status, "stopped");
   const processes = execFileSync("ps", ["-axo", "pid=,args="], { encoding: "utf8" })
     .split("\n").filter((line) => line.includes(root) &&
-      /dist\/cli\.js|\/bin\/python|qa\.py|sa3_mlx\.py|ffmpeg/.test(line));
+      /dist\/cli\.js|\/bin\/python|qa\.py|sa3-generate|sa3-smoke|ffmpeg/.test(line));
   assert.deepEqual(processes, [], "Owned factory/model processes remain");
 }
 function bundle(audio) {

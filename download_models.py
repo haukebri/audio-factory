@@ -1,25 +1,28 @@
+"""Download the pinned Medium set; resume partial files and never replace mismatches."""
 import hashlib
 import json
 import pathlib
-from urllib.parse import urlparse
-
-from huggingface_hub import hf_hub_download
+import subprocess
+import time
 
 root = pathlib.Path(__file__).resolve().parent
 config = json.loads((root / "config.json").read_text())
+deadline = time.monotonic() + 60 * 60
 for model in config["models"]:
-    target = root / ".runtime/official-sa3/optimized/mlx/models/mlx" / model["file"]
-    if not target.exists():
-        parts = urlparse(model["url"]).path.strip("/").split("/")
-        assert parts[2] == "resolve"
-        source = pathlib.Path(hf_hub_download("/".join(parts[:2]), "/".join(parts[4:]), revision=parts[3]))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.is_symlink():
-            target.symlink_to(source)
-        elif target.resolve() != source.resolve():
-            raise RuntimeError(f"Unexpected model symlink target: {target}")
-    with target.open("rb") as stream:
+    target = root / ".runtime/sa3-gguf/models" / model["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source = target if target.exists() else target.with_suffix(".gguf.partial")
+    if source != target:
+        print(f"Downloading/resuming {model['file']}; partial bytes preserved on failure", flush=True)
+        subprocess.run([
+            "curl", "--fail", "--location", "--retry", "3", "--continue-at", "-",
+            "--max-time", str(max(1, int(deadline - time.monotonic()))),
+            "--output", str(source), model["url"],
+        ], check=True)
+    with source.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    if digest != model["sha256"] or target.stat().st_size != model["bytes"]:
-        raise RuntimeError(f"Model mismatch; preserved without replacement: {target}")
-    print(f"Verified {model['file']}", flush=True)
+    if digest != model["sha256"] or source.stat().st_size != model["bytes"]:
+        raise RuntimeError(f"Model mismatch; preserved without replacement: {source}")
+    if source != target:
+        source.rename(target)
+    print(f"Verified {model['file']} {digest}", flush=True)

@@ -14,7 +14,8 @@
     "duration_padding_sec",
     "default_duration_seconds",
     "max_duration_seconds",
-    "peak_db"
+    "peak_db",
+    "ggml_revision"
   ],
   "properties": {
     "schema": {
@@ -26,8 +27,8 @@
     },
     "models": {
       "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
+      "minItems": 5,
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -35,7 +36,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "pattern": "^[a-zA-Z0-9_.-]+\\.npz$"
+            "pattern": "^[a-zA-Z0-9_.-]+\\.gguf$"
           },
           "url": {
             "type": "string",
@@ -50,7 +51,49 @@
             "minimum": 1
           }
         }
-      }
+      },
+      "prefixItems": [
+        {
+          "properties": {
+            "file": {
+              "const": "stable-audio-3-medium-conditioner-v1.0-F32.gguf"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "file": {
+              "const": "stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "file": {
+              "const": "stable-audio-3-medium-same-l-v1.0-F16.gguf"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "file": {
+              "const": "t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf"
+            }
+          },
+          "type": "object"
+        },
+        {
+          "properties": {
+            "file": {
+              "const": "t5gemma-b-b-ul2-v1.0-vocab.gguf"
+            }
+          },
+          "type": "object"
+        }
+      ]
     },
     "licenses": {
       "type": "array",
@@ -84,8 +127,7 @@
       "minimum": 1
     },
     "steps": {
-      "type": "integer",
-      "minimum": 1
+      "const": 8
     },
     "duration_padding_sec": {
       "const": 0
@@ -104,6 +146,10 @@
       "type": "number",
       "minimum": -20,
       "maximum": -3
+    },
+    "ggml_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
     }
   }
 }

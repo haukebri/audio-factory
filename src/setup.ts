@@ -4,10 +4,10 @@ import { readFile } from "node:fs/promises";
 import { config, root } from "./config.js";
 
 export async function ensureSetup(qa = false, signal?: AbortSignal, qaOnly = false) {
-  const modelRoot = `${root}/.runtime/official-sa3/optimized/mlx/models/mlx`;
+  const modelRoot = `${root}/.runtime/sa3-gguf/models`;
   const commands: [string, string[]][] = [];
   if (
-    !qaOnly && (!existsSync(`${root}/.runtime/mlx-venv/bin/python`) ||
+    !qaOnly && (!existsSync(`${root}/.runtime/signal-venv/bin/python`) || !existsSync(`${root}/.runtime/sa3-gguf/build-manifest.json`) ||
     config.models.some((m) => !existsSync(`${modelRoot}/${m.file}`)))
   )
     commands.push([process.execPath, [`${root}/setup.mjs`]]);
@@ -49,7 +49,7 @@ export async function ensureSetup(qa = false, signal?: AbortSignal, qaOnly = fal
     signal?.addEventListener("abort", stop, { once: true });
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    const timer = setTimeout(stop, (args[0]?.endsWith("qa-setup.py") ? 45 : 20) * 60 * 1000);
+    const timer = setTimeout(stop, (args[0]?.endsWith("qa-setup.py") ? 45 : 90) * 60 * 1000);
     try {
       await new Promise<void>((resolve, reject) => {
         child.once("error", reject);

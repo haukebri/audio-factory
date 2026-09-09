@@ -6,6 +6,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 export const root = fileURLToPath(new URL("../", import.meta.url));
 export type Config = {
   runtime_revision: string;
+  ggml_revision: string;
   models: { file: string; url: string; sha256: string; bytes: number }[];
   port: number;
   timeout_ms: number;

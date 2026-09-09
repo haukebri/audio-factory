@@ -164,6 +164,16 @@
         },
         "backend": {
           "enum": ["metal", "mlx"]
+        },
+        "name": {
+          "const": "sa3.cpp"
+        },
+        "ggml_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "encoding": {
+          "const": "F16"
         }
       }
     },
@@ -186,6 +196,22 @@
           "type": "number",
           "minimum": -20,
           "maximum": -3
+        },
+        "sampler": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decoder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text_encoder": {
+          "type": "string",
+          "minLength": 1
+        },
+        "postprocess": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -210,6 +236,65 @@
           "audio_sha256": true,
           "finished_at": true,
           "elapsed_ms": true
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "runtime": {
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "const": "sa3.cpp"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runtime": {
+            "required": ["ggml_revision", "encoding"],
+            "type": "object",
+            "properties": {
+              "ggml_revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "encoding": {
+                "const": "F16"
+              }
+            }
+          },
+          "models": {
+            "minItems": 5,
+            "maxItems": 5,
+            "type": "array"
+          },
+          "settings": {
+            "required": ["sampler", "decoder", "text_encoder", "postprocess"],
+            "type": "object",
+            "properties": {
+              "sampler": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decoder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text_encoder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "postprocess": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       }
     }

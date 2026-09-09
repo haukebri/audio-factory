@@ -35,8 +35,8 @@ type Run = {
   audio_sha256?: string;
   audio_path: string;
   models: typeof config.models;
-  runtime: { revision: string; backend: string };
-  settings: { steps: number; cfg_scale: number; duration_padding_sec: number; peak_db: number };
+  runtime: { revision: string; backend: string; name?: string; ggml_revision?: string; encoding?: string };
+  settings: { steps: number; cfg_scale: number; duration_padding_sec: number; peak_db: number; sampler?: string; decoder?: string; text_encoder?: string; postprocess?: string };
   licenses: typeof config.licenses;
   review: string;
 };
@@ -184,9 +184,9 @@ export async function createFactory(options: {
                 : qaActive
                   ? "processing"
                   : "ready",
-          model: "small-sfx",
+          model: "medium",
           encoding: "f16",
-          backend: "mlx",
+          backend: "metal",
           run_id: active?.id,
           progress: active ? runs.get(active.id)?.progress : undefined,
           error: unavailable,
@@ -292,8 +292,12 @@ export async function createFactory(options: {
         started_at: new Date().toISOString(),
         audio_path: `out/runs/${id}/audio.wav`,
         models: config.models,
-        runtime: { revision: config.runtime_revision, backend: "mlx" },
+        runtime: { revision: config.runtime_revision, backend: "metal", name: "sa3.cpp", ggml_revision: config.ggml_revision, encoding: "F16" },
         settings: {
+          sampler: "LogSNR(2000,-6.2,0,2); flash_attention=off",
+          decoder: "SAME-L F16; monolithic",
+          text_encoder: "T5Gemma F32",
+          postprocess: "latent_rescale=1; latent_shift=0; latent_target_std=off; peak_normalize=off; limiter=off; PCM16 then FFmpeg attenuation",
           steps: config.steps,
           cfg_scale: 1,
           duration_padding_sec: config.duration_padding_sec,

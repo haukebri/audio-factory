@@ -127,12 +127,13 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     }
     await symlink(`${root}/node_modules`, `${directory}/node_modules`, "dir");
     await mkdir(`${directory}/.runtime`, { recursive: true });
-    await symlink(`${root}/.runtime/mlx-venv`, `${directory}/.runtime/mlx-venv`, "dir");
+    await symlink(`${root}/.runtime/signal-venv`, `${directory}/.runtime/signal-venv`, "dir");
     await writeFile(`${directory}/.runtime/token`, "test", { mode: 0o600 });
     // Satisfy only the setup presence preflight; fake generation never reads weights.
-    const models = `${directory}/.runtime/official-sa3/optimized/mlx/models/mlx`;
+    const models = `${directory}/.runtime/sa3-gguf/models`;
     await mkdir(models, { recursive: true });
     for (const model of config.models) await writeFile(join(models, model.file), "fixture only");
+    await writeFile(`${directory}/.runtime/sa3-gguf/build-manifest.json`, "{}");
     await writeFile(`${directory}/setup.mjs`, 'throw new Error("Unexpected model setup");');
     await writeFile(`${directory}/qa-setup.py`, 'raise RuntimeError("Unexpected CLAP setup")');
     await new Promise((resolve) => factory.server.listen(0, "127.0.0.1", resolve));

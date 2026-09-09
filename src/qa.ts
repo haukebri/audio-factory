@@ -110,7 +110,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
   }
   if (saved) await rename(directory, `${directory}-attempt-${randomUUID()}`);
   const runAnalysis = async (clap: boolean) => {
-    const python = `${factoryRoot}/.runtime/${clap ? "qa" : "mlx"}-venv/bin/python`;
+    const python = `${factoryRoot}/.runtime/${clap ? "qa" : "signal"}-venv/bin/python`;
     const { stdout } = await execute(
       python,
       [`${factoryRoot}/qa.py`, source, JSON.stringify({ ...request, clap })],

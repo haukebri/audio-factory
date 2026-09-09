@@ -1,8 +1,7 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { closeSync, createReadStream, openSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { config, type Request, root, sleep } from "./config.js";
+import { config, type Request, root, sleep, validateRequest } from "./config.js";
 import { processIdentity, stopOwned } from "./ownership.js";
 
 export type Backend = {
@@ -11,46 +10,34 @@ export type Backend = {
   unload(): Promise<void>;
 };
 
-export class MlxBackend implements Backend {
+export class GgufBackend implements Backend {
   child?: ChildProcess;
-  private source = `${root}/.runtime/official-sa3`;
-  private python = `${root}/.runtime/mlx-venv/bin/python`;
+  private canceled = false;
+  private source = `${root}/.runtime/sa3-gguf`;
   async start() {
+    this.canceled = false;
     try {
       const owner = JSON.parse(await readFile(`${root}/.runtime/backend-owner.json`, "utf8"));
       await stopOwned(owner);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const git = (args: string[]) =>
-      execFileSync("git", ["-C", this.source, ...args], { encoding: "utf8" }).trim();
-    if (
-      git(["rev-parse", "HEAD"]) !== config.runtime_revision ||
-      git(["status", "--porcelain", "--untracked-files=no"])
-    )
-      throw new Error("MLX source revision or tracked files mismatch; run setup");
-    const installed = execFileSync("uv", ["pip", "freeze", "--python", this.python], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (installed.trim() !== (await readFile(`${root}/requirements.lock`, "utf8")).trim())
-      throw new Error("MLX dependency lock mismatch; run setup");
-    execFileSync(this.python, ["-c", "import mlx.core as mx; assert mx.metal.is_available()"]);
-    for (const model of config.models) {
-      const digest = createHash("sha256");
-      for await (const chunk of createReadStream(
-        `${this.source}/optimized/mlx/models/mlx/${model.file}`,
-      ))
-        digest.update(chunk);
-      if (digest.digest("hex") !== model.sha256)
-        throw new Error(`Model hash mismatch: ${model.file}`);
-    }
+    const setupPath = `${root}/setup.mjs`;
+    const { verifyGeneration } = await import(setupPath);
+    await verifyGeneration();
+    await this.run(`${this.source}/build-metal/bin/sa3-smoke`, [], `${root}/.runtime/metal-device.log`);
+    if (!/GPU\s+MTL\d+\s+Apple/.test(await readFile(`${root}/.runtime/metal-device.log`, "utf8")))
+      throw new Error("Apple Metal device unavailable; no CPU fallback");
   }
+
   private async run(command: string, args: string[], logPath: string) {
-    const log = openSync(logPath, "a", 0o600);
+    if (this.canceled) throw new Error("Audio operation canceled");
+    const log = openSync(logPath, "w", 0o600);
     const child = spawn(command, args, {
-      cwd: `${this.source}/optimized/mlx`,
-      env: { ...process.env, HF_HUB_OFFLINE: "1" },
+      cwd: this.source,
+      // Pin runtime behavior: ignore user SA3/GGML overrides and .env files.
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SA3_|GGML_)/.test(key))),
+        SA3_ENV_FILE: "/dev/null", SA3_DEVICE: "metal", SA3_GPU: "Apple", SA3_FLASH_ATTN: "0", SA3_SAME_FLASH_ATTN: "0" },
       stdio: ["ignore", log, log],
     });
     closeSync(log);
@@ -85,38 +72,33 @@ export class MlxBackend implements Backend {
       ]);
     } finally {
       clearTimeout(timer);
-      await this.stop();
+      await this.reap();
     }
   }
   async generate(request: Request, progress: (value: unknown) => void): Promise<Buffer> {
-    const directory = await mkdtemp(`${root}/out/work/mlx-job-`);
+    if (!validateRequest(request) || request.seed === undefined)
+      throw new Error("Valid prompt, duration and resolved seed required");
+    const directory = await mkdtemp(`${root}/out/work/gguf-job-`);
     await writeFile(`${directory}/request.json`, JSON.stringify(request));
     progress({ status: "generating", evidence: directory });
     await this.run(
-      this.python,
+      `${this.source}/build-metal/bin/sa3-generate`,
       [
-        `${this.source}/optimized/mlx/scripts/sa3_mlx.py`,
-        "--dit",
-        "sm-sfx",
-        "--decoder",
-        "same-s",
-        "--dit-dtype",
-        "fp16",
-        "--prompt",
-        request.prompt,
-        "--seconds",
-        String(request.duration_seconds),
-        "--seed",
-        String(request.seed),
-        "--steps",
-        String(config.steps),
-        "--cfg",
-        "1",
-        "--out",
-        `${directory}/raw.wav`,
+        ...["--cond", "--dit", "--same", "--t5", "--tok"].flatMap((flag, i) => [flag, `${this.source}/models/${config.models[i]!.file}`]),
+        "--prompt", request.prompt,
+        "--duration", String(request.duration_seconds),
+        "--seed", String(request.seed),
+        "--steps", String(config.steps),
+        "--cfg-scale", "1", "--duration-padding", "0",
+        "--dist-shift", "LogSNR", "--dist-shift-params", "2000,-6.2,0,2",
+        "--no-peak-normalize", "--no-limiter",
+        "--out", `${directory}/raw.wav`,
       ],
       `${directory}/inference.log`,
     );
+    const log = await readFile(`${directory}/inference.log`, "utf8");
+    if (!/\[sa3\] backend: MTL\d+ \(Apple/.test(log) || /\[sa3\] backend: CPU/.test(log))
+      throw new Error("Inference did not use Apple Metal; output preserved but not accepted");
     progress({ status: "exporting", evidence: directory });
     await this.run(
       "ffmpeg",
@@ -138,16 +120,21 @@ export class MlxBackend implements Backend {
   }
   async unload() {}
   async stop() {
+    this.canceled = true;
+    await this.reap();
+  }
+  private async reap() {
     const child = this.child;
     if (!child || child.exitCode !== null || child.signalCode !== null) return;
     child.kill("SIGTERM");
     for (let i = 0; i < 50 && child.exitCode === null && child.signalCode === null; i++)
       await sleep(100);
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await sleep(100);
+    if (child.exitCode === null && child.signalCode === null)
+      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
   }
   async reset() {
-    await this.stop();
-    await this.start();
+    await this.reap();
+    if (!this.canceled) await this.start();
   }
 }

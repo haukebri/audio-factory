@@ -1,28 +1,40 @@
 {
   "schema": "urban:audio-factory-config@1",
-  "runtime_revision": "779434a908193105335fd8d833418603625b2859",
+  "runtime_revision": "07db5c7980c8c6cc945c4f9d35959b3114246d95",
   "models": [
     {
-      "file": "dit_sm-sfx_f16.npz",
-      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/dit_sm-sfx_f16.npz",
-      "sha256": "7e702d2640699a57fe436ca975fda16832040ba568c1e092c2ae826987558118",
-      "bytes": 919193814
+      "file": "stable-audio-3-medium-conditioner-v1.0-F32.gguf",
+      "url": "https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-conditioner-v1.0-F32.gguf",
+      "sha256": "8482cc42559f665db517fd469e0dd073de36071ebbdbe0ef4d38b5392fe6c724",
+      "bytes": 793184
     },
     {
-      "file": "same_s_decoder_f32.npz",
-      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/same_s_decoder_f32.npz",
-      "sha256": "909928a8e6937c1ebe6ac4b729f0462bd3773704a11ea18278e42671dc69bfe4",
-      "bytes": 218090820
+      "file": "stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf",
+      "url": "https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-dit-1.5B-v1.0-F16.gguf",
+      "sha256": "3f49edcbc724815339166323ca58a85bdb21215c5dee0237e396231b1c3ee50f",
+      "bytes": 2908081472
     },
     {
-      "file": "t5gemma_f16.npz",
-      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/t5gemma_f16.npz",
-      "sha256": "8deb20489f36d9aec539f26c9c67321f99bc5fe300d470435ed6e76be4f16bbd",
-      "bytes": 567443068
+      "file": "stable-audio-3-medium-same-l-v1.0-F16.gguf",
+      "url": "https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/resolve/380a7b25ba6b3b12563b01193227580a9ae7dac0/stable-audio-3-medium-same-l-v1.0-F16.gguf",
+      "sha256": "78d0592a7e1c6bce72d8177b2d291b820f6aafa4a428d5d61ada53286df1fc86",
+      "bytes": 1705121536
+    },
+    {
+      "file": "t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf",
+      "url": "https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/resolve/26caadf5cb1b6523370caff61f6a32337f46625e/t5gemma-b-b-ul2-encoder-0.3B-v1.0-F32.gguf",
+      "sha256": "23868718e395c555608e33128994c39a23d509281011e52173ff28a64ab6c43c",
+      "bytes": 1126329120
+    },
+    {
+      "file": "t5gemma-b-b-ul2-v1.0-vocab.gguf",
+      "url": "https://huggingface.co/thepatch/t5gemma-b-b-ul2-GGUF/resolve/26caadf5cb1b6523370caff61f6a32337f46625e/t5gemma-b-b-ul2-v1.0-vocab.gguf",
+      "sha256": "d58ef75568789d5d394a67231c853803bd24778d136aa0d1990210bcdd485d32",
+      "bytes": 13838496
     }
   ],
   "port": 8766,
-  "timeout_ms": 600000,
+  "timeout_ms": 180000,
   "idle_ms": 30000,
   "steps": 8,
   "duration_padding_sec": 0,
@@ -32,11 +44,12 @@
   "licenses": [
     {
       "name": "Stability AI Community License",
-      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/LICENSE.md"
+      "url": "https://huggingface.co/thepatch/stable-audio-3-medium-GGUF/blob/380a7b25ba6b3b12563b01193227580a9ae7dac0/LICENSE.md"
     },
     {
       "name": "Gemma Terms of Use",
       "url": "https://ai.google.dev/gemma/terms"
     }
-  ]
+  ],
+  "ggml_revision": "fff93d2714e934822100586ce241267e8cc821af"
 }

@@ -204,7 +204,7 @@ async function connect() {
   const response = await fetch('/studio/session', { headers: { 'X-Studio-Bootstrap': '1' } });
   if (!response.ok) throw new Error('Local session unavailable'); csrf = (await response.json()).csrf;
   const ready = await api('readiness');
-  $('readiness').textContent = ready.generation === 'fixture' ? 'Ready: controlled synthetic generation (technical review only).' : ready.generation === 'installed' ? 'Local model files present. Setup verifies readiness before generation.' : 'Setup required: local generation models or environment missing. Generate will run local setup first; allow up to 20 minutes.';
+  $('readiness').textContent = ready.generation === 'fixture' ? 'Ready: controlled synthetic generation (technical review only).' : ready.generation === 'installed' ? 'Medium F16 model files present. Setup verifies readiness before generation.' : 'Setup required: local generation models or environment missing. Generate will run local setup first; allow up to 90 minutes.';
   await refresh();
   const id = recall('selected', null); if (candidates.some(c => c.candidate_sha256 === id)) await select(id);
   say('Connected. Saved requests and takes are available. Delivered clips receive experimental CLAP/signal evaluation; human decisions remain separate.');

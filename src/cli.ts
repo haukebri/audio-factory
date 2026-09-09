@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { MlxBackend } from "./backend.js";
+import { GgufBackend } from "./backend.js";
 import { config, root, sleep, validateRequest } from "./config.js";
 import { qaOperation, qaRequest } from "./qa.js";
 import { createFactory } from "./service.js";
@@ -45,7 +45,7 @@ async function stop() {
   }
 }
 async function launch(qa = false) {
-  const backend = new MlxBackend();
+  const backend = new GgufBackend();
   const setup = new AbortController();
   let ready = false;
   let closing: Promise<void> | undefined;
@@ -162,7 +162,7 @@ if (command === "make" || command === "generate" || command === "workflow") {
     });
     closeSync(log);
     child.unref();
-    const deadline = Date.now() + 20 * 60 * 1000;
+    const deadline = Date.now() + 90 * 60 * 1000;
     while (!(await health())?.ok) {
       if (child.exitCode !== null || Date.now() > deadline)
         throw new Error("Startup failed; inspect .runtime/service.log and setup.log");
