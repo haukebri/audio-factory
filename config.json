@@ -32,7 +32,7 @@
   "licenses": [
     {
       "name": "Stability AI Community License",
-      "url": "https://huggingface.co/thepatch/stable-audio-3-small-sfx-GGUF/blob/fcbd756cde8f9cc4d0213433d868063593d6ca22/LICENSE.md"
+      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/LICENSE.md"
     },
     {
       "name": "Gemma Terms of Use",

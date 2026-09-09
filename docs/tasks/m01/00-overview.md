@@ -36,7 +36,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 | 08 | [x] | [Verify two real jobs and session cleanup](08-real-job-smoke.md) | 03 | 07 |
 | 09 | [x] | [Finish the verified installation and usage guide](09-verified-user-docs.md) | 04 | 08 |
 | 10 | [x] | [Prepare the source and third-party notice inventory](10-third-party-notices.md) | 04 | 09 |
-| 11 | [ ] | [Verify the prospective source distribution](11-distribution-audit.md) | 04 | 10 |
+| 11 | [x] | [Verify the prospective source distribution](11-distribution-audit.md) | 04 | 10 |
 | 12 | [ ] | [Apply the authorized license and close release readiness](12-license-and-release-readiness.md) | 04 | 11 |
 
 Service checks from milestone 3 are deliberately brought forward before portable workflow work. This gives each incremental change useful verification; it does not change the milestone requirements. Task 04 supports both milestone 2's portable delivery and milestone 3's QA coverage. The final user guide follows real setup/smoke evidence so it describes a demonstrated workflow.

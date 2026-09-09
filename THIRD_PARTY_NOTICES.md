@@ -42,7 +42,7 @@ The incorporated [AUP effective July 31, 2025](https://stability.ai/2025-accepta
 
 The exact [LICENSE_GEMMA.md](https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/LICENSE_GEMMA.md), dated April 1, 2026, and [NOTICE](https://huggingface.co/stabilityai/stable-audio-3-optimized/blob/da6edc54ddba10bfd79a077102ded687f80e882b/NOTICE) establish the encoder terms and attribution above. Google's [terms](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) (last modified February 21, 2024) were also reviewed. Gemma redistribution requires the agreement, notice, modification notices where applicable and enforceable use restrictions; merely copying this document would not satisfy every obligation for a future bundled/hosted model product. Google claims no rights in Gemma outputs, leaving responsibility with users; this does not license the final audio or erase Stability's restrictions. Google's gated model card returned HTTP 401 without login; the exact optimized artifact's public card, Gemma agreement and runtime encoder identification supply the needed evidence without accepting gated terms.
 
-`config.json` still contains an inherited license reference to `thepatch/stable-audio-3-small-sfx-GGUF` revision `fcbd756cde8f9cc4d0213433d868063593d6ca22`. Existing companions inherit that historical reference. It is **not authoritative evidence for these MLX artifacts**; use the exact official references above. No existing provenance is rewritten by this task.
+Task 11 corrected `config.json` so new companions reference the official pinned MLX agreement above. Older companions retain the inherited reference to `thepatch/stable-audio-3-small-sfx-GGUF` revision `fcbd756cde8f9cc4d0213433d868063593d6ca22`. That historical reference is **not authoritative evidence for these MLX artifacts**; use the exact official references above. Existing provenance is not rewritten.
 
 ### CLAP artifacts
 
@@ -148,9 +148,9 @@ Node, pnpm, uv, Python, Git and FFmpeg are operator-installed tools, not vendore
 
 ## Remaining release requirements
 
-1. Task 11: verify the prospective source file list excludes operational state, dependencies, weights and audio, and bind clean-checkout evidence to that list.
+1. Task 11 records the prospective source inventory and clean-checkout verification; task 12 must include the authorized LICENSE in the final list.
 2. Task 12: obtain/apply the owner's project-code license authorization, covering source provenance and standalone additions. No authorization was found; third-party licenses cannot supply it.
-3. Before release, correct the historical GGUF license reference used for new generation companions to the official pinned MLX terms, with the affected provenance checks; preserve existing records. Recheck incorporated policies and the intended use's registration/enterprise conditions. No general commercial clearance is claimed.
+3. At release/use time, recheck incorporated policies and the intended use's registration/enterprise conditions. No general commercial clearance is claimed. Task 11 verifies the corrected terms reference in new companions while preserving existing records.
 
 No mandatory third-party terms source is unavailable for this source-only inventory. A gated Google card and the absence of a standalone CLAP LICENSE file are explicitly accounted for above. Bundling models, environments or tools, hosting generation, account registration, accepting terms and publication are outside this task.
 
