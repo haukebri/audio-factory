@@ -1,39 +1,12 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { openJobs } from "./workflow.mjs";
 
-const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Audio Factory studio</title><body><main><h1>Audio Factory studio</h1><p>Saved originals and prepared clips remain available here. Submit jobs through the local API.</p><p id="status" role="status">Connecting…</p><section aria-label="Candidates" id="candidates"></section></main><script src="/studio.js"></script></body></html>`;
-const script = `async function load() {
-  const session = await fetch('/studio/session', {headers: {'X-Studio-Bootstrap':'1'}});
-  if (!session.ok) throw new Error('Session unavailable');
-  const response = await fetch('/studio/candidates');
-  if (!response.ok) throw new Error('History unavailable');
-  const candidates = await response.json();
-  document.getElementById('status').textContent = candidates.length + ' preserved candidates';
-  for (const candidate of candidates) {
-    const section = document.createElement('section');
-    const title = document.createElement('h2');
-    title.textContent = candidate.evidence.generation.request.prompt;
-    section.append(title);
-    for (const asset of candidate.evidence.cut ? ['audio','source'] : ['source']) {
-      const label = document.createElement('p'); label.textContent = asset === 'audio' ? 'Prepared clip' : 'Original';
-      const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'metadata';
-      audio.setAttribute('aria-label', label.textContent); audio.src = '/studio/candidates/' + candidate.candidate_sha256 + '/' + asset;
-      section.append(label, audio);
-    }
-    if (candidate.evidence.cut) {
-      const link = document.createElement('a'); link.textContent = 'Export verified bundle';
-      link.href = '/studio/candidates/' + candidate.candidate_sha256 + '/export'; section.append(link);
-    }
-    document.getElementById('candidates').append(section);
-  }
-}
-load().catch(error => { document.getElementById('status').textContent = error.message; });`;
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 async function body(req) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') fail(415, 'Expected application/json');
@@ -42,6 +15,7 @@ async function body(req) {
   try { return JSON.parse(Buffer.concat(chunks)); } catch { fail(400, 'Malformed JSON'); }
 }
 export async function createStudio({ port = 8767, ...options }) {
+  const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
   let jobs;
   let closing;
   const sessions = new Map();
@@ -55,10 +29,10 @@ export async function createStudio({ port = 8767, ...options }) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
-      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
       const path = req.url; // Exact paths only: no URL normalization of traversal.
-      if (req.method === 'GET' && (path === '/' || path === '/studio.js')) {
-        res.writeHead(200, { 'Content-Type': path === '/' ? 'text/html; charset=utf-8' : 'text/javascript' }); res.end(path === '/' ? page : script); return;
+      if (req.method === 'GET' && Object.hasOwn(assets, path)) {
+        res.writeHead(200, { 'Content-Type': assets[path].type }); res.end(assets[path].bytes); return;
       }
       if (!jobs) fail(503, 'Studio starting');
       const cookie = req.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith('studio_session='))?.slice(15);
@@ -83,28 +57,30 @@ export async function createStudio({ port = 8767, ...options }) {
         if (!session) fail(401, 'Browser session required');
         if (req.method !== 'GET' && (req.headers.origin !== origin || req.headers['x-studio-csrf'] !== session.csrf)) fail(403, 'Same-origin mutation credentials required');
       }
+      if (req.method === 'GET' && path === '/studio/readiness') { json(res, 200, jobs.readiness()); return; }
       if (req.method === 'GET' && path === '/studio/jobs') { json(res, 200, jobs.list()); return; }
       if (req.method === 'POST' && path === '/studio/jobs') {
         const input = await body(req);
         let job; try { job = await jobs.submit(req.headers['idempotency-key'], input); } catch (error) { error.status ??= 400; throw error; }
         json(res, 202, job); return;
       }
-      const jobMatch = /^\/studio\/jobs\/([a-f0-9]{32})(?:\/(cancel|resume))?$/.exec(path);
+      const jobMatch = /^\/studio\/jobs\/([a-f0-9]{32})(?:\/(cancel|resume|retry|acknowledge))?$/.exec(path);
       if (jobMatch) {
         const [, id, action] = jobMatch;
         if (!jobs.get(id)) fail(404, 'Unknown job');
         if (req.method === 'GET' && !action) { json(res, 200, jobs.get(id)); return; }
         if (req.method === 'POST' && action) {
           await body(req);
-          json(res, 202, action === 'cancel' ? await jobs.cancel(id) : await jobs.resume(id, req.headers['idempotency-key'])); return;
+          json(res, 202, action === 'acknowledge' ? await jobs.acknowledge(id) : action === 'cancel' ? await jobs.cancel(id) : action === 'retry' ? await jobs.retry(id, req.headers['idempotency-key']) : await jobs.resume(id, req.headers['idempotency-key'])); return;
         }
       }
       if (req.method === 'GET' && path === '/studio/candidates') { json(res, 200, jobs.store.listCandidates()); return; }
-      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export))?$/.exec(path);
+      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut))?$/.exec(path);
       if (candidateMatch) {
         const [, id, action] = candidateMatch;
         const candidate = jobs.store.loadCandidate(id);
         if (req.method === 'GET' && !action) { json(res, 200, candidate); return; }
+        if (req.method === 'POST' && action === 'cut') { json(res, 200, await jobs.cut(id, await body(req))); return; }
         if (action === 'feedback') {
           if (req.method === 'GET') { json(res, 200, jobs.store.history(id)); return; }
           if (req.method === 'POST') {

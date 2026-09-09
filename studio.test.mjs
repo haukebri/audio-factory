@@ -19,7 +19,7 @@ async function until(check, timeout = 20000) {
   while (Date.now() < end) { const value = await check(); if (value) return value; await pause(25); }
   throw new Error('Condition deadline exceeded');
 }
-function controlledBackend() {
+function controlledBackend(delay = 600) {
   let child, count = 0;
   const pids = [];
   return {
@@ -35,7 +35,7 @@ function controlledBackend() {
     async generate(request, progress) {
       count++;
       const bytes = wavFixture();
-      child = spawn(process.execPath, ['-e', `setTimeout(() => process.stdout.write(Buffer.from('${bytes.toString('base64')}','base64')), 600)`], { stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(process.execPath, ['-e', `setTimeout(() => process.stdout.write(Buffer.from('${bytes.toString('base64')}','base64')), ${delay})`], { stdio: ['ignore', 'pipe', 'pipe'] });
       pids.push(child.pid);
       progress({ status: 'controlled-child', pid: child.pid });
       console.log(`Owned synthetic generation ${count}: pid=${child.pid}, seed=${request.seed}, source=${hash(bytes)}`);
@@ -52,18 +52,82 @@ const token = 'controlled-private-token';
 const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
 if (process.argv.includes('--browser-fixture')) {
-  const root = await mkdtemp(resolve('.runtime/studio-browser-'));
-  const backend = controlledBackend();
-  const studio = await createStudio({ root, token, port: 0, computePort: 0, fixture: true, backend, setup: async () => {} });
+  const root = process.argv[3] ?? await mkdtemp(resolve('.runtime/studio-browser-'));
+  assert.ok(root.startsWith(resolve('.runtime/studio-browser-')));
+  const backend = controlledBackend(15000);
+  let studio = await createStudio({ root, token, port: Number(process.argv[4] ?? 0), computePort: 0, fixture: true, backend, setup: async () => {} });
   const url = `http://127.0.0.1:${studio.server.address().port}`;
-  await studio.jobs.submit('browser-fixture', input);
+  if (!studio.jobs.list().length) await studio.jobs.submit('browser-fixture', input);
   await studio.jobs.wait();
-  assert.equal(studio.jobs.list()[0].status, 'completed');
+  assert.equal(studio.jobs.get(hash('browser-fixture').slice(0,32)).status, 'completed');
+  const prepared = studio.jobs.store.listCandidates().find(c => c.evidence.cut);
+  const { candidate_sha256, ...fixtureCandidate } = prepared;
+  studio.jobs.store.saveCandidate({ ...fixtureCandidate, evaluation: { actor: 'automatic', audio_sha256: prepared.evidence.cut.audio_sha256,
+    model: '<img src=x onerror="window.modelInjected=true">', revision: 'synthetic-only', rubric_sha256: 'a'.repeat(64), verdict: 'needs_review', reason_tags: [], note: '<script>window.modelInjected=true</script> Synthetic model text; no judge ran.' } }, studio.jobs.store.readAsset(candidate_sha256, 'source'), studio.jobs.store.readAsset(candidate_sha256, 'audio'));
   const manifest = { root, url, pid: process.pid, candidates: studio.jobs.store.listCandidates().map(c => c.candidate_sha256) };
   await writeFile('.test-artifacts/m02-studio-browser.json', JSON.stringify(manifest));
   console.log(JSON.stringify(manifest));
+  process.once('SIGUSR1', async () => { await studio.close(); console.log('Stopped studio; preserved browser fixture for restart'); });
+  process.on('SIGUSR2', async () => {
+    const port = studio.server.address().port; await studio.close();
+    studio = await createStudio({ root, token, port, computePort: 0, fixture: true, backend, setup: async () => {} });
+    console.log('Restarted studio on ' + port);
+  });
   process.once('SIGTERM', async () => { await studio.close(); await rm(root, { recursive: true, force: true }); console.log(`Removed browser fixture ${root}`); });
-} else {
+ } else {
+  test('manual retry budget persists and adjusted cuts preserve exact feedback', async () => {
+    const root = await mkdtemp(resolve('.runtime/studio-frontend-test-'));
+    const backend = controlledBackend();
+    const options = { root, token, port: 0, computePort: 0, fixture: true, backend, setup: async () => {} };
+    let studio = await createStudio(options);
+    try {
+      await assert.rejects(studio.jobs.submit('invalid', { ...input, budget: { attempts: 0, minutes: 1 } }), /budget/);
+      const job = await studio.jobs.submit('budget', { ...input, budget: { attempts: 2, minutes: 1 } });
+      await studio.jobs.wait();
+      const id = job.result.candidate_sha256;
+      const feedback = { event_id: 'a'.repeat(32), candidate_sha256: id, supersedes: null, actor: 'human', verdict: 'rejected', reason_tags: ['bad_trim'], note: 'Synthetic technical check' };
+      studio.jobs.store.feedback(feedback);
+      await assert.rejects(studio.jobs.cut(id, { start_seconds: 0.8, end_seconds: 0.2 }), /bounds/);
+      const cut = await studio.jobs.cut(id, { start_seconds: 0.1, end_seconds: 0.6 });
+      assert.notEqual(cut.candidate_sha256, id);
+      assert.equal(cut.evaluation, null);
+      assert.equal(cut.evidence.cut.bounds.end_sample - cut.evidence.cut.bounds.start_sample, 22050);
+      assert.equal(studio.jobs.store.history(cut.candidate_sha256).length, 0);
+      assert.equal(studio.jobs.store.history(id)[0].verdict, 'rejected');
+      await studio.close(); studio = await createStudio(options);
+      const retry = await studio.jobs.retry(job.id, 'retry-budget');
+      assert.equal(retry.attempt, 2); assert.equal(retry.budget_started_at, job.budget_started_at);
+      assert.equal((await studio.jobs.retry(job.id, 'retry-budget')).id, retry.id);
+      await studio.jobs.wait();
+      await assert.rejects(studio.jobs.retry(retry.id, 'over-budget'), /exhausted/);
+      await assert.rejects(studio.jobs.resume(retry.id, 'bypass-budget'), /exhausted/);
+      assert.equal(backend.count, 2);
+      assert.equal(studio.jobs.store.history(id)[0].verdict, 'rejected');
+      assert.equal(studio.jobs.store.loadCandidate(cut.candidate_sha256).candidate_sha256, cut.candidate_sha256);
+      const expired = await studio.jobs.submit('expired', { ...input, budget: { attempts: 2, minutes: 1 } });
+      await studio.jobs.wait(); await studio.close();
+      expired.status = 'running';
+      expired.budget_started_at = '2000-01-01T00:00:00.000Z';
+      await writeFile(`${root}/.runtime/studio/jobs/${expired.id}.json`, JSON.stringify(expired));
+      studio = await createStudio(options);
+      await assert.rejects(studio.jobs.retry(expired.id, 'expired-retry'), /exhausted/);
+      assert.equal(studio.jobs.get(expired.id).status, 'interrupted');
+      await studio.jobs.acknowledge(expired.id);
+      assert.equal(studio.jobs.get(expired.id).status, 'failed');
+      assert.equal(backend.count, 3, 'acknowledgement never generates');
+      await studio.jobs.submit('after-acknowledgement', input);
+      await studio.jobs.wait();
+      await studio.close();
+      studio = await createStudio({ ...options, execute: async (job, execution) => {
+        job.budget_started_at = new Date(Date.now() - 59900).toISOString();
+        return runWorkflow(job, execution);
+      } });
+      const deadline = await studio.jobs.submit('deadline', { ...input, budget: { attempts: 2, minutes: 1 } });
+      await studio.jobs.wait();
+      assert.equal(deadline.status, 'exhausted');
+      assert.ok(backend.pids.every(pid => !processIdentity(pid)), 'time deadline stops owned generation');
+    } finally { await studio.close(); await backend.stop(); await rm(root, { recursive: true, force: true }); }
+  });
   test('resume conflicts preserve interruption and retries attach to one replacement', async () => {
     const root = await mkdtemp(resolve('.runtime/studio-resume-test-'));
     let executions = 0;

@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control tasks
 
-This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–02 are complete; tasks 03–07 remain planned. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
+This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–03 are complete; tasks 04–07 remain planned. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
 
 ## Ordered queue
 
@@ -8,7 +8,7 @@ This queue implements the [new M2 milestone](../../milestone/05-review-and-quali
 | --- | --- | --- | --- |
 | 01 | [x] | [Persist candidates and human feedback](01-durable-review-store.md) | M1 |
 | 02 | [x] | [Expose the local studio and shared job workflow](02-studio-service.md) | 01 |
-| 03 | [ ] | [Build the prompt and listening workspace](03-review-frontend.md) | 02 |
+| 03 | [x] | [Build the prompt and listening workspace](03-review-frontend.md) | 02 |
 | 04 | [ ] | [Connect and preflight a local audio-language judge](04-audio-judge.md) | 03 |
 | 05 | [ ] | [Reject and regenerate within a durable budget](05-automatic-quality-loop.md) | 04 |
 | 06 | [ ] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |

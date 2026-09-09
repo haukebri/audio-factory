@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test:audio-factory": "node --test service.test.mjs standalone-core.test.mjs qa.test.mjs review-store.test.mjs studio.test.mjs && .runtime/mlx-venv/bin/python qa_test.py",
+    "test:audio-factory": "node --test service.test.mjs standalone-core.test.mjs qa.test.mjs review-store.test.mjs studio.test.mjs studio-frontend.test.mjs && .runtime/mlx-venv/bin/python qa_test.py",
     "audio:factory": "pnpm build && node dist/cli.js",
     "audio:smoke": "pnpm build && node smoke.mjs"
   },

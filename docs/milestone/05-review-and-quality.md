@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store and studio service are complete; the review workspace, judge integration and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service and review workspace are complete; judge integration and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -71,13 +71,13 @@ If data or targets are insufficient, keep the tested product usable with explici
 
 Product integration:
 
-- [ ] Prompt → generation → playback → human approval/rejection → verified export works in one browser workflow.
+- [x] Prompt → generation → playback → human approval/rejection → verified export works in one browser workflow (task 03 controlled synthetic journey; no human listening claim).
 - [x] Durable candidate assets, source-only evidence and immutable human feedback survive process restart, relocation and deletion of owned temporary output (task 01 deterministic checks).
 - [x] History, rejected candidates and feedback survive refresh, process restart and the next generation (task 02 controlled service/browser checks).
 - [ ] A real audio-language model evaluates actual audio with pinned provenance and explicit failure states.
 - [ ] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work.
 - [x] CLI/agent access uses the same workflow and decision records as the studio (task 02 shared workflow and durable store).
-- [ ] Local auth/origin/path boundaries, accessibility, playback, error states and cleanup have direct checks.
+- [x] Local auth/origin/path boundaries, accessibility, playback, error states and cleanup have direct checks (tasks 02–03 service/browser evidence).
 - [ ] Human feedback exports and repeatable evaluation/policy rollback work; synthetic fixture labels are excluded from real quality metrics.
 
 Quality improvement (separate from software delivery):
