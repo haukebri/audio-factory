@@ -25,7 +25,7 @@ Record created checkouts, environments, downloads and retained outputs immediate
 ## Acceptance evidence
 
 - [x] Build, service/QA fixtures and signal assertions pass without Urban Wildlife dependencies.
-- [ ] Clean setup completes with recorded tool versions, source revision, lockfiles and verified model hashes.
+- [x] Clean setup completes with recorded tool versions, source revision, lockfiles and verified model hashes.
 - [ ] Two real jobs return valid export bundles; retention, next-session cleanup and cache reuse behave as documented.
 - [ ] Normal jobs and tested failure paths leave no owned factory/model process running.
 - [x] Signal-only, unavailable CLAP, offline operations and authenticated manual API behave as documented.
@@ -42,4 +42,4 @@ Execute in the global order in [the task queue](../tasks/m01/00-overview.md); ta
 - [07 — Verify first-use setup in an isolated checkout](../tasks/m01/07-fresh-installation.md)
 - [08 — Verify two real jobs and session cleanup](../tasks/m01/08-real-job-smoke.md)
 
-Tasks 03–04 establish the checked fixture/API items: [portable export evidence](../tasks/m01/04-portable-export-checks.md). Fresh setup, real jobs and their process cleanup remain open.
+Tasks 03–04 establish the checked fixture/API items: [portable export evidence](../tasks/m01/04-portable-export-checks.md). Task 07 establishes [fresh setup](../tasks/m01/07-fresh-installation.md): isolated Node/Python environments and model cache, pinned runtime/locks and all MLX/CLAP hashes, repeat reuse, Metal/CPU readiness and setup-process cleanup pass. The verified checkout/cache are retained for task 08. Real jobs and their process cleanup remain open.
