@@ -21,7 +21,7 @@ A new successfully initialized session clears `out/`; review, adjust and retain 
 
 ## Acceptance evidence
 
-- [ ] Examples satisfy the copied request/QA/cut schemas.
+- [x] Examples satisfy the copied request/QA/cut schemas.
 - [x] A fixture export carries original audio, hash-bound generation and cut records, QA references and provisional review status.
 - [x] `retain` verifies and copies all required files; the copied bundle validates from another directory without game assets or the original temporary run.
 - [x] Existing behavior checks establish default first-region cuts, normalization target/off, explicit bounds and source preservation.
