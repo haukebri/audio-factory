@@ -57,7 +57,18 @@ async function select(id) {
   const human = history.at(-1);
   node('p', human ? `Human: ${human.verdict} · ${human.reason_tags.join(', ')}${human.note ? ' · ' + human.note : ''}` : 'Human: not reviewed', box);
   const verdict = node('div', undefined, box); verdict.hidden = $('blind').checked;
-  node('p', c.evaluation ? `Automatic: ${c.evaluation.verdict} · ${c.evaluation.model} · ${c.evaluation.note}` : 'Automatic: unavailable — no audio-language judge connected. Listen and decide.', verdict);
+  node('p', c.evaluation ? `Automatic: ${c.evaluation.verdict} · ${c.evaluation.model} · ${c.evaluation.note}` : 'Automatic: unavailable — this take has no delivered-clip evaluation. Listen and decide.', verdict);
+  if (c.evaluation?.evidence) {
+    const e = c.evaluation.evidence;
+    node('p', `Policy: ${e.policy.version} · ${e.status} / ${e.decision} · ${e.reason_tags.join(', ')} · ${e.elapsed_ms} ms`, verdict);
+    node('p', `Model revision: ${c.evaluation.revision} · Audio SHA-256: ${c.evaluation.audio_sha256} · Policy SHA-256: ${c.evaluation.rubric_sha256}`, verdict, { class: 'hint' });
+    for (const row of e.result?.clap?.scores ?? []) {
+      node('p', `${row.start_seconds.toFixed(2)}–${row.end_seconds.toFixed(2)} s · target margin ${row.target_margin?.toFixed(4) ?? 'unavailable'}`, verdict);
+      for (const score of row.ranking) node('p', `${score.similarity.toFixed(4)} · ${score.description}`, verdict, { class: 'hint' });
+    }
+    if (e.error || e.result?.clap?.error) node('p', e.error || e.result.clap.error, verdict);
+    for (const limitation of e.policy.limitations) node('p', limitation, verdict, { class: 'hint' });
+  }
   for (const report of c.evidence.analyses) {
     if (report.status !== 'completed') node('p', `Signal analysis ${report.status}: ${report.error || 'No result'}`, verdict);
     else node('p', `Signal advisory: ${report.result?.regions?.length ?? 0} active regions. ${report.result?.rhythm?.suspected ? 'Rhythmic pattern detected.' : ''} CLAP is advisory, not a verdict.`, verdict, { class: 'hint' });
@@ -115,7 +126,15 @@ function renderLibrary() {
     b.className = 'library-item'; b.setAttribute('aria-pressed', String(selected === c.candidate_sha256));
   }
 }
+async function refreshQa() {
+  const ready = await api('readiness');
+  const qa = ready.judge;
+  $('qa-readiness').textContent = `QA setup: ${qa.status}. ${qa.progress || qa.error || 'Prepare the selected local CLAP model, or generate to run setup automatically.'}`;
+}
+$('setup-qa').onclick = () => action(async () => { await api('qa/setup', {}); await refreshQa(); });
+$('cancel-qa').onclick = () => action(async () => { await api('qa/cancel', {}); await refreshQa(); });
 async function refresh() {
+  await refreshQa();
   const [nextJobs, nextCandidates] = await Promise.all([api('jobs'), api('candidates')]);
   jobs = nextJobs;
   if (JSON.stringify(candidates) !== JSON.stringify(nextCandidates)) {
@@ -152,7 +171,7 @@ async function refresh() {
 }
 $('compose').onsubmit = event => { event.preventDefault(); action(async () => {
   const prompt = [$('prompt').value.trim(), $('events').value ? `Intended event count: ${$('events').value}.` : '', $('constraints').value.trim() ? `Constraints: ${$('constraints').value.trim()}` : ''].filter(Boolean).join('\n');
-  const input = { request: { prompt, duration_seconds: Number($('duration').value) }, qa: { clap: false }, budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } };
+  const input = { request: { prompt, duration_seconds: Number($('duration').value) }, budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } };
   const previous = recall('submission', null);
   const pending = previous && JSON.stringify(previous.input) === JSON.stringify(input) ? previous : { key: uid(), input };
   remember('submission', pending);
@@ -167,7 +186,7 @@ async function connect() {
   $('readiness').textContent = ready.generation === 'fixture' ? 'Ready: controlled synthetic generation (technical review only).' : ready.generation === 'installed' ? 'Local model files present. Setup verifies readiness before generation.' : 'Setup required: local generation models or environment missing. Generate will run local setup first; allow up to 20 minutes.';
   await refresh();
   const id = recall('selected', null); if (candidates.some(c => c.candidate_sha256 === id)) await select(id);
-  say('Connected. Saved requests and takes are available. Automatic evaluation unavailable.');
+  say('Connected. Saved requests and takes are available. Delivered clips receive experimental CLAP/signal evaluation; human decisions remain separate.');
 }
 $('reconnect').onclick = () => action(connect);
 renderLibrary();

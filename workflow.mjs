@@ -8,6 +8,7 @@ import { processIdentity } from "./dist/ownership.js";
 import { qaRequest, qaOperation } from "./dist/qa.js";
 import { atomicJson, createFactory } from "./dist/service.js";
 import { ensureSetup } from "./dist/setup.js";
+import { judge } from './judge.mjs';
 import { openReviewStore } from "./review-store.mjs";
 
 export function workflowInput(input) {
@@ -73,8 +74,8 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
     const id = response.headers.get("x-run-id");
     const generation = await (await call(`/v1/runs/${id}`)).json();
     const source = await readFile(join(root, generation.audio_path));
-    const preserve = async (evidence, audio = null) => {
-      const candidate = store.saveCandidate({ attempt_id: job.id, fixture, evidence, evaluation: null }, source, audio);
+    const preserve = async (evidence, audio = null, evaluation = null) => {
+      const candidate = store.saveCandidate({ attempt_id: job.id, fixture, evidence, evaluation }, source, audio);
       if (!job.candidate_ids.includes(candidate.candidate_sha256)) job.candidate_ids.push(candidate.candidate_sha256);
       await save();
       return candidate.candidate_sha256;
@@ -91,8 +92,14 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
     if (!location?.startsWith(`/v1/runs/${id}/cuts/`)) throw new Error("Invalid cut metadata location");
     const cut = await (await call(location)).json();
     const evidence = JSON.parse(await readFile(cut.delivery.metadata, "utf8"));
-    const candidate = await preserve(evidence, await readFile(cut.delivery.audio));
-    return { id, audio: cut.delivery.audio, candidate_sha256: candidate,
+    let candidate = await preserve(evidence, await readFile(cut.delivery.audio));
+    let evaluation = null;
+    if (job.input.qa.clap) {
+      await stage('evaluating');
+      evaluation = await judge(cut.delivery.audio, job.input.request.prompt, { signal });
+      candidate = await preserve(evidence, await readFile(cut.delivery.audio), evaluation);
+    }
+    return { id, audio: cut.delivery.audio, candidate_sha256: candidate, evaluation,
       qa: { regions: analysis.result?.regions, rhythmic_warning: analysis.result?.rhythm?.suspected,
         clap: { status: analysis.result?.clap?.status, error: analysis.result?.clap?.error, ranking: analysis.result?.clap?.scores?.[0]?.ranking } },
       report: `${root}/out/runs/${id}/analyses/${analysis.id}/report.json` };
@@ -125,6 +132,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
   } catch (error) { unlinkSync(lease); throw error; }
   let active;
   let cutting;
+  let preparing;
+  let qaSetup = { status: "idle" };
   let closing = false;
   const jobs = new Map();
   let store;
@@ -151,7 +160,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
   } catch (error) { unlinkSync(lease); throw error; }
   const start = async job => {
     if (closing) throw Object.assign(new Error("Studio stopping"), { status: 503 });
-    if (active || cutting) throw Object.assign(new Error("Factory busy; retry the same key"), { status: 429 });
+    if (active || cutting || preparing) throw Object.assign(new Error("Factory busy; retry the same key"), { status: 429 });
     const controller = new AbortController();
     const operation = { job, controller };
     active = operation;
@@ -181,10 +190,20 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
   return {
     store,
     readiness: () => ({ generation: execution.fixture ? 'fixture' :
-      existsSync(`${factoryRoot}/.runtime/mlx-venv/bin/python`) && config.models.every(m => existsSync(`${factoryRoot}/.runtime/official-sa3/optimized/mlx/models/mlx/${m.file}`)) ? 'installed' : 'setup_required', judge: 'unavailable' }),
+      existsSync(`${factoryRoot}/.runtime/mlx-venv/bin/python`) && config.models.every(m => existsSync(`${factoryRoot}/.runtime/official-sa3/optimized/mlx/models/mlx/${m.file}`)) ? 'installed' : 'setup_required', judge: qaSetup }),
+    async setupQa(cancel = false) {
+      if (cancel) { preparing?.controller.abort(); return qaSetup; }
+      if (preparing) return qaSetup;
+      if (closing || active || cutting) throw Object.assign(new Error('Factory busy'), { status: 429 });
+      const controller = new AbortController();
+      qaSetup = { status: 'running', progress: 'Verifying dependencies and cached hashes; downloading missing files. Allow up to 45 minutes. Progress: .runtime/setup.log' };
+      preparing = { controller };
+      preparing.promise = ensureSetup(true, controller.signal, true).then(() => { qaSetup = { status: 'ready', progress: 'Selected CLAP runtime and hashes verified. Quality remains experimental.' }; }, error => { qaSetup = { status: controller.signal.aborted ? 'canceled' : 'failed', error: String(error) }; }).finally(() => { preparing = undefined; });
+      return qaSetup;
+    },
     async cut(id, input) {
       qaRequest('cuts', input);
-      if (closing || active || cutting) throw Object.assign(new Error('Factory busy; wait for owned work to finish'), { status: 429 });
+      if (closing || active || cutting || preparing) throw Object.assign(new Error('Factory busy; wait for owned work to finish'), { status: 429 });
       const candidate = store.loadCandidate(id);
       cutting = (async () => {
         const temporary = await mkdtemp(join(root, '.runtime/studio-cut-'));
@@ -200,7 +219,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           }
           const cut = await qaOperation(temporary, run.id, 'cuts', input);
           if (cut.status !== 'completed') throw new Error(cut.error);
-          return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation: null,
+          const evaluation = candidate.evaluation ? await judge(cut.delivery.audio, run.request.prompt) : null;
+          return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation,
             evidence: JSON.parse(await readFile(cut.delivery.metadata, 'utf8')) }, store.readAsset(id, 'source'), await readFile(cut.delivery.audio));
         } finally { await rm(temporary, { recursive: true, force: true }); }
       })();
@@ -223,7 +243,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000)
         throw Object.assign(new Error('Budget exhausted; start a new request to continue'), { status: 409 });
       if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(key) || jobs.has(hash(key).slice(0,32))) throw Object.assign(new Error('New retry key required'), { status: 400 });
-      if (active || cutting) throw Object.assign(new Error('Factory busy'), { status: 429 });
+      if (active || cutting || preparing) throw Object.assign(new Error('Factory busy'), { status: 429 });
       job.retry_key = key;
       await save(job);
       const request = { ...job.input.request }; delete request.seed;
@@ -285,6 +305,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           try { await save(operation.job); } finally { operation.controller.abort(); }
           await operation.promise;
         }
+        preparing?.controller.abort();
+        await preparing?.promise;
         await cutting;
         await writes;
         unlinkSync(lease);

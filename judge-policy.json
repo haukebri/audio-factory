@@ -1,0 +1,23 @@
+{
+  "version": "clap-signal-v1-experimental",
+  "descriptions_version": "general-alternatives-v1",
+  "alternatives": [
+    "Radio static noise",
+    "A helicopter flying",
+    "Silence"
+  ],
+  "accept_score": 0.3,
+  "accept_margin": 0.05,
+  "reject_score": 0.15,
+  "reject_margin": -0.05,
+  "silence_fraction": 0.98,
+  "clipping_fraction": 0.001,
+  "boundary_peak": 0.05,
+  "limitations": [
+    "Experimental thresholds; quality not established on human-labelled data.",
+    "Similarity is not correctness probability.",
+    "Event counts, artifact absence and all prompt constraints are unsupported and need human review.",
+    "CLAP text is truncated to the tokenizer limit; long intent may be only partially compared.",
+    "Boundary checks measure endpoint amplitude only; fades do not prove an event is complete."
+  ]
+}

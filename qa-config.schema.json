@@ -111,7 +111,7 @@
       "exclusiveMinimum": 0
     },
     "clap_model": {
-      "const": "laion/clap-htsat-unfused"
+      "const": "laion/larger_clap_general"
     },
     "clap_revision": {
       "type": "string",

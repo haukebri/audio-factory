@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store, studio service and review workspace are complete; judge integration and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service, review workspace and CLAP judge integration are complete; automatic retries and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -16,7 +16,7 @@ Reviewed 2026-09-09, including the working-tree fixes following the project-wide
 
 | Area | Implemented in M1 | M2 change |
 | --- | --- | --- |
-| Generation | Pinned local Stable Audio 3 MLX; `make` performs one job | Reuse the backend; add a shared bounded request workflow for UI and agents |
+| Generation | Pinned local Stable Audio 3 MLX; `make` performs one job | Reuse through task 07; task 08 migrates to Stable Audio 3 Medium GGUF F16 with final integration checks |
 | QA | Signal measurements and CLAP text/audio similarity; advisory only | Use LAION Larger CLAP General with a versioned score/signal policy producing accept/reject/uncertain decisions |
 | Export | Region 1, normalized cut, portable original/derivative lineage | Judge the delivered cut; show raw/cut playback and allow adjustment before export |
 | Recovery | Failed/interrupted QA retries preserve attempts; repeated cuts refresh QA bundles | Preserve every candidate before another generation; restart-safe request history |
@@ -47,6 +47,10 @@ The studio process remains available for playback/history while MLX/CLAP/judge s
 
 Persist each attempt's state and candidate before another generation can clear `out/`. On restart, attach to an owned live operation or mark it interrupted; never silently replay a generation whose outcome is uncertain. Missing judge/setup, malformed responses, timeout and cancellation are operational states, not a rejected sound and not a pass.
 
+## Generation model migration
+
+Owner selection (2026-09-09): [task 08](../tasks/m02/08-medium-gguf-generation.md) replaces the default generator with `thepatch/stable-audio-3-medium-GGUF`, explicitly `stable-audio-3-medium-same-l-v1.0-F16.gguf` plus the matching F16 DiT and required conditioner/text artifacts. This includes the required local runtime change and supersedes the historical MLX-only restriction for that task. Keep historical provenance readable, preserve Larger CLAP General QA, and verify the migrated workflow before closing this additional scope.
+
 ## Judge and regeneration policy
 
 Planning default: local processing only. No prompt/audio uploads, paid inference or cloud fallback are authorized by this plan. A later explicit provider decision can amend this boundary.
@@ -71,10 +75,12 @@ If data or targets are insufficient, keep the tested product usable with explici
 
 Product integration:
 
+- [ ] Stable Audio 3 Medium GGUF F16 is the verified default generator, including the exact requested SAME-L file and matching components, with retained export, QA and lifecycle checks (task 08).
+
 - [x] Prompt → generation → playback → human approval/rejection → verified export works in one browser workflow (task 03 controlled synthetic journey; no human listening claim).
 - [x] Durable candidate assets, source-only evidence and immutable human feedback survive process restart, relocation and deletion of owned temporary output (task 01 deterministic checks).
 - [x] History, rejected candidates and feedback survive refresh, process restart and the next generation (task 02 controlled service/browser checks).
-- [ ] LAION Larger CLAP General scores actual audio with pinned provenance, a versioned decision policy and explicit failure states.
+- [x] LAION Larger CLAP General scores actual audio with pinned provenance, a versioned decision policy and explicit failure states (task 04 real CPU contrasts, policy fixtures and studio replay smoke; quality remains experimental).
 - [ ] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work.
 - [x] CLI/agent access uses the same workflow and decision records as the studio (task 02 shared workflow and durable store).
 - [x] Local auth/origin/path boundaries, accessibility, playback, error states and cleanup have direct checks (tasks 02–03 service/browser evidence).

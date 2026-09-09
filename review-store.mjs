@@ -30,8 +30,16 @@ const candidateSchema = object({
     actor: { const: "automatic" }, audio_sha256: digest,
     model: { type: "string", minLength: 1, maxLength: 200 }, revision: { type: "string", minLength: 1, maxLength: 200 },
     rubric_sha256: digest, verdict: { enum: ["auto_accepted", "rejected", "needs_review"] },
-    reason_tags: tags, note,
+    reason_tags: { type: 'array', uniqueItems: true, maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 80 } }, note,
   })),
+});
+const evaluationSchema = candidateSchema.properties.evaluation.anyOf[0];
+evaluationSchema.properties.evidence = object({
+  status: { enum: ['completed', 'unavailable'] }, decision: { enum: ['accept', 'reject', 'uncertain'] },
+  reason_tags: evaluationSchema.properties.reason_tags,
+  policy: { type: 'object' }, target: { type: 'string', minLength: 1, maxLength: 2000 },
+  target_sha256: digest, descriptions_sha256: digest, elapsed_ms: { type: 'integer', minimum: 0 },
+  error: nullable({ type: 'string', maxLength: 2000 }), result: nullable({ type: 'object' }),
 });
 const feedbackSchema = object({
   event_id: id, candidate_sha256: digest, supersedes: nullable(id), actor: { const: "human" },

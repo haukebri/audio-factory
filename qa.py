@@ -70,6 +70,8 @@ def signal_analysis(audio, rate, settings):
                        'pulse_hz': rate / hop / lag, 'wave_correlation': wave_strength, 'wave_pulse_hz': rate / stride / wave_lag, 'suspected': bool(suspected)})
     persistence = sum(row['suspected'] for row in rhythm) / max(1, len(rhythm))
     return {'duration_seconds': count / rate, 'peak': float(np.max(np.abs(audio))),
+            'clipping_fraction': float(np.mean(np.abs(audio) >= 0.999)),
+            'boundary_peak': float(np.max(np.abs(audio[[0, -1]]))),
             'silence': {'leading_seconds': leading, 'trailing_seconds': trailing,
                         'fraction': sum(g['end_seconds'] - g['start_seconds'] for g in gaps) / (count / rate), 'gaps': gaps},
             'regions': regions, 'rhythm': {'suspected': bool(len(rhythm) >= 2 and persistence >= settings['rhythm_min_persistence']),
@@ -118,11 +120,13 @@ class Clap:
                 features = self.model.get_audio_features(**inputs)
                 features = features / features.norm(dim=-1, keepdim=True)
                 values = (features @ embeddings.T)[0].tolist()
+                if not np.isfinite(values).all():
+                    raise ValueError('Nonfinite CLAP similarities')
                 ranked = sorted(zip(labels, values), key=lambda pair: -pair[1])
                 scores.append({'start_seconds': float(start), 'end_seconds': float(end), 'kind': kind,
                                'ranking': [{'description': label, 'similarity': value} for label, value in ranked],
                                'target_margin': values[0] - max(values[1:]) if len(values) > 1 else None})
-        return {'status': 'completed', 'model': self.manifest, 'scores': scores, 'meaning': 'relative similarity; not correctness probability'}
+        return {'status': 'completed', 'model': self.manifest, 'scores': scores, 'decoded_pcm_sha256': hashlib.sha256(raw).hexdigest(), 'descriptions': labels, 'meaning': 'relative similarity; not correctness probability'}
 
 
 def analyze(path, request, clap=None):
@@ -131,10 +135,11 @@ def analyze(path, request, clap=None):
     if not len(audio) or not np.isfinite(audio).all():
         raise ValueError('Empty or nonfinite audio')
     result = signal_analysis(audio, rate, SETTINGS)
+    result['audio_sha256'] = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
     result['clap'] = {'status': 'disabled'}
     if request.get('clap'):
         try:
-            result['clap'] = (clap or Clap()).score(path, result['regions'], request['target'], request.get('alternatives', []))
+            result['clap'] = (clap or Clap()).score(path, [] if request.get('delivered') else result['regions'], request['target'], request.get('alternatives', []))
         except Exception as error:
             result['clap'] = {'status': 'failed', 'error': str(error)}
     result['elapsed_ms'] = round((time.monotonic() - started) * 1000)

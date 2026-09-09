@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control tasks
 
-This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–03 are complete; tasks 04–07 remain planned. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
+This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–04 are complete; tasks 05–08 remain planned. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
 
 ## Ordered queue
 
@@ -9,10 +9,13 @@ This queue implements the [new M2 milestone](../../milestone/05-review-and-quali
 | 01 | [x] | [Persist candidates and human feedback](01-durable-review-store.md) | M1 |
 | 02 | [x] | [Expose the local studio and shared job workflow](02-studio-service.md) | 01 |
 | 03 | [x] | [Build the prompt and listening workspace](03-review-frontend.md) | 02 |
-| 04 | [ ] | [Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md) | 03 |
+| 04 | [x] | [Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md) | 03 |
 | 05 | [ ] | [Reject and regenerate within a durable budget](05-automatic-quality-loop.md) | 04 |
 | 06 | [ ] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |
 | 07 | [ ] | [Verify the studio and quality loop end to end](07-integrated-verification.md) | 06 |
+| 08 | [ ] | [Migrate generation to Stable Audio 3 Medium GGUF F16](08-medium-gguf-generation.md) | 07 |
+
+Task 08 is the owner-authorized generation migration to the Medium GGUF F16 set, including `stable-audio-3-medium-same-l-v1.0-F16.gguf`; it owns verification of the final migrated backend. Tasks 04–07 keep the existing generator while completing QA integration.
 
 Task files are authoritative. The existing runner skips `00-` files and reads `Status: [ ]` / `Status: [x]`. Keep task numbers unique and execute in order. Preview:
 
@@ -46,4 +49,4 @@ Use fresh owned fixture roots and ephemeral ports. Record every job, candidate, 
 
 Record commands/results, input revision and affected hashes, real versus synthetic samples, actual listening provenance, output paths, cleanup and unresolved recovery. Large private artifacts stay ignored; durable Markdown summarizes evidence. Add only focused behavioral regressions, and run affected checks after changes. Tests must preserve existing audio and may not label model scores or playback events as human approval.
 
-After mandatory checks pass, mark the task and this row complete, and update only milestone items directly supported. The runner then reviews/commits. Preserve owner-authorized scope in review. Product readiness and measured quality improvement are separate: task 06 may finish with `quality_not_established` when human data are insufficient, and task 07 may close product integration while the milestone's quality targets remain unchecked. Do not claim dramatic improvement until the frozen held-out evaluation supports it.
+After mandatory checks pass, mark the task and this row complete, and update only milestone items directly supported. The runner then reviews/commits. Preserve owner-authorized scope in review. Product readiness and measured quality improvement are separate: task 06 may finish with `quality_not_established` when human data are insufficient, and task 07 may close pre-migration product integration and task 08 verifies the migrated generator while the milestone's quality targets remain unchecked. Do not claim dramatic improvement until the frozen held-out evaluation supports it.

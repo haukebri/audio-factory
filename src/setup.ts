@@ -3,23 +3,25 @@ import { closeSync, existsSync, openSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { config, root } from "./config.js";
 
-export async function ensureSetup(qa = false, signal?: AbortSignal) {
+export async function ensureSetup(qa = false, signal?: AbortSignal, qaOnly = false) {
   const modelRoot = `${root}/.runtime/official-sa3/optimized/mlx/models/mlx`;
   const commands: [string, string[]][] = [];
   if (
-    !existsSync(`${root}/.runtime/mlx-venv/bin/python`) ||
-    config.models.some((m) => !existsSync(`${modelRoot}/${m.file}`))
+    !qaOnly && (!existsSync(`${root}/.runtime/mlx-venv/bin/python`) ||
+    config.models.some((m) => !existsSync(`${modelRoot}/${m.file}`)))
   )
     commands.push([process.execPath, [`${root}/setup.mjs`]]);
   if (qa) {
     let installed = existsSync(`${root}/.runtime/qa-venv/bin/python`);
     try {
       const manifest = JSON.parse(await readFile(`${root}/.runtime/qa-model.json`, "utf8"));
+      const expected = JSON.parse(await readFile(`${root}/qa-model.lock.json`, "utf8"));
+      installed &&= manifest.model === expected.model && manifest.revision === expected.revision;
       installed &&= manifest.files.every((file: { path: string }) => existsSync(file.path));
     } catch {
       installed = false;
     }
-    if (!installed) commands.push(["python3", [`${root}/qa-setup.py`]]);
+    if (!installed || qaOnly) commands.push(["python3", [`${root}/qa-setup.py`]]);
   }
   for (const [command, args] of commands) {
     signal?.throwIfAborted();
@@ -29,8 +31,10 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
     const log = openSync(`${root}/.runtime/setup.log`, "a", 0o600);
     const child = spawn(command, args, { stdio: ["ignore", log, log], detached: true });
     closeSync(log);
+    let stopping = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => {
+      stopping = true;
       if (child.pid && child.exitCode === null) {
         try {
           process.kill(-child.pid, "SIGTERM");
@@ -45,7 +49,7 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
     signal?.addEventListener("abort", stop, { once: true });
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    const timer = setTimeout(stop, 20 * 60 * 1000);
+    const timer = setTimeout(stop, (args[0]?.endsWith("qa-setup.py") ? 45 : 20) * 60 * 1000);
     try {
       await new Promise<void>((resolve, reject) => {
         child.once("error", reject);
@@ -56,6 +60,7 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
         );
       });
     } finally {
+      if (stopping && child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch {} }
       clearTimeout(timer);
       clearTimeout(killTimer);
       signal?.removeEventListener("abort", stop);

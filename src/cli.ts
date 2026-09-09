@@ -202,16 +202,15 @@ if (command === "make" || command === "generate") {
           },
     ),
   );
-} else if (
-  command === "retain" ||
-  command === "setup" ||
-  command === "setup-qa"
-) {
+} else if (command === "setup-qa") {
+  await stopped();
+  await ensureSetup(true, undefined, true);
+} else if (command === "retain" || command === "setup") {
   await stopped();
   const file =
-    command === "retain" ? "retain.mjs" : command === "setup" ? "setup.mjs" : "qa-setup.py";
+    command === "retain" ? "retain.mjs" : "setup.mjs";
   const result = spawnSync(
-    command === "setup-qa" ? "python3" : process.execPath,
+    process.execPath,
     [`${root}/${file}`, ...process.argv.slice(3)],
     { stdio: "inherit" },
   );

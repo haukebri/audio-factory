@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "frame_ms": 20,
   "silence_db": -50,
   "minimum_gap_ms": 120,
@@ -15,8 +15,8 @@
   "rhythm_min_persistence": 0.65,
   "fade_ms": 5,
   "timeout_ms": 120000,
-  "clap_model": "laion/clap-htsat-unfused",
-  "clap_revision": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+  "clap_model": "laion/larger_clap_general",
+  "clap_revision": "ada0c23a36c4e8582805bb38fec3905903f18b41",
   "rhythm_min_wave_correlation": 0.38,
   "export_peak_db": -3
 }

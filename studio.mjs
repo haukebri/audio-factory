@@ -57,6 +57,7 @@ export async function createStudio({ port = 8767, ...options }) {
         if (!session) fail(401, 'Browser session required');
         if (req.method !== 'GET' && (req.headers.origin !== origin || req.headers['x-studio-csrf'] !== session.csrf)) fail(403, 'Same-origin mutation credentials required');
       }
+      if (req.method === 'POST' && ['/studio/qa/setup', '/studio/qa/cancel'].includes(path)) { await body(req); json(res, 202, await jobs.setupQa(path.endsWith('/cancel'))); return; }
       if (req.method === 'GET' && path === '/studio/readiness') { json(res, 200, jobs.readiness()); return; }
       if (req.method === 'GET' && path === '/studio/jobs') { json(res, 200, jobs.list()); return; }
       if (req.method === 'POST' && path === '/studio/jobs') {
