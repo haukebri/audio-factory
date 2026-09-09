@@ -1,6 +1,6 @@
 # Milestone 2 — Portable workflow
 
-Status: planned. Depends on [milestone 1](01-standalone-core.md).
+Status: verified (tasks 04–06; real workflow confirmed in task 08). Depends on [milestone 1](01-standalone-core.md).
 
 ## Outcome
 
@@ -39,3 +39,5 @@ Execute in the global order in [the task queue](../tasks/m01/00-overview.md); ta
 - [06 — Document the standalone agent and manual workflows](../tasks/m01/06-agent-workflow.md)
 
 Task 04 fixture evidence: [portable export checks](../tasks/m01/04-portable-export-checks.md). Real generation and listening are not established by these fixtures.
+
+[Task 05](../tasks/m01/05-request-examples.md#evidence) validates all four examples and cut variants. [Task 06](../tasks/m01/06-agent-workflow.md#evidence) verifies CLI/skill agreement, local links, destination verification and standalone delivery instructions. [Task 08](../tasks/m01/08-real-job-smoke.md#evidence) confirms real retained/relocated bundles and offline review. These support the checked items; listening quality remains provisional.

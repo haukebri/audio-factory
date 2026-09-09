@@ -4,7 +4,7 @@
 
 Extract the working Urban Wildlife audio factory into a standalone tool that other developers can use with their own projects. Copy the proven implementation, remove its workspace and game dependencies, and verify the same workflow in isolation. This is a packaging and integration project, not a new inference engine.
 
-The current deliverable is documentation: this overview, the root [README](../readme.md), and one file per milestone in `docs/milestone/`. All implementation milestones below are planned. No model download, inference run, source migration, or publication is part of this documentation phase.
+The standalone tool is implemented and milestones 1–3 have recorded acceptance evidence: isolated build/bootstrap, portable fixtures/examples/skill, fresh pinned setup and two real MLX/CLAP jobs with retention and process cleanup. The [README](../readme.md) describes that verified workflow. See [task 07 setup evidence](tasks/m01/07-fresh-installation.md#evidence) and [task 08 smoke evidence](tasks/m01/08-real-job-smoke.md#evidence) for exact inputs, versions, hashes and limitations. No standalone listening acceptance is claimed. Distribution inventory, third-party notices and owner-authorized software licensing remain pending tasks 10–12; milestone 4 and release readiness are not complete. Nothing has been published.
 
 ## Source of truth
 

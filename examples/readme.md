@@ -3,7 +3,10 @@
 Run commands from the Audio Factory checkout root, on a supported Apple Silicon
 Mac with Node >=22.11, pnpm, uv, Git and FFmpeg available. The launcher builds the
 tool and installs missing dependencies; generation can download pinned models on
-first use. These are usage examples, not a real-generation or listening test.
+first use. See the [verified setup guide](../readme.md#install-and-generate).
+[Task 08](../docs/tasks/m01/08-real-job-smoke.md#evidence) used this request for
+two real default-CLAP jobs and checked the signal-only analysis and bounded cut
+offline. These examples do not establish listening acceptance.
 
 [request.json](request.json) asks for a five-second wood knock with seed 111.
 The [request validator](../request.schema.json) requires a nonblank prompt of

@@ -16,9 +16,12 @@ with absolute request paths: the launcher changes working directory to its root.
 Keep the consuming project's destination separate from temporary tool output.
 
 The [usage guide](../../../docs/usage.md) owns API/authentication, setup, schemas
-and recovery details. This is an offline developer tool. Fresh standalone setup
-and real-generation evidence remain pending tasks 07–08; fixture passes and source
-listening history do not establish new standalone listening acceptance.
+and recovery details. This is a local developer tool: first-use setup needs
+network; installed generation and QA use local weights. The guide links verified
+clean setup and two real jobs (tasks 07–08), tested versions and storage/timing
+observations. Neither smoke nor source listening history establishes acceptance
+of a new candidate. Software release/licensing remains pending through task 12;
+model/output rights remain separate.
 
 ## Generate and evaluate
 
@@ -136,6 +139,9 @@ and preserve wanted evidence before restarting.
 
 `pnpm test:audio-factory` checks service, lifecycle, signal QA and portable lineage
 with fixtures; see the [fixture prerequisites](../../../readme.md#fixture-checks).
-No standalone browser UI or real smoke script is supplied at this stage. Real
-inference and technical checks do not establish semantic acceptance. Leave no
+There is no standalone browser UI. `pnpm audio:smoke` runs and retains two real
+MLX/CLAP jobs and verifies session cleanup; retain wanted output first. Reuse the
+guide's recorded smoke evidence when inputs are unchanged. Linux instructions
+cover fixtures only, not generation. Real inference and technical checks do not
+establish semantic acceptance. Leave no
 factory/model process running when work is complete.

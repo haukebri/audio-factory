@@ -28,7 +28,7 @@ Read destination status before copying; do not overwrite unrelated work. Verify 
 - [x] Copied configuration, locks and model hashes match the recorded source, except documented path/package adaptations.
 - [x] Git's candidate file list excludes caches, tokens, PID files, audio history, weights and build products.
 
-Task 01 evidence: `pnpm install --frozen-lockfile`, `pnpm build` and `node standalone-core.test.mjs` passed on 2026-09-09. The packaging check independently installs/builds a disposable copy, restricts import reads to that copy, verifies dependency paths and invalid-command usage, then removes it. All 29 copied/adapted file hash pairs and all 28 retained lock package/snapshot entries were verified. See the [source inventory](../source-inventory.md) and [task evidence](../tasks/m01/01-standalone-core.md#evidence). The root launcher is intentionally pending task 02; no model setup/inference was run. A successful build proves packaging only; real inference belongs to milestone 3.
+Task 01 evidence: `pnpm install --frozen-lockfile`, `pnpm build` and `node standalone-core.test.mjs` passed on 2026-09-09. The packaging check independently installs/builds a disposable copy, restricts import reads to that copy, verifies dependency paths and invalid-command usage, then removes it. All 29 copied/adapted file hash pairs and all 28 retained lock package/snapshot entries were verified. See the [source inventory](../source-inventory.md) and [task evidence](../tasks/m01/01-standalone-core.md#evidence). Task 01 did not run model setup/inference; task 02 verifies the root launcher below. A successful build proves packaging only; real inference belongs to milestone 3.
 
 ## Runner tasks
 

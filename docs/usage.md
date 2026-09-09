@@ -7,9 +7,15 @@ uv, Git and FFmpeg; setup also invokes Python 3. Preflight those tools, network
 access to GitHub/Hugging Face and package sources, free disk space (setup requires
 at least 3 GiB), and ownership of port 8766 before starting expensive work.
 
-The standalone fixture workflow is verified; fresh full setup and real generation
-are **pending [task 07](tasks/m01/07-fresh-installation.md) and
-[task 08](tasks/m01/08-real-job-smoke.md)**. Examples are not listening evidence.
+Fresh standalone setup and two real MLX/CLAP jobs are verified in
+[task 07](tasks/m01/07-fresh-installation.md#evidence) and
+[task 08](tasks/m01/08-real-job-smoke.md#evidence). See the
+[README installation sequence](../readme.md#install-and-generate) for tested
+versions, network requirements, 104.50-second cold setup and 4.09 GiB storage
+observations. Neither is a performance/minimum-space guarantee. Generation is
+Apple Silicon macOS only; Linux is fixture-only, with no Linux execution claim.
+Software distribution/licensing remains pending through task 12; model/output
+rights are separate. Neither smoke nor examples establish listening acceptance.
 
 ## One temporary job
 
@@ -119,7 +125,13 @@ copy its complete run/work evidence to a deliberate durable location first;
 
 `.runtime/` holds reusable environments, the runtime checkout, private token and
 logs; `.runtime/retained/` survives subsequent sessions. Hugging Face caches and
-copies in consuming projects also survive. Never clear unrelated output, caches
+copies in consuming projects also survive. Model downloads use the Hugging Face
+hub cache (normally `~/.cache/huggingface/hub`, configurable with `HF_HOME` or
+`HF_HUB_CACHE`); MLX files in `.runtime/official-sa3/` link to that cache, and
+`.runtime/qa-model.json` records CLAP paths. Keep the same cache configuration
+after setup. Generation subprocesses use `HF_HUB_OFFLINE=1`; CLAP loads local
+files only. Explicit setup/repair still fetches runtime/package/model metadata
+and may need network even when weight bytes are cached. Never clear unrelated output, caches
 or retained candidates as a recovery shortcut. Do not start a session during
 offline review. No service or model process should remain after completing work.
 
@@ -168,7 +180,8 @@ Every endpoint, including health and downloads, requires
 `Origin` header is rejected (403); absent/wrong authentication returns 401. Do not
 print the token, put it in URLs, logs or shell command arguments, or use verbose
 HTTP tracing. For example, this reads it only into a Python process and prints
-health JSON, not the header (run after `start`):
+health JSON, not the header (illustrative client snippet, not a recorded live
+Python-client check; run after `start`):
 
 ```sh
 python3 - <<'PY'
@@ -222,4 +235,7 @@ produce the same ID. Stop and retain before starting again.
 
 For model-free checks, see [fixture instructions](../readme.md#fixture-checks) and
 [portable export evidence](tasks/m01/04-portable-export-checks.md). There is no
-standalone browser UI or `audio:smoke` package script at this task stage.
+standalone browser UI. `pnpm audio:smoke` runs two real default-CLAP jobs,
+retains both candidates and checks output/session cleanup; task 08 records its
+successful run. It writes `.runtime/smoke-*.json` and creates new output, so retain
+wanted work first and reuse existing evidence when inputs are unchanged.
