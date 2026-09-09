@@ -4,7 +4,7 @@ A local sound-effect tool for developers and coding agents: describe a sound, ge
 
 **Powered by Stability AI.** See [third-party notices and exact artifact terms](THIRD_PARTY_NOTICES.md).
 
-**Status: standalone installation and two real MLX/CLAP jobs verified.** The [clean setup](docs/tasks/m01/07-fresh-installation.md#evidence) and [smoke evidence](docs/tasks/m01/08-real-job-smoke.md#evidence) cover setup, normalized export, retention, relocation and shutdown. Listening quality remains provisional. Source distribution and licensing remain pending tasks 10–12; this is not a release or commercial-use claim.
+**Status: standalone installation and two real MLX/CLAP jobs verified.** The [clean setup](docs/tasks/m01/07-fresh-installation.md#evidence) and [smoke evidence](docs/tasks/m01/08-real-job-smoke.md#evidence) cover setup, normalized export, retention, relocation and shutdown. Listening quality remains provisional. Third-party notices and the prospective source inventory are verified in tasks 10–11. Source-distribution readiness is blocked only on the owner-authorized software license in task 12; nothing has been published.
 
 ## Install and generate
 
@@ -41,7 +41,7 @@ This sequence is supported by task 07's root setup output and task 08's two `mak
 - **Advisory quality:** CLAP similarity and signal checks do not establish prompt accuracy or listening acceptance. Region 1 may contain multiple events. No listener evaluated the two standalone smoke candidates; both remain provisional. Default searches stop after **three generations per requested sound** unless another budget is specified.
 - **Platform:** generation is supported on Apple Silicon macOS only. Linux instructions below cover model-free fixtures; they are not Linux generation support or evidence of a Linux run. Intel Macs and Windows generation are unsupported. There is no browser UI.
 - **Recovery:** inspect `.runtime/setup.log` for automatic setup, `.runtime/service.log` for manual startup, and `out/work/mlx-job-*/inference.log`/`export.log` for jobs. Check `./run status`; use `./run stop` to drain an owned session. Repair with explicit `setup`/`setup-qa` while stopped, preserving and investigating mismatched artifacts. See [storage and recovery](docs/usage.md#storage-and-recovery).
-- **Rights:** third-party attribution and artifact terms are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); project software licensing remains pending until [task 12](docs/tasks/m01/12-license-and-release-readiness.md). Model and generated-output rights are separate from the software license and quality review. Bundle license references alone do not grant rights. No weights are intended in the source distribution.
+- **Rights:** third-party attribution and artifact terms are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); no project software license has been authorized; [task 12](docs/tasks/m01/12-license-and-release-readiness.md) records the missing owner decision covering copied source and standalone additions. Model and generated-output rights are separate from the software license and quality review. Bundle license references alone do not grant rights. No weights are intended in the source distribution.
 
 ## Project documents
 

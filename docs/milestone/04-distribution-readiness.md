@@ -1,6 +1,6 @@
 # Milestone 4 — Distribution readiness
 
-Status: prospective source inventory and clean-copy checks verified; licensing and final closure pending task 12. Depends on [milestone 3](03-standalone-verification.md).
+Status: prospective source inventory and clean-copy checks verified; task 12 is blocked on owner-authorized software licensing. Depends on [milestone 3](03-standalone-verification.md).
 
 ## Outcome
 
