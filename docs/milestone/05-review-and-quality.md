@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: planned — implementation and measured quality improvement are not yet complete.
+Status: in progress — the durable review store is complete; studio integration and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -72,6 +72,7 @@ If data or targets are insufficient, keep the tested product usable with explici
 Product integration:
 
 - [ ] Prompt → generation → playback → human approval/rejection → verified export works in one browser workflow.
+- [x] Durable candidate assets, source-only evidence and immutable human feedback survive process restart, relocation and deletion of owned temporary output (task 01 deterministic checks).
 - [ ] History, rejected candidates and feedback survive refresh, process restart and the next generation.
 - [ ] A real audio-language model evaluates actual audio with pinned provenance and explicit failure states.
 - [ ] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work.

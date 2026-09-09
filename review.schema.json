@@ -5,7 +5,7 @@
   "required": ["status", "rationale", "analysis_ids"],
   "properties": {
     "status": {
-      "enum": ["provisional", "accepted"]
+      "enum": ["provisional", "accepted", "rejected", "auto_accepted", "needs_review"]
     },
     "rationale": {
       "type": "string",
