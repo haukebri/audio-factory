@@ -9,7 +9,7 @@ This queue implements the [new M2 milestone](../../milestone/05-review-and-quali
 | 01 | [x] | [Persist candidates and human feedback](01-durable-review-store.md) | M1 |
 | 02 | [x] | [Expose the local studio and shared job workflow](02-studio-service.md) | 01 |
 | 03 | [x] | [Build the prompt and listening workspace](03-review-frontend.md) | 02 |
-| 04 | [ ] | [Connect and preflight a local audio-language judge](04-audio-judge.md) | 03 |
+| 04 | [ ] | [Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md) | 03 |
 | 05 | [ ] | [Reject and regenerate within a durable budget](05-automatic-quality-loop.md) | 04 |
 | 06 | [ ] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |
 | 07 | [ ] | [Verify the studio and quality loop end to end](07-integrated-verification.md) | 06 |
@@ -32,7 +32,7 @@ The runner checkpoints all dirty files with `git add -A`, including pre-existing
 
 Read the full task, milestone, project overview, applicable AGENTS.md and relevant callers before editing. Reuse existing validators, atomic writes, subprocess ownership, generation/QA/cut and bundle verification. Keep the existing CLI and portable bundles compatible. No framework migration, hosted database, telemetry, public deployment or training pipeline by default.
 
-Local processing is the planning default. No cloud upload or paid provider is authorized. Task 04 performs the concrete judge capability preflight in a separate environment; exact pins are selected from verified evidence, not a guessed model name. Missing optional credentials or human label counts must not stop tasks that do not need them. Do not silently substitute CLAP for an audio-language judge. The model task cannot complete without a real audio-input invocation; an incompatible candidate requires a concrete revised local plan, not a fabricated pass.
+Local processing is the planning default. No cloud upload or paid provider is authorized. Task 04 performs the concrete judge capability preflight in a separate environment; exact pins are selected from verified evidence, not a guessed model name. Missing optional credentials or human label counts must not stop tasks that do not need them. The owner selected `laion/larger_clap_general` for QA on 2026-09-09, superseding Qwen2-Audio. The judge is now a versioned CLAP-score and signal policy, not a generative audio-language model. Reuse the existing CLAP path, verify the selected checkpoint through real audio-input inference and exhaust task-authorized local recovery before declaring a capability blocker.
 
 Before each task, check its actual tools/access/disk/session needs. Human intervention is only for new consequential risk or a required unavailable authority/capability with no safe continuation. Use condition-based waits and task budgets; quiet model loading alone is not a failure. No routine owner acceptance gate: return `owner_acceptance_required: false` for completed engineering tasks. Human feedback collection is part of the product, not a runner pause.
 

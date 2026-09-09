@@ -4,12 +4,12 @@ Status: [ ] Planned
 
 Overview: [M2 queue](00-overview.md) · [Project](../../project-overview.md)
 Milestone: [M2 — Review studio and automatic quality control](../../milestone/05-review-and-quality.md)
-Depends on: [04 — Connect and preflight a local audio-language judge](04-audio-judge.md).
+Depends on: [04 — Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md).
 Expected duration: 45–90 minutes.
 
 ## Outcome and scope
 
-Extend the shared workflow from task 02 using the real judge from task 04. Apply deterministic validity checks, advisory signal/CLAP information and audio judgment to the delivered candidate. Keep final intent fixed. For an identified trim problem, evaluate a bounded alternative region/cut before generating again; record every derivative and its verdict. On semantic rejection, choose and persist a new seed and launch another generation only within the three-attempt/20-minute budget. Persist all candidate assets first.
+Extend the shared workflow from task 02 using the real judge from task 04. Apply deterministic validity checks and the versioned Larger CLAP General score/signal policy from task 04 to the delivered candidate. Policy thresholds and reason tags determine the automatic verdict; no LLM response or generated audible observations are required. Keep final intent fixed. For an identified trim problem, evaluate a bounded alternative region/cut before generating again; record every derivative and its verdict. On semantic rejection, choose and persist a new seed and launch another generation only within the three-attempt/20-minute budget. Persist all candidate assets first.
 
 Implement explicit auto_accepted, rejected, needs_review, exhausted, cancelled and operational-error outcomes. Uncertainty or a missing judge must not become a pass or a regeneration storm. Human rejection can request another attempt within the selected budget; explicit additional budget creates a recorded continuation. Human decisions override presentation/export selection without erasing judge history. Studio and CLI/agent access share the same policy and durable IDs.
 

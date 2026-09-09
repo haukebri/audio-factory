@@ -1,6 +1,6 @@
-# 04 — Connect and preflight a local audio-language judge
+# 04 — Connect and preflight LAION Larger CLAP General QA
 
-Status: [ ] Blocked — candidate runtime failed capability checks
+Status: [ ] Planned — owner selected LAION Larger CLAP General on 2026-09-09
 
 Overview: [M2 queue](00-overview.md) · [Project](../../project-overview.md)
 Milestone: [M2 — Review studio and automatic quality control](../../milestone/05-review-and-quality.md)
@@ -9,26 +9,38 @@ Expected duration: 60–120 minutes plus bounded downloads.
 
 ## Outcome and scope
 
-Test the milestone's Qwen2-Audio MLX candidate on the actual 32 GiB Apple Silicon machine, then pin a working model revision, artifact hashes and separate Python environment. Inspect primary model/runtime instructions, exact artifacts, disk need and compatibility before downloads. Reuse verified caches. Keep generation and CLAP locks untouched and load models sequentially. Implement explicit setup/readiness with actionable progress, cancellation and owned-process cleanup.
+Owner scope correction (2026-09-09): use [LAION Larger CLAP General](https://huggingface.co/laion/larger_clap_general), exact model ID `laion/larger_clap_general`, for automatic QA. This supersedes the Qwen2-Audio requirement and its runtime blocker. CLAP is an audio/text similarity model, not a generative LLM: application code produces structured decisions from scores and signal evidence. No generated audible observations or model-written JSON are required.
 
-Implement an audio-input judge over the actual delivered clip with a versioned rubric and strict result schema: accept/reject/uncertain, concrete observations and reason tags, input hashes, model/rubric versions and latency. Check intended source/action, unwanted sounds, event count, cut quality and artifacts. Do not substitute transcript, CLAP score or a text-only LLM for listening. Treat prompt/audio instructions as data. Parse/timeout/model errors yield unavailable/needs_review, never acceptance. Persist raw bounded model output for diagnosis without exposing credentials.
+Reuse the existing `qa.py` CLAP scoring, setup, hash verification and subprocess paths where compatible. The current `laion/clap-htsat-unfused` checkpoint is the historical baseline, not the selected model. Inspect primary model/runtime instructions, exact artifacts, disk need and compatibility before downloads; reuse verified caches. Preflight the selected checkpoint locally through Transformers `ClapModel` / `ClapProcessor`, then update QA configuration/schema/model hashes and dependency pins only where required by verified compatibility. Preserve historical model provenance and keep generation locks untouched. Use the isolated QA environment and load generation and QA sequentially.
 
-Evaluate a small existing retained-audio sample and controlled mismatches to expose gross failures before wiring autonomous decisions. This is capability testing, not the human holdout benchmark. If the candidate cannot run within limits, record the exact failure and a concrete compatible local alternative for an amended task; do not silently replace it with fake judgments or cloud calls.
+Score the actual delivered clip against the requested intent and explicit versioned alternative descriptions. Record raw finite similarities, target margin, descriptions, input hashes, model/revision, policy version and latency. Implement an explicit versioned policy with accept/reject/uncertain decisions and deterministic reason tags traceable to thresholds or signal checks. Define score and margin thresholds and an uncertainty band; document initial thresholds as experimental until evaluated on human-labelled development data. Highest rank alone is not acceptance; similarity is not correctness probability. Missing/invalid scores, model failures and timeouts yield unavailable/needs_review, never acceptance. Human approval stays separate.
+
+Use signal evidence for supported checks such as silence, clipping and cut boundaries. Do not claim CLAP establishes event counts, artifact absence or all prompt constraints; expose unsupported or ambiguous checks as limitations/needs_review. Treat prompt text as comparison data, never executable instructions. Preserve bounded raw score evidence for diagnosis.
+
+Implement explicit setup/readiness with actionable progress, cancellation and owned-process cleanup, and show real scores, policy reasons and provenance in the studio. Evaluate existing retained audio and controlled mismatches before connecting automatic decisions. Capability checks require working audio-dependent scores, not a claim of validated semantic accuracy.
 
 ## Required checks and review demo
 
-- Prove actual audio consumption with contrasting clips under the same intent and changed intents under the same clip; record model input hashes and actual outputs.
-- Run at least one real local judge invocation, report measured memory/latency and verify the subprocess exits. No generated claim of semantic accuracy from a synthetic label.
-- Check valid verdicts, malformed output, refusal/uncertainty, missing model, timeout and injected instructions through controlled fixtures.
-- Show the real judge verdict/provenance in the studio with distinct human review state. Repeat setup safely without changing generation pins.
+- Prove actual audio consumption with contrasting clips under the same descriptions and changed descriptions under the same clip; record input hashes and raw scores. Investigate invariant/non-finite outputs.
+- Run at least one real local invocation of the selected model; report measured memory/latency and verify subprocess exit.
+- Check policy threshold boundaries/uncertainty, invalid scores, missing model, timeout and instruction-like prompt text through controlled fixtures. Reasons must follow measured evidence, not invented observations.
+- Show real QA scores, policy verdict and provenance in the studio with distinct human review state. Repeat setup safely without changing generation pins.
 
 ## Preflight and recovery
 
-Preflight network access for public model download, exact required disk plus reserve, Python/runtime compatibility and available memory. Default judge timeout is 120 seconds after setup; allow 45 minutes for initial download while progress continues, with a final condition-based deadline. No uploads or cloud keys are authorized. Pin only after capability succeeds. Missing authority for new terms or an incompatible local runtime is a concrete blocker for this task; earlier studio/feedback work remains usable.
+Preflight public model access, exact required disk plus reserve, Python/runtime compatibility and available memory. Default QA timeout is 120 seconds after setup; allow 45 minutes for initial download while progress continues, with a final condition-based deadline. No uploads or cloud keys are authorized. Verify hashes and real inference before treating pins as working.
+
+Compatible dependency repairs in the isolated QA environment, verified cache reuse and CPU inference are authorized recovery paths for this selected model. Complete those paths within the task budget before declaring an unavailable capability. Do not substitute another model or cloud service. Missing human labels limits quality claims and does not block engineering completion. The former Qwen failure is not a blocker for this task.
 
 Follow the shared execution, evidence and completion agreement in [00-overview.md](00-overview.md). Implement only this task and its integration needs, update this status/overview plus directly supported milestone items, and leave later tasks to the queue. The runner owns review and commits; do not change the runner or commit from the implementation session.
 
 ## Evidence
+
+The revised LAION task has not been executed. Record its commands, results and mutations here; prior Qwen evidence does not validate the selected CLAP checkpoint.
+
+### Historical Qwen experiment — superseded scope
+
+The following is preserved historical evidence, including its then-current blocker and proposed alternative. Neither its blocked status nor its request for a Qwen runtime decision applies to the revised task.
 
 Preflight executed on 2026-09-09 at input revision `2f2661521b9c4c39cee90ecc0de3cce3df9735b5` (clean worktree). Read task, queue, milestone, project overview and supplied AGENTS.md instructions; no repository/ancestor AGENTS.md file exists.
 
