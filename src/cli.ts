@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -87,16 +87,6 @@ async function launch(qa = false) {
     throw error;
   }
 }
-async function post(path: string, value: unknown, extra: Record<string, string> = {}) {
-  const response = await fetch(`${url}${path}`, {
-    method: "POST",
-    headers: { ...headers, ...extra },
-    body: JSON.stringify(value),
-    signal: AbortSignal.timeout(config.timeout_ms),
-  });
-  if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-  return response;
-}
 type Report = {
   id: string;
   status: string;
@@ -133,30 +123,30 @@ if (command === "make" || command === "generate") {
       };
   qaRequest("analyses", qa);
   await stopped();
-  const service = await launch(qa.clap === true);
+  const modulePath = `${root}/workflow.mjs`;
+  const { openJobs } = await import(modulePath);
+  const jobs = await openJobs({ root, token });
+  const interrupt = () => { void jobs.close(); };
+  process.once("SIGTERM", interrupt);
+  process.once("SIGINT", interrupt);
   try {
-    const response = await post("/v1/sound-effects", request, { "Idempotency-Key": randomUUID() });
-    const id = response.headers.get("x-run-id");
-    await response.arrayBuffer();
-    const analysis: Report = await (await post(`/v1/runs/${id}/analyses`, qa)).json();
-    const cutResponse = await post(`/v1/runs/${id}/cuts`, {});
-    await cutResponse.arrayBuffer();
-    const location = cutResponse.headers.get("location");
-    if (!location?.startsWith(`/v1/runs/${id}/cuts/`))
-      throw new Error("Invalid cut metadata location");
-    const cut: Report = await (await fetch(`${url}${location}`, { headers })).json();
-    if (!cut.delivery?.audio) throw new Error("Factory did not prepare an export");
-    console.log(
-      JSON.stringify({
-        id,
-        audio: cut.delivery.audio,
-        qa: summary(analysis),
-        report: `${root}/out/runs/${id}/analyses/${analysis.id}/report.json`,
-      }),
-    );
+    const job = await jobs.submit(randomBytes(16).toString("hex"), { request, qa });
+    await jobs.wait();
+    if (job.status !== "completed") throw new Error(job.error ?? job.status);
+    console.log(JSON.stringify(job.result));
   } finally {
-    await service.shutdown();
+    process.off("SIGTERM", interrupt);
+    process.off("SIGINT", interrupt);
+    await jobs.close();
   }
+} else if (command === "studio") {
+  const modulePath = `${root}/studio.mjs`;
+  const { createStudio } = await import(modulePath);
+  const studio = await createStudio({ root, token });
+  const interrupt = () => { void studio.close(); };
+  process.once("SIGTERM", interrupt);
+  process.once("SIGINT", interrupt);
+  console.error("Audio Factory studio ready on http://127.0.0.1:8767; Ctrl-C stops owned work");
 } else if (command === "serve") {
   await launch(true);
   console.error(`Temporary factory ready on ${url}; stops after ${config.idle_ms / 1000}s idle`);
@@ -228,6 +218,6 @@ if (command === "make" || command === "generate") {
   process.exitCode = result.status ?? 1;
 } else {
   throw new Error(
-    "Usage: audio:factory make <request.json> [qa.json]|analyze <id> [qa.json]|cut <id> [cut.json | start end]|retain <audio-path>|status|start|stop|setup|setup-qa|inspect <id>",
+    "Usage: audio:factory make <request.json> [qa.json]|analyze <id> [qa.json]|cut <id> [cut.json | start end]|retain <audio-path>|studio|status|start|stop|setup|setup-qa|inspect <id>",
   );
 }

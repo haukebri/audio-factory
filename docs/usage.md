@@ -122,7 +122,9 @@ successfully initialized `make`/`start` session clears it, after acquiring the
 port and verifying setup. Retain every candidate needed for comparison **before**
 that next session. To preserve failed-run evidence without a completed export,
 copy its complete run/work evidence to a deliberate durable location first;
-`retain` only accepts prepared exports. There is no automatic durable archive.
+`retain` only accepts prepared exports. The shared `make`/studio workflow now also
+preserves candidates in `.runtime/studio/`; work logs and failed generations remain
+temporary. The legacy manual service retains its temporary-session behavior.
 
 `.runtime/` holds reusable environments, the runtime checkout, private token and
 logs; `.runtime/retained/` survives subsequent sessions. Hugging Face caches and
@@ -241,8 +243,65 @@ archive: the next successful startup clears their output even if a key could
 produce the same ID. Stop and retain before starting again.
 
 For model-free checks, see [fixture instructions](../readme.md#fixture-checks) and
-[portable export evidence](tasks/m01/04-portable-export-checks.md). There is no
-standalone browser UI. `pnpm audio:smoke` runs two real default-CLAP jobs,
+[portable export evidence](tasks/m01/04-portable-export-checks.md). The local studio
+service below provides browser history and playback. `pnpm audio:smoke` runs two real default-CLAP jobs,
 retains both candidates and checks output/session cleanup; task 08 records its
 successful run. It writes `.runtime/smoke-*.json` and creates new output, so retain
 wanted work first and reuse existing evidence when inputs are unchanged.
+
+## Local studio service
+
+Run `./run studio` and open **http://127.0.0.1:8767**. The server starts without
+loading models and remains available for history, native playback and verified
+bundle downloads after compute exits. Ctrl-C stops owned work and closes the
+studio; `status`/`stop` still address the legacy temporary service on port 8766.
+The prompt/review workspace is the next task; this initial page displays saved
+candidates. Keep offline maintenance sequential with studio work.
+
+`make`/`generate` and studio jobs use `workflow.mjs`: setup, generation, source
+preservation, QA, cut and verified bundle preservation. `make` keeps its existing
+result fields and adds `candidate_sha256`. Jobs, selected seeds, progress,
+candidates and immutable feedback persist under `.runtime/studio/`, outside
+`out/`. One workflow owner and one compute job are allowed; when the studio is
+open, agents submit to its API instead of launching another `make`. Both public
+studio and temporary compute ports must be free; unrelated listeners are never
+terminated. Setup allows 20 minutes, generation 10 minutes, and QA/cut retain
+their configured operation deadlines. Cancellation persists `canceling`, stops
+owned generation/setup and drains accepted QA before `canceled`.
+
+The browser bootstraps with `GET /studio/session` and `X-Studio-Bootstrap: 1`.
+It receives an HttpOnly, SameSite=Strict cookie and a JSON `csrf` value. Mutations
+require the exact Origin `http://127.0.0.1:8767`, that cookie, and
+`X-Studio-CSRF: <csrf>`. Every studio route validates the exact Host. There is no
+CORS allowance. Non-browser clients can use the existing private bearer token
+instead, with no Origin header. Never put that token in browser code, URLs or
+logs. Sessions expire after 12 hours; reload bootstraps a new session without
+losing durable jobs or feedback.
+
+| Method and endpoint | Result |
+| --- | --- |
+| `POST /studio/jobs` | `{ "request": <generation request>, "qa": <optional QA request> }`; required `Idempotency-Key`; returns 202 and durable job immediately |
+| `GET /studio/jobs` or `/studio/jobs/<job-id>` | Persisted request, seed, status/progress, candidate IDs, result/error |
+| `POST /studio/jobs/<job-id>/cancel` | `{}`; stop/drain owned work; repeated cancellation is safe |
+| `POST /studio/jobs/<job-id>/resume` | `{}` with a **new** `Idempotency-Key`; explicitly authorize a new attempt after canceled/failed/interrupted work |
+| `GET /studio/candidates` or `/studio/candidates/<sha256>` | Verified immutable candidates, including source-only evidence |
+| `GET /studio/candidates/<sha256>/source` or `/audio` | Registered WAV bytes; native single-range playback supported |
+| `GET` / `POST /studio/candidates/<sha256>/feedback` | Read history / append an immutable human feedback event |
+| `GET /studio/candidates/<sha256>/export` | Verified TAR containing prepared WAV, original WAV, portable JSON, candidate record and feedback history; source-only candidates return 409 |
+
+JSON mutations retain the 16 KiB body bound. Idempotency keys contain 1–128
+letters, digits, `_` or `-`. Repeating the same key/body returns the same durable
+job, including after restart; conflicts return 409 and contention returns 429.
+There is no queue or automatic regeneration. Restart records unfinished work as
+`interrupted` and refuses new generation until explicit resume. Resume records
+its new attempt identity before launch; retry that same resume key on disconnect.
+Completed sources left before candidate publication are rescued before another
+workflow clears temporary output. Persistence failures stop further cleanup.
+
+Feedback bodies use the store contract: `event_id` (32 lowercase hex),
+`candidate_sha256`, `supersedes` (null or previous event ID), `actor: "human"`,
+`verdict: "accepted" | "rejected"`, `reason_tags` and `note`. Supported tags are
+`wrong_sound`, `extra_events`, `background_noise`, `artifacts`, `bad_trim`, `other`.
+Identical events are idempotent; stale/conflicting updates return 409. Playback
+never creates a human label. Source-only snapshots remain separate immutable
+records from delivered cuts, and automatic evaluation is not yet connected.

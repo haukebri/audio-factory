@@ -29,10 +29,16 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
     const log = openSync(`${root}/.runtime/setup.log`, "a", 0o600);
     const child = spawn(command, args, { stdio: ["ignore", log, log], detached: true });
     closeSync(log);
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => {
       if (child.pid && child.exitCode === null) {
         try {
           process.kill(-child.pid, "SIGTERM");
+          killTimer ??= setTimeout(() => {
+            if (child.pid && child.exitCode === null) {
+              try { process.kill(-child.pid, "SIGKILL"); } catch {}
+            }
+          }, 5000);
         } catch {}
       }
     };
@@ -51,6 +57,7 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
       });
     } finally {
       clearTimeout(timer);
+      clearTimeout(killTimer);
       signal?.removeEventListener("abort", stop);
       process.off("SIGINT", stop);
       process.off("SIGTERM", stop);

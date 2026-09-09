@@ -22,7 +22,7 @@ try {
   const files = ["run", "src", "package.json", "pnpm-lock.yaml", "tsconfig.json",
     "config.json", "qa-config.json", "qa-model.lock.json", "requirements.lock",
     "qa-requirements.lock", "setup.mjs", "download_models.py", "qa-setup.py",
-    "qa.py", "bundle.mjs", "export-lineage.mjs", "retain.mjs",
+    "qa.py", "bundle.mjs", "export-lineage.mjs", "retain.mjs", "workflow.mjs", "studio.mjs", "review-store.mjs",
     ...readdirSync(root).filter((name) => name.endsWith(".schema.json"))];
   for (const file of files) cpSync(join(root, file), join(isolated, file), { recursive: true });
   for (const args of [["install", "--frozen-lockfile"], ["build"]]) {
@@ -44,6 +44,10 @@ try {
     import { config, validateRequest } from './dist/config.js';
     import { createFactory } from './dist/service.js';
     import { verifyExport } from './export-lineage.mjs';
+    import { openJobs } from './workflow.mjs';
+    import { createStudio } from './studio.mjs';
+    assert.equal(typeof openJobs, 'function');
+    assert.equal(typeof createStudio, 'function');
     assert.equal(typeof createFactory, 'function');
     assert.equal(config.steps, 8);
     assert.ok(validateRequest({prompt: 'A dry knock'}));
