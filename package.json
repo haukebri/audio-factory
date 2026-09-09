@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test:audio-factory": "node --test service.test.mjs standalone-core.test.mjs",
     "audio:factory": "pnpm build && node dist/cli.js"
   },
   "dependencies": {

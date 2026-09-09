@@ -28,7 +28,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 | --- | --- | --- | --- | --- |
 | 01 | [x] | [Extract a buildable standalone core](01-standalone-core.md) | 01 | — |
 | 02 | [x] | [Wire the root launcher and setup paths](02-launcher-and-setup.md) | 01 | 01 |
-| 03 | [ ] | [Port service and recovery checks](03-service-regressions.md) | 03 | 02 |
+| 03 | [x] | [Port service and recovery checks](03-service-regressions.md) | 03 | 02 |
 | 04 | [ ] | [Verify offline QA and portable exports](04-portable-export-checks.md) | 02 | 03 |
 | 05 | [ ] | [Add validated request and cut examples](05-request-examples.md) | 02 | 04 |
 | 06 | [ ] | [Document the standalone agent and manual workflows](06-agent-workflow.md) | 02 | 05 |
