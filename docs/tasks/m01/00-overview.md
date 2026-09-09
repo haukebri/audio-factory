@@ -35,7 +35,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 | 07 | [x] | [Verify first-use setup in an isolated checkout](07-fresh-installation.md) | 03 | 06 |
 | 08 | [x] | [Verify two real jobs and session cleanup](08-real-job-smoke.md) | 03 | 07 |
 | 09 | [x] | [Finish the verified installation and usage guide](09-verified-user-docs.md) | 04 | 08 |
-| 10 | [ ] | [Prepare the source and third-party notice inventory](10-third-party-notices.md) | 04 | 09 |
+| 10 | [x] | [Prepare the source and third-party notice inventory](10-third-party-notices.md) | 04 | 09 |
 | 11 | [ ] | [Verify the prospective source distribution](11-distribution-audit.md) | 04 | 10 |
 | 12 | [ ] | [Apply the authorized license and close release readiness](12-license-and-release-readiness.md) | 04 | 11 |
 
