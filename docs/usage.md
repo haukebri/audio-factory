@@ -262,6 +262,8 @@ wanted work first and reuse existing evidence when inputs are unchanged.
 
 ## Local studio service
 
+The [studio guide](studio.md) describes Create/Library navigation, take/version identity, comparison, human review and download.
+
 Run `./run studio` and open **http://127.0.0.1:8767**. The server starts without
 loading models and remains available for history, native playback and verified
 bundle downloads after compute exits. Ctrl-C stops owned work and closes the
@@ -296,7 +298,7 @@ losing durable jobs or feedback.
 
 | Method and endpoint | Result |
 | --- | --- |
-| `POST /studio/jobs` | `{ "mode": "automatic", "request": <generation request>, "qa": <optional QA request>, "budget": {"attempts": 3, "minutes": 20} }`; required `Idempotency-Key`; returns 202 and durable job immediately |
+| `POST /studio/jobs` | `{ "mode": "automatic", "request": <generation request>, "qa": <optional QA request>, "budget": {"attempts": 3, "minutes": 20} }`; optional `sound_parent_id` links an existing job into the same sound with a fresh independent budget; required `Idempotency-Key`; returns 202 and durable job immediately |
 | `GET /studio/readiness` | Local generation presence and QA setup progress; explicit QA setup verifies the selected judge |
 | `GET /studio/jobs` or `/studio/jobs/<job-id>` | Persisted request, outcome, attempt seeds/reasons, status/progress, candidate IDs, result/error |
 | `POST /studio/jobs/<job-id>/cancel` | `{}`; stop/drain owned work; repeated cancellation is safe |

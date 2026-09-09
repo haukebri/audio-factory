@@ -15,8 +15,9 @@ import { selectedPolicy } from './evaluation.mjs';
 import { openReviewStore } from "./review-store.mjs";
 
 export function workflowInput(input) {
-  if (!input || Object.keys(input).some(key => !["request", "qa", "budget", "mode"].includes(key)) || !validateRequest(input.request))
+  if (!input || Object.keys(input).some(key => !["request", "qa", "budget", "mode", "sound_parent_id"].includes(key)) || !validateRequest(input.request))
     throw new Error(`Invalid workflow request: ${JSON.stringify(validateRequest.errors)}`);
+  if (input.sound_parent_id !== undefined && (typeof input.sound_parent_id !== "string" || !/^[a-f0-9]{32}$/.test(input.sound_parent_id))) throw new Error("Invalid sound parent reference");
   const request = { ...input.request, duration_seconds: input.request.duration_seconds ?? config.default_duration_seconds };
   const qa = input.qa ?? { clap: true, target: request.prompt.slice(0, 200), alternatives: ["Radio static noise", "A helicopter flying", "Silence"] };
   qaRequest("analyses", qa);
@@ -25,7 +26,7 @@ export function workflowInput(input) {
   if (budget !== undefined && (!budget || Object.keys(budget).sort().join(',') !== 'attempts,minutes' ||
       !Number.isInteger(budget.attempts) || budget.attempts < 1 || budget.attempts > 10 ||
       !Number.isInteger(budget.minutes) || budget.minutes < 1 || budget.minutes > 60)) throw new Error('Invalid attempt/time budget');
-  return { request, qa, ...(input.mode ? { mode: input.mode } : {}), ...(budget ? { budget } : {}) };
+  return { request, qa, ...(input.sound_parent_id ? { sound_parent_id: input.sound_parent_id } : {}), ...(input.mode ? { mode: input.mode } : {}), ...(budget ? { budget } : {}) };
 }
 
 // The CLI and studio both use this single setup/generation/QA/cut/bundle workflow.
@@ -234,6 +235,13 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
   let qaSetup = { status: "idle" };
   let closing = false;
   const jobs = new Map();
+  const soundId = job => {
+    const seen = new Set();
+    while (!job.sound_id && job.parent_id && jobs.has(job.parent_id) && !seen.has(job.id)) {
+      seen.add(job.id); job = jobs.get(job.parent_id);
+    }
+    return job.sound_id ?? job.id;
+  };
   let store;
   try { store = openReviewStore(directory); } catch (error) { unlinkSync(lease); throw error; }
   const jobsPath = join(directory, "jobs");
@@ -411,7 +419,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       if (typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error("Idempotency-Key required"), { status: 400 });
       input = workflowInput(input);
       const id = hash(key).slice(0, 32);
-      const signature = hash(JSON.stringify({ request: { prompt: input.request.prompt, duration_seconds: input.request.duration_seconds, seed: input.request.seed }, qa: Object.fromEntries(Object.entries(input.qa).sort()), ...(input.budget ? { budget: input.budget } : {}), ...(input.mode ? { mode: input.mode } : {}) }));
+      const signature = hash(JSON.stringify({ request: { prompt: input.request.prompt, duration_seconds: input.request.duration_seconds, seed: input.request.seed }, qa: Object.fromEntries(Object.entries(input.qa).sort()), ...(input.budget ? { budget: input.budget } : {}), ...(input.mode ? { mode: input.mode } : {}), ...(input.sound_parent_id ? { sound_parent_id: input.sound_parent_id } : {}) }));
       const existing = jobs.get(id);
       if (existing) {
         if (existing.signature !== signature) throw Object.assign(new Error("Idempotency key conflict"), { status: 409 });
@@ -420,14 +428,20 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       if ([...jobs.values()].some(job => job.status === "interrupted" && !jobs.has(job.resumed_by) && !jobs.has(hash(job.retry_key ?? "").slice(0,32)) &&
           !(job === resuming && (job.resumed_by === id || job.retry_key === key))))
         throw Object.assign(new Error("Interrupted outcome requires explicit resume before new generation"), { status: 409 });
+      const soundParent = input.sound_parent_id ? jobs.get(input.sound_parent_id) : resuming;
+      if (input.sound_parent_id && !soundParent) throw Object.assign(new Error("Unknown sound parent reference"), { status: 400 });
+      const sound_id = soundParent ? soundId(soundParent) : id;
+      const usedSeeds = [...new Set([...jobs.values()].filter(job => soundId(job) === sound_id).flatMap(job => job.used_seeds ?? [job.input.request.seed]))];
+      let seed = input.request.seed;
+      if (seed === undefined) do { seed = randomInt(2147483648); } while (usedSeeds.includes(seed));
       const evaluation_policy = selectedPolicy(root);
       if (evaluation_policy && input.mode === 'automatic') input = { ...input, budget: {
         attempts: Math.min(input.budget.attempts, evaluation_policy.selection.attempts),
         minutes: Math.min(input.budget.minutes, evaluation_policy.selection.milliseconds / 60000),
       } };
-      const job = { id, signature, ...(evaluation_policy ? { evaluation_policy } : {}), input: { ...input, request: { ...input.request, seed: input.request.seed ?? randomInt(2147483648) } },
+      const job = { id, signature, sound_id, ...(evaluation_policy ? { evaluation_policy } : {}), input: { ...input, request: { ...input.request, seed } },
         started_at: new Date().toISOString(), candidate_ids: [],
-        used_seeds: [...(resuming?.used_seeds ?? [])],
+        used_seeds: [...new Set([...usedSeeds, ...(resuming?.used_seeds ?? [])])],
         ...(resuming ? { attempt: (resuming.attempt ?? 1) + 1, budget_started_at: resuming.budget_started_at, parent_id: resuming.id } : { attempt: 1 }) };
       // Reserve synchronously before the first persistence await.
       const started = start(job);

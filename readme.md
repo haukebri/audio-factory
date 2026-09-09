@@ -40,6 +40,8 @@ Historical M1 setup/smoke and current M2 Medium integration evidence are linked 
 
 Run `./run setup` and `./run setup-qa`, then `./run studio`; open **http://127.0.0.1:8767**. Keep both 8766 and 8767 free. The studio retains candidates, supports original/prepared playback, blind review, explicit human feedback and complete bundle downloads. Automatic mode defaults to three attempts and 20 minutes after setup; uncertainty stops for review. Ctrl-C closes the studio and owned work. Agents use the same durable workflow; see [studio/API instructions](docs/usage.md#local-studio-service) and [feedback evaluation](docs/evaluation.md).
 
+The redesigned studio uses **Create** and **Library**, with Settings and Evaluation tools under **More**. See the [studio guide](docs/studio.md) for fresh takes, exact versions, comparison, trimming and recovery, and the [UI verification record](docs/plans/studio-ui-verification.md) for browser and accessibility evidence.
+
 The selected Larger CLAP General checkpoint adds 779,810,876 cached artifact bytes; QA setup requires those bytes plus 10 GiB reserve. Its isolated Python 3.11.15 environment uses the pinned QA lock. Reuse existing caches and allow up to 45 minutes for initial QA setup; each delivered-clip judge has a 120-second deadline. Historical setup timings above used the older M1 CLAP checkpoint.
 
 ## Lifetime and limitations

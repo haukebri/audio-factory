@@ -1,25 +1,26 @@
 const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID().replaceAll('-', '');
 let pendingAction = Promise.resolve();
-let csrf, candidates = [], jobs = [], selected, busy = false;
-const say = message => { $('status').textContent = message; };
-const drafts = ['prompt', 'constraints', 'events', 'duration', 'attempts', 'minutes', 'mode'];
+let csrf, candidates = [], jobs = [], takes = [], selected, busy = false, submitting = false, currentJob, readyCandidate;
+let view = 'create', comparisonId, feedback = new Map();
+const say = message => { if ($('status').textContent !== message) $('status').textContent = message; };
 function remember(key, value) { localStorage.setItem('studio-' + key, JSON.stringify(value)); }
 function recall(key, fallback) { try { return JSON.parse(localStorage.getItem('studio-' + key)) ?? fallback; } catch { return fallback; } }
+const drafts = ['prompt', 'constraints', 'events', 'duration', 'attempts', 'minutes', 'mode', 'seed'];
 for (const id of drafts) { $(id).value = recall(id, $(id).value); $(id).addEventListener($(id).tagName === 'SELECT' ? 'change' : 'input', () => remember(id, $(id).value)); }
 $('blind').checked = recall('blind', false);
+$('mode').addEventListener('change', () => { $('retry-budgets').hidden = $('mode').value !== 'automatic'; });
+$('retry-budgets').hidden = $('mode').value !== 'automatic';
 async function api(path, value, key) {
-  const response = await fetch('/studio/' + path, { method: value === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf, ...(key ? { 'Idempotency-Key': key } : {}) },
-    ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
+  const response = await fetch('/studio/' + path, { method: value === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf, ...(key ? { 'Idempotency-Key': key } : {}) }, ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+  if (!response.ok) throw Object.assign(new Error(result.error || `Request failed (${response.status})`), { status: response.status });
   return result;
 }
 function action(operation) {
   pendingAction = pendingAction.then(async () => {
     busy = true;
-    try { await operation(); } catch (error) { say(`Operation not completed: ${error.message}. Refresh connection and retry; saved work is preserved.`); }
+    try { await operation(); } catch (error) { say(`Operation not completed: ${error.message}. Saved work is preserved.`); $('reconnect').hidden = false; }
     finally { busy = false; }
   });
   return pendingAction;
@@ -30,194 +31,233 @@ function node(tag, text, parent, attrs = {}) {
   parent?.append(element); return element;
 }
 function button(text, parent, operation) { const b = node('button', text, parent, { type: 'button' }); b.onclick = () => action(operation); return b; }
-function audio(candidate, asset, parent, label) {
-  node('p', label, parent, { class: 'hint' });
-  const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${candidate.candidate_sha256}/${asset}` });
-  player.addEventListener('play', () => document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }));
-  player.addEventListener('error', () => say('Playback unavailable. Refresh connection and select the saved take again.'));
-}
 function title(c) { return c.evidence.generation.request.prompt; }
-function renderComparison() {
-  $('comparison').replaceChildren();
-  const c = candidates.find(c => c.candidate_sha256 === $('compare').value);
-  if (c) { node('p', title(c), $('comparison')); audio(c, c.evidence.cut ? 'audio' : 'source', $('comparison'), 'Comparison playback'); }
+function groupTakes(records, requests) {
+  const groups = new Map();
+  const root = job => { const seen = new Set(); while (!job?.sound_id && job?.parent_id && !seen.has(job.id)) { seen.add(job.id); const parent = requests.find(j => j.id === job.parent_id); if (!parent) break; job = parent; } return job?.sound_id ?? job?.id; };
+  for (const c of records) {
+    const run = c.evidence.generation;
+    const job = requests.find(j => j.candidate_ids.includes(c.candidate_sha256) || j.attempts?.some(a => a.id === c.attempt_id));
+    if (!groups.has(run.id)) groups.set(run.id, { id: run.id, sound: root(job) ?? `unlinked-${run.id}`, job, started: run.started_at ?? '', records: [], versions: [] });
+    groups.get(run.id).records.push(c);
+  }
+  const result = [...groups.values()].sort((a, b) => a.started.localeCompare(b.started) || a.id.localeCompare(b.id));
+  const counts = new Map();
+  for (const take of result) {
+    take.number = (counts.get(take.sound) ?? 0) + 1; counts.set(take.sound, take.number);
+    take.preferred = take.records.find(c => c.candidate_sha256 === take.job?.result?.candidate_sha256) ?? take.records.find(c => take.job?.attempts?.some(a => a.result?.candidate_sha256 === c.candidate_sha256));
+    const versions = new Map();
+    for (const c of take.records) { const cut = c.evidence.cut; const key = cut ? JSON.stringify([cut.audio_sha256, cut.id, cut.bounds]) : 'original'; if (!versions.has(key)) versions.set(key, []); versions.get(key).push(c); }
+    for (const records of versions.values()) { const c = records.find(c => c === take.preferred) ?? records[0]; take.versions.push({ records, candidate: c, name: c.evidence.cut ? (c === take.preferred ? 'Prepared clip' : `Trim ${(c.evidence.cut.bounds.start_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)}–${(c.evidence.cut.bounds.end_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)}s`) : 'Original' }); }
+  }
+  return result;
 }
-$('compare').onchange = renderComparison;
+const takeFor = id => takes.find(t => t.records.some(c => c.candidate_sha256 === id));
+const versionFor = (take, id) => take.versions.find(v => v.records.some(c => c.candidate_sha256 === id));
+const identity = c => { const take = takeFor(c.candidate_sha256); return `Take ${take.number} · ${versionFor(take, c.candidate_sha256).name}`; };
+function preferred(take) { const remembered = recall('version-' + take.id, null); return take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred; }
+function audio(c, parent, label) {
+  const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${c.candidate_sha256}/${c.evidence.cut ? 'audio' : 'source'}` });
+  player.addEventListener('play', () => document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }));
+  player.addEventListener('error', () => say('Playback unavailable. Reconnect and reopen this saved version.'));
+  return player;
+}
+function saveLocation() { history.replaceState({ ...history.state, selected, scroll: scrollY }, ''); }
+function navigate(next, push = true) {
+  if (push) { saveLocation(); history.pushState({ selected, scroll: 0 }, '', '#' + next); }
+  view = ['create', 'listen', 'library', 'compare', 'settings', 'evaluation'].includes(next) ? next : 'create';
+  document.body.dataset.view = view;
+  for (const id of ['create', 'library', 'compare', 'settings', 'evaluation']) $(id + '-view').hidden = id === 'create' ? !['create', 'listen'].includes(view) : view !== id;
+  for (const link of document.querySelectorAll('nav a')) { if (link.hash === '#' + view || view === 'listen' && link.hash === '#create') link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }
+  $('more-menu').open = false;
+  if (view === 'compare' && selected && !$('comparison-a').childElementCount) { comparisonCard(candidates.find(c => c.candidate_sha256 === selected), $('comparison-a'), 'A'); $('compare-scope').value = recall('compare-scope', 'sound'); comparisonId = recall('comparison', null); comparisonChoices(); }
+  if (view !== 'compare') document.querySelectorAll('#compare-view audio').forEach(p => p.pause());
+  if (!['listen', 'create'].includes(view)) document.querySelectorAll('#candidate audio').forEach(p => p.pause());
+  remember('view', view);
+  if (push) { $('main').focus({ preventScroll: true }); scrollTo(0, 0); }
+}
+document.addEventListener('click', event => { const link = event.target.closest('a[href^="#"]'); if (!link || link.classList.contains('skip')) return; event.preventDefault(); navigate(link.hash.slice(1)); });
+window.addEventListener('popstate', () => action(async () => { if (history.state?.selected && history.state.selected !== selected) await select(history.state.selected); navigate(location.hash.slice(1), false); scrollTo(0, history.state?.scroll ?? 0); }));
+async function loadFeedback() { await Promise.all(candidates.map(async c => { feedback.set(c.candidate_sha256, await api(`candidates/${c.candidate_sha256}/feedback`)); })); }
+function humanText(id) { const human = feedback.get(id)?.at(-1); return human ? `Human: ${human.verdict === 'accepted' ? 'Approved' : 'Rejected'}${human.note ? ' · ' + human.note : ''}` : 'Human: Unreviewed'; }
+function updateHuman(id) { document.querySelectorAll('[data-human]').forEach(el => { if (el.dataset.human === id) el.textContent = humanText(id); }); }
+function automated(c, box) {
+  const details = node('details', undefined, box, { 'data-automated': '' }); details.hidden = $('blind').checked;
+  node('summary', `Automated checks · ${c.evaluation ? c.evaluation.verdict.replaceAll('_', ' ') : 'Checks unavailable'}`, details);
+  node('p', c.evaluation?.note ?? 'Needs your review. Automated checks are separate from your approval.', details);
+  const evidence = node('details', undefined, details); node('summary', 'Details · scores and provenance', evidence); node('pre', JSON.stringify(c, null, 2), evidence);
+}
+async function download(c) {
+  const id = c.candidate_sha256; say('Verifying audio and details…');
+  const response = await fetch(`/studio/candidates/${id}/export`); if (!response.ok) throw new Error((await response.json()).error);
+  const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: `take-${takeFor(id).number}-${id.slice(0, 8)}.tar` }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Downloaded prepared audio, original, provenance and exact-version feedback.');
+}
+function decision(c, box, prefix) {
+  const id = c.candidate_sha256;
+  node('p', humanText(id), box, { 'data-human': id, class: 'human-status' });
+  const actions = node('div', undefined, box, { class: 'actions' });
+  const reject = node('details', undefined, box, { 'data-review': id }); node('summary', 'Reject / correct review', reject);
+  node('p', `Your decision applies to ${identity(c)} only.`, reject, { class: 'hint' });
+  const tags = node('fieldset', undefined, reject); node('legend', 'Rejection reasons', tags);
+  const saved = recall('review-draft-' + id, { tags: [], note: '' });
+  for (const tag of ['wrong_sound', 'extra_events', 'background_noise', 'artifacts', 'bad_trim', 'other']) { const label = node('label', undefined, tags, { class: 'check' }); const input = node('input', undefined, label, { type: 'checkbox', value: tag }); input.checked = saved.tags.includes(tag); label.append(' ' + tag.replaceAll('_', ' ')); }
+  node('label', 'Review note (optional)', reject, { for: prefix + '-note' }); const note = node('textarea', undefined, reject, { id: prefix + '-note', rows: '2', maxlength: '4000' }); note.value = saved.note;
+  const draft = () => ({ tags: [...tags.querySelectorAll(':checked')].map(e => e.value), note: note.value });
+  reject.addEventListener('input', () => { const value = draft(); remember('review-draft-' + id, value); document.querySelectorAll('[data-review]').forEach(other => { if (other !== reject && other.dataset.review === id) { other.querySelector('textarea').value = value.note; other.querySelectorAll('input[type=checkbox]').forEach(input => { input.checked = value.tags.includes(input.value); }); } }); });
+  const error = node('p', '', reject, { role: 'alert', class: 'error' });
+  const submit = async verdict => {
+    const reason_tags = draft().tags; if (verdict === 'rejected' && !reason_tags.length) { reject.open = true; error.textContent = 'Choose at least one rejection reason.'; tags.querySelector('input').focus(); return; }
+    const human = feedback.get(id)?.at(-1);
+    const value = { candidate_sha256: id, supersedes: human?.event_id ?? null, actor: 'human', verdict, reason_tags: verdict === 'accepted' ? [] : reason_tags, note: note.value };
+    const pending = recall('feedback-' + id, null); const event = pending && JSON.stringify(pending.value) === JSON.stringify(value) ? pending : { value, event_id: uid() }; remember('feedback-' + id, event);
+    try { await api(`candidates/${id}/feedback`, { ...value, event_id: event.event_id }); localStorage.removeItem('studio-feedback-' + id); feedback.set(id, await api(`candidates/${id}/feedback`)); updateHuman(id); renderLibrary(); error.textContent = ''; say(`Saved ${verdict === 'accepted' ? 'approval' : 'rejection'} for ${identity(c)}. Audio is preserved.`); } catch (e) { error.textContent = e.message; reject.open = true; throw e; }
+  };
+  button('Approve', actions, () => submit('accepted')).className = 'primary';
+  button('Reject', actions, async () => { reject.open = true; tags.querySelector('input').focus(); });
+  button('Save rejection', reject, () => submit('rejected'));
+  if (c.evidence.cut) { button('Download', actions, () => download(c)); node('p', 'Download includes audio, original, provenance and review details.', box, { class: 'hint' }); }
+  else node('p', 'Original only. Use Trim to prepare a version for the verified download bundle.', box, { class: 'hint' });
+}
+function trim(c, box) {
+  const id = c.candidate_sha256; const details = node('details', undefined, box); node('summary', 'Trim', details);
+  const form = node('form', undefined, details); const pair = node('div', undefined, form, { class: 'pair' });
+  const bounds = c.evidence.cut?.bounds; const saved = recall('trim-' + id, null);
+  for (const [name, value] of [['start', saved?.start ?? (bounds ? bounds.start_sample / bounds.sample_rate : 0)], ['end', saved?.end ?? (bounds ? bounds.end_sample / bounds.sample_rate : c.evidence.generation.audio.seconds)]]) { const wrap = node('div', undefined, pair); node('label', `${name === 'start' ? 'Start' : 'End'} (seconds in original)`, wrap, { for: 'cut-' + name }); node('input', undefined, wrap, { id: 'cut-' + name, type: 'number', required: '', min: '0', max: c.evidence.generation.audio.seconds, step: 'any', value }); }
+  form.oninput = () => remember('trim-' + id, { start: $('cut-start').value, end: $('cut-end').value });
+  node('p', 'Save a version with short fades and −3 dB peak normalization. Earlier versions and their reviews stay preserved.', form, { class: 'hint' }); node('button', 'Save version', form);
+  const error = node('p', '', form, { role: 'alert', class: 'error' });
+  form.onsubmit = event => { event.preventDefault(); action(async () => { try { const result = await api(`candidates/${id}/cut`, { start_seconds: Number($('cut-start').value), end_seconds: Number($('cut-end').value) }); await refresh(); await select(result.candidate_sha256); say('Version saved. Listen and review this exact version.'); $('workspace').focus(); } catch (e) { error.textContent = e.message; } }); };
+}
 async function select(id) {
-  selected = id; remember('selected', id);
   const c = candidates.find(c => c.candidate_sha256 === id); if (!c) return;
-  const history = await api(`candidates/${id}/feedback`);
-  if (selected !== id) return;
+  if (selected === id && $('candidate').childElementCount) return;
+  feedback.set(id, await api(`candidates/${id}/feedback`));
+  selected = id; $('comparison-a').replaceChildren(); remember('selected', id); remember('version-' + c.evidence.generation.id, id);
   $('empty').hidden = true; $('candidate').replaceChildren();
-  const box = node('article', undefined, $('candidate'), { class: 'take' });
-  node('p', `${c.fixture ? 'SYNTHETIC FIXTURE · ' : ''}TAKE ${id.slice(0, 8)}`, box, { class: 'eyebrow' });
-  node('h3', title(c), box);
-  if (c.evidence.cut) audio(c, 'audio', box, 'Prepared clip');
-  audio(c, 'source', box, 'Original');
-  const human = history.at(-1);
-  node('p', human ? `Human: ${human.verdict} · ${human.reason_tags.join(', ')}${human.note ? ' · ' + human.note : ''}` : 'Human: not reviewed', box);
-  const verdict = node('div', undefined, box); verdict.hidden = $('blind').checked;
-  node('p', c.evaluation ? `Automatic: ${c.evaluation.verdict} · ${c.evaluation.model} · ${c.evaluation.note}` : 'Automatic: unavailable — this take has no delivered-clip evaluation. Listen and decide.', verdict);
-  if (c.evaluation?.evidence) {
-    const e = c.evaluation.evidence;
-    node('p', `Policy: ${e.policy.version} · ${e.status} / ${e.decision} · ${e.reason_tags.join(', ')} · ${e.elapsed_ms} ms`, verdict);
-    node('p', `Model revision: ${c.evaluation.revision} · Audio SHA-256: ${c.evaluation.audio_sha256} · Policy SHA-256: ${c.evaluation.rubric_sha256}`, verdict, { class: 'hint' });
-    for (const row of e.result?.clap?.scores ?? []) {
-      node('p', `${row.start_seconds.toFixed(2)}–${row.end_seconds.toFixed(2)} s · target margin ${row.target_margin?.toFixed(4) ?? 'unavailable'}`, verdict);
-      for (const score of row.ranking) node('p', `${score.similarity.toFixed(4)} · ${score.description}`, verdict, { class: 'hint' });
-    }
-    if (e.error || e.result?.clap?.error) node('p', e.error || e.result.clap.error, verdict);
-    for (const limitation of e.policy.limitations) node('p', limitation, verdict, { class: 'hint' });
-  }
-  for (const report of c.evidence.analyses) {
-    if (report.status !== 'completed') node('p', `Signal analysis ${report.status}: ${report.error || 'No result'}`, verdict);
-    else node('p', `Signal advisory: ${report.result?.regions?.length ?? 0} active regions. ${report.result?.rhythm?.suspected ? 'Rhythmic pattern detected.' : ''} CLAP is advisory, not a verdict.`, verdict, { class: 'hint' });
-  }
-  const blindNote = node('p', 'Automatic evidence hidden for blind review.', box, { class: 'hint' }); blindNote.hidden = !$('blind').checked;
-  const form = node('form', undefined, box);
-  const fields = node('fieldset', undefined, form); node('legend', 'Adjust cut / seconds in original', fields);
-  const pair = node('div', undefined, fields, { class: 'pair' });
-  const bounds = c.evidence.cut?.bounds;
-  for (const [name, value] of [['start', bounds ? bounds.start_sample / bounds.sample_rate : 0], ['end', bounds ? bounds.end_sample / bounds.sample_rate : c.evidence.generation.audio.seconds]]) {
-    const wrap = node('div', undefined, pair); node('label', name === 'start' ? 'Start' : 'End', wrap, { for: 'cut-' + name });
-    node('input', undefined, wrap, { id: 'cut-' + name, type: 'number', required: '', min: '0', max: c.evidence.generation.audio.seconds, step: 'any', value });
-  }
-  node('p', 'Creates a separate take with short fades and −3 dB peak normalization. Previous decisions stay with their exact audio.', fields, { class: 'hint' });
-  node('button', 'Save adjusted cut', form);
-  form.onsubmit = event => { event.preventDefault(); action(async () => {
-    const input = { start_seconds: Number($('cut-start').value), end_seconds: Number($('cut-end').value) };
-    say('Preparing and preserving adjusted cut…');
-    const result = await api(`candidates/${id}/cut`, input); await refresh(); await select(result.candidate_sha256); say('Adjusted cut saved. Listen before reviewing this new take.');
-  }); };
-  const review = node('fieldset', undefined, box); node('legend', 'Your decision', review);
-  const tags = node('div', undefined, review, { class: 'tags' });
-  for (const tag of ['wrong_sound', 'extra_events', 'background_noise', 'artifacts', 'bad_trim', 'other']) {
-    const label = node('label', undefined, tags); node('input', undefined, label, { type: 'checkbox', value: tag, name: 'reason' }); label.append(' ' + tag.replaceAll('_', ' '));
-  }
-  node('label', 'Review note (optional)', review, { for: 'note' }); node('textarea', undefined, review, { id: 'note', rows: '2', maxlength: '4000' });
-  const actions = node('div', undefined, review, { class: 'actions' });
-  for (const [label, verdict] of [['Approve', 'accepted'], ['Reject', 'rejected']]) button(label, actions, async () => {
-    const reason_tags = [...tags.querySelectorAll(':checked')].map(e => e.value);
-    if (verdict === 'rejected' && !reason_tags.length) throw new Error('Choose at least one rejection reason');
-    const pending = recall('feedback-' + id, null);
-    const value = { candidate_sha256: id, supersedes: human?.event_id ?? null, actor: 'human', verdict, reason_tags, note: $('note').value };
-    const event = pending && JSON.stringify(pending.value) === JSON.stringify(value) ? pending : { value, event_id: uid() };
-    remember('feedback-' + id, event);
-    await api(`candidates/${id}/feedback`, { ...value, event_id: event.event_id });
-    localStorage.removeItem('studio-feedback-' + id); await select(id); say('Human feedback saved to this exact take.');
-  });
-  if (c.evidence.cut) button('Export verified bundle', actions, async () => {
-    say('Verifying complete bundle…');
-    const response = await fetch(`/studio/candidates/${id}/export`);
-    if (!response.ok) throw new Error((await response.json()).error);
-    const url = URL.createObjectURL(await response.blob());
-    const link = node('a', undefined, document.body, { href: url, download: id + '.tar' }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-    say('Verified bundle downloaded: prepared audio, original, provenance and feedback.');
-  });
-  const details = node('details', undefined, verdict); node('summary', 'Optional evidence details', details); node('pre', JSON.stringify(c, null, 2), details);
+  const take = takeFor(id); const box = node('article', undefined, $('candidate'), { class: 'take' });
+  node('p', `Take ${take.number}${c.fixture ? ' · Synthetic fixture' : ''}`, box, { class: 'take-label' }); node('h3', title(c), box);
+  node('label', 'Version', box, { for: 'version' }); const choices = node('select', undefined, box, { id: 'version' });
+  for (const v of take.versions) { const exact = v.records.find(r => r.candidate_sha256 === id) ?? v.candidate; node('option', v.name, choices, { value: exact.candidate_sha256 }); } choices.value = id; choices.onchange = () => action(async () => { await select(choices.value); $('version').focus(); });
+  const duration = c.evidence.cut?.bounds; node('p', `${(duration ? (duration.end_sample - duration.start_sample) / duration.sample_rate : c.evidence.generation.audio.seconds).toFixed(2)} seconds · ${identity(c)}`, box, { class: 'hint' });
+  const player = audio(c, box, `Play take · ${identity(c)}`); button('Play take', box, () => player.play());
+  const actions = node('div', undefined, box, { class: 'actions' });
+  button('Generate another take', actions, () => anotherTake(take));
+  button('Compare', actions, () => openCompare('sound'));
+  button('Compare versions', actions, () => openCompare('versions'));
+  const budget = take.job?.input.budget ?? { attempts: 1, minutes: 20 }; node('p', `Another take starts a new request: up to ${budget.attempts} attempt${budget.attempts === 1 ? '' : 's'}, ${budget.minutes} minutes after setup.`, box, { class: 'hint' });
+  decision(c, box, 'listen'); trim(c, box); const blindLabel = node('label', undefined, box, { class: 'check' }); const blind = node('input', undefined, blindLabel, { type: 'checkbox', 'data-blind': '' }); blind.checked = $('blind').checked; blindLabel.append(' Blind review · hide automated checks'); blind.onchange = () => { $('blind').checked = blind.checked; $('blind').onchange(); }; automated(c, box);
+  if (take.records.length > take.versions.length) { const details = node('details', undefined, box); node('summary', 'Details · exact evidence records', details); node('p', 'Snapshots may refer to identical audio. Human decisions belong to each exact record.', details); const list = node('select', undefined, details, { 'aria-label': 'Exact evidence record' }); for (const record of take.records) node('option', `${versionFor(take, record.candidate_sha256).name} · ${record.candidate_sha256.slice(0, 12)} · ${humanText(record.candidate_sha256)}`, list, { value: record.candidate_sha256 }); list.value = id; list.onchange = () => action(async () => { await select(list.value); const control = document.querySelector('[aria-label="Exact evidence record"]'); control.closest('details').open = true; control.focus(); }); }
   renderLibrary();
 }
-$('blind').onchange = () => { remember('blind', $('blind').checked); if (selected) action(() => select(selected)); };
 function renderLibrary() {
-  $('library').replaceChildren();
-  if (!candidates.length) node('p', 'No saved takes yet. Start with a prompt.', $('library'));
-  for (const c of candidates) {
-    const b = button(`${c.evidence.cut ? 'Prepared' : 'Original'} · ${c.candidate_sha256.slice(0,8)} · ${title(c)}`, $('library'), () => select(c.candidate_sha256));
-    b.className = 'library-item'; b.setAttribute('aria-pressed', String(selected === c.candidate_sha256));
+  $('library').replaceChildren(); const query = $('search').value.toLowerCase(); const filter = $('human-filter').value;
+  const sounds = new Map(); for (const take of takes) { if (!sounds.has(take.sound)) sounds.set(take.sound, []); sounds.get(take.sound).push(take); }
+  let shown = 0;
+  for (const group of sounds.values()) {
+    if (!group.some(t => title(t.records[0]).toLowerCase().includes(query))) continue;
+    const visible = group.filter(t => filter === 'all' || t.records.some(c => (feedback.get(c.candidate_sha256)?.at(-1)?.verdict ?? 'unreviewed') === filter)); if (!visible.length) continue;
+    shown++; const box = node('article', undefined, $('library'), { class: 'take' }); node('h2', title(group[0].records[0]), box); node('p', `${group.length} take${group.length === 1 ? '' : 's'}`, box, { class: 'hint' });
+    for (const take of visible) {
+      const row = node('div', undefined, box, { class: 'library-item' }); const chosen = filter === 'all' ? preferred(take) : take.records.find(c => (feedback.get(c.candidate_sha256)?.at(-1)?.verdict ?? 'unreviewed') === filter);
+      if (chosen) button(`Take ${take.number} · ${versionFor(take, chosen.candidate_sha256).name} · ${humanText(chosen.candidate_sha256)}`, row, async () => { await select(chosen.candidate_sha256); navigate('listen'); });
+      else node('p', `Take ${take.number} · Choose a version`, row);
+      const versions = node('details', undefined, row); node('summary', chosen ? 'Versions' : 'Choose a version', versions); if (!chosen) versions.open = true;
+      for (const v of take.versions) button(`${v.name} · ${humanText(v.candidate.candidate_sha256)}`, versions, async () => { await select(v.candidate.candidate_sha256); navigate('listen'); });
+    }
+  }
+  if (!shown) node('p', takes.length ? 'No sounds match these filters.' : 'No saved sounds yet. Start in Create.', $('library'), { class: 'empty' });
+}
+$('search').oninput = renderLibrary; $('human-filter').onchange = renderLibrary;
+function comparisonCard(c, target, letter) { target.replaceChildren(); const box = node('article', undefined, target, { class: 'take' }); node('h2', `${letter} · ${identity(c)}`, box); node('p', title(c), box); audio(c, box, `${letter} · ${identity(c)} playback and seek`); decision(c, box, letter); if (!c.evidence.cut) button('Open version to trim', box, async () => { await select(c.candidate_sha256); navigate('listen'); }); automated(c, box); }
+function comparisonChoices() {
+  remember('compare-scope', $('compare-scope').value);
+  const take = takeFor(selected); const scope = $('compare-scope').value; $('compare').replaceChildren(); node('option', 'Choose a second take', $('compare'), { value: '' });
+  const choices = scope === 'versions' ? take.versions.map(v => v.records.find(c => c.candidate_sha256 === selected) ?? v.candidate).filter(c => c.candidate_sha256 !== selected) : takes.filter(t => t.id !== take.id && (scope === 'library' || t.sound === take.sound)).flatMap(t => preferred(t) ? [preferred(t)] : t.versions.map(v => v.candidate));
+  for (const c of choices) node('option', `${identity(c)} · ${title(c)}`, $('compare'), { value: c.candidate_sha256 });
+  if (choices.some(c => c.candidate_sha256 === comparisonId)) { $('compare').value = comparisonId; if (!$('comparison').childElementCount) renderComparison(); }
+  else { comparisonId = choices[0]?.candidate_sha256; $('compare').value = comparisonId ?? ''; renderComparison(); }
+}
+function renderComparison() { remember('compare-scope', $('compare-scope').value); const c = candidates.find(c => c.candidate_sha256 === $('compare').value); comparisonId = c?.candidate_sha256; remember('comparison', comparisonId); $('comparison').replaceChildren(); if (c) comparisonCard(c, $('comparison'), 'B'); else node('p', 'Generate another take, or choose All Library takes.', $('comparison')); }
+function openCompare(scope) { if (!selected) return; $('compare-scope').value = scope; comparisonCard(candidates.find(c => c.candidate_sha256 === selected), $('comparison-a'), 'A'); comparisonChoices(); navigate('compare'); }
+$('compare').onchange = renderComparison; $('compare-scope').onchange = comparisonChoices;
+$('blind').onchange = () => { remember('blind', $('blind').checked); document.querySelectorAll('[data-blind]').forEach(el => { el.checked = $('blind').checked; }); document.querySelectorAll('[data-automated]').forEach(el => { el.hidden = $('blind').checked; }); };
+function budgetText(job) { const seconds = (job.input.budget?.minutes ?? 0) * 60; const elapsed = job.budget_started_at ? Math.max(0, Math.floor(((job.finished_at ? Date.parse(job.finished_at) : Date.now()) - Date.parse(job.budget_started_at)) / 1000)) : 0; return `Budget: ${elapsed}s elapsed · ${Math.max(0, seconds - elapsed)}s remaining`; }
+function renderGeneration() {
+  const active = jobs.find(job => ['running', 'canceling'].includes(job.status));
+  const job = jobs.find(j => j.id === currentJob) ?? active ?? [...jobs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+  const working = submitting || Boolean(active);
+  $('generate').disabled = working; $('generate').textContent = submitting ? 'Submitting…' : active ? 'Generation in progress…' : 'Generate sound';
+  $('generation-progress').hidden = !submitting && !job; $('generation-spinner').hidden = !working;
+  const stages = { queued: 'Starting your request…', setup: 'Preparing local models…', generating: 'Generating your sound…', analyzing: 'Checking audio…', cutting: 'Preparing your clip…', evaluating: 'Checking the prepared clip…', retry_pending: 'Preparing another attempt…' };
+  const outcomes = { completed: job?.candidate_ids?.length ? 'Generation finished — listen to your take' : 'Generation finished — no audio available', failed: 'Generation failed', canceled: 'Generation canceled', interrupted: 'Generation interrupted — review required', exhausted: 'Budget reached — review saved takes' };
+  const stage = submitting ? 'Submitting request…' : active ? active.status === 'canceling' ? 'Stopping generation…' : stages[active.progress] ?? 'Working on your sound…' : outcomes[job?.status] ?? '';
+  if ($('generation-stage').textContent !== stage) $('generation-stage').textContent = stage;
+  const shown = active ?? job;
+  const elapsed = shown ? Math.max(0, Math.floor(((shown.finished_at ? Date.parse(shown.finished_at) : Date.now()) - Date.parse(shown.started_at)) / 1000)) : 0;
+  $('generation-detail').textContent = submitting ? 'Saving your request. Please wait.' : shown ? `Attempt ${shown.attempt ?? 1}/${shown.input.budget?.attempts ?? 1} · ${elapsed}s elapsed` : '';
+  $('generation-prompt').textContent = shown?.input.request.prompt ?? ''; $('generation-error').textContent = shown?.error ?? (shown?.status === 'failed' ? 'The request failed. Any saved audio remains available below.' : '');
+  $('active-link').hidden = !active || view === 'listen'; $('cancel-generation').hidden = !active; $('cancel-generation').disabled = active?.status === 'canceling';
+  $('cancel-generation').onclick = () => action(async () => { await api(`jobs/${active.id}/cancel`, {}); await refresh(); });
+  const signature = `${shown?.id}:${shown?.status}`;
+  if ($('recovery').dataset.signature !== signature) {
+    $('recovery').dataset.signature = signature; $('recovery').replaceChildren();
+    if (shown?.status === 'interrupted') {
+      node('p', 'Recover saved work before starting a new generation. No operation is replayed automatically.', $('recovery'));
+      if (shown.attempts) button('Recover saved work', $('recovery'), async () => { await api(`jobs/${shown.id}/recover`, {}); currentJob = shown.id; await refresh(); });
+      button('Acknowledge uncertain outcome', $('recovery'), async () => { await api(`jobs/${shown.id}/acknowledge`, {}); await refresh(); say('Acknowledged. Saved audio is preserved; a new request can now be started.'); });
+    } else if (shown && ['failed', 'canceled', 'exhausted'].includes(shown.status)) { const budget = shown.input.budget ?? { attempts: 1, minutes: 20 }; node('p', `New request: up to ${budget.attempts} attempts, ${budget.minutes} minutes after setup.`, $('recovery')); button('Start a new bounded request', $('recovery'), () => submitInput(newTakeInput(shown), `another-${shown.id}`)); }
   }
 }
 async function refreshQa() {
-  const ready = await api('readiness');
-  const qa = ready.judge;
-  $('qa-readiness').textContent = `QA setup: ${qa.status}. ${qa.progress || qa.error || 'Prepare the selected local CLAP model before automatic mode. Manual generation also runs setup.'}`;
+  const ready = await api('readiness'); const qa = ready.judge;
+  const message = `Evaluation model: ${qa.status}. ${qa.progress || qa.error || 'Prepare the local model here when needed.'}`; if ($('qa-readiness').textContent !== message) $('qa-readiness').textContent = message;
+  $('setup-qa').hidden = qa.status === 'running' || qa.status === 'ready'; $('cancel-qa').hidden = qa.status !== 'running';
+  const setup = ready.generation === 'setup_required';
+  $('readiness').textContent = setup ? 'Setup required. Generate prepares local models first; allow up to 90 minutes. You can cancel during preparation.' : ready.generation === 'fixture' ? 'Ready · synthetic test workspace' : 'Ready · local generation';
+  $('settings-readiness').textContent = $('readiness').textContent; $('prepare-local').hidden = !setup || qa.status === 'running'; $('cancel-local').hidden = qa.status !== 'running'; const localStage = ['running', 'failed', 'canceled'].includes(qa.status) ? message : ''; if ($('local-setup').textContent !== localStage) $('local-setup').textContent = localStage;
 }
+$('prepare-local').onclick = () => action(async () => { await api('qa/setup', {}); await refreshQa(); });
+$('cancel-local').onclick = () => action(async () => { await api('qa/cancel', {}); await refreshQa(); });
 $('setup-qa').onclick = () => action(async () => { await api('qa/setup', {}); await refreshQa(); });
 $('cancel-qa').onclick = () => action(async () => { await api('qa/cancel', {}); await refreshQa(); });
-function budgetText(job) {
-  const seconds = (job.input.budget?.minutes ?? 0) * 60;
-  const elapsed = job.budget_started_at ? Math.max(0, Math.floor((Date.now() - Date.parse(job.budget_started_at)) / 1000)) : 0;
-  return `Budget: ${elapsed}s elapsed · ${Math.max(0, seconds - elapsed)}s remaining`;
-}
 async function refresh() {
-  await refreshQa();
-  const [nextJobs, nextCandidates, counts] = await Promise.all([api('jobs'), api('candidates'), api('evaluation')]);
-  $('evaluation-counts').textContent = `${counts.status} · ${counts.human_labelled}/${counts.real_unique_audio} real clips labelled · ${counts.approved} approved · ${counts.rejected} rejected · ${counts.families} prompt families · ${counts.unreviewed} unreviewed · ${counts.disagreements} conflicting labels · ${counts.human_auto_disagreements} human/automatic disagreements · ${counts.corrections} corrections · ${counts.synthetic_candidates} synthetic candidates excluded. Missing: ${counts.missing.clips} clips, ${counts.missing.approved} approved, ${counts.missing.rejected} rejected, ${counts.missing.families} families.`;
+  const [nextJobs, nextCandidates, counts] = await Promise.all([api('jobs'), api('candidates'), api('evaluation'), refreshQa()]);
+  const completed = nextJobs.filter(j => !['running', 'canceling'].includes(j.status) && jobs.some(old => old.id === j.id && ['running', 'canceling'].includes(old.status)));
+  const changed = JSON.stringify(candidates) !== JSON.stringify(nextCandidates); jobs = nextJobs; candidates = nextCandidates; takes = groupTakes(candidates, jobs);
+  if (changed) { await loadFeedback(); renderLibrary(); }
+  renderGeneration();
+  for (const job of completed) { const id = job.result?.candidate_sha256 ?? job.candidate_ids.at(-1); if (!id) continue; if (view === 'listen' && job.id === currentJob) { const editing = $('candidate').contains(document.activeElement); const playing = [...document.querySelectorAll('#candidate audio')].some(p => !p.paused); if (!editing && !playing) { await select(id); continue; } } readyCandidate = id; $('ready-take').hidden = false; }
+  const text = `${counts.human_labelled}/${counts.real_unique_audio} real clips labelled · ${counts.approved} approved · ${counts.rejected} rejected · ${counts.unreviewed} unreviewed · ${counts.families} prompt families · ${counts.synthetic_candidates} synthetic candidates excluded. ${counts.status}.`;
+  if ($('evaluation-counts').textContent !== text) $('evaluation-counts').textContent = text;
   $('review-unreviewed').disabled = !counts.unreviewed_candidates.length;
-  $('review-unreviewed').onclick = () => action(async () => { $('blind').checked = true; remember('blind', true); await select(counts.unreviewed_candidates[0]); $('workspace').focus(); });
-  jobs = nextJobs;
-  if (JSON.stringify(candidates) !== JSON.stringify(nextCandidates)) {
-    candidates = nextCandidates; renderLibrary();
-    const previous = $('compare').value; $('compare').replaceChildren(); node('option', 'Choose a comparison', $('compare'), { value: '' });
-    for (const c of candidates) node('option', `${c.candidate_sha256.slice(0,8)} · ${title(c)}`, $('compare'), { value: c.candidate_sha256 });
-    $('compare').value = previous;
-  }
-  const signature = JSON.stringify(jobs) + jobs.map(job => Boolean(job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000)).join();
-  if ($('jobs').dataset.signature === signature) {
-    for (const job of jobs) $(`budget-${job.id}`).textContent = budgetText(job);
-    return;
-  }
+  $('review-unreviewed').onclick = () => action(async () => { $('blind').checked = true; $('blind').onchange(); await select(counts.unreviewed_candidates[0]); document.querySelectorAll('[data-automated]').forEach(e => { e.hidden = true; }); navigate('listen'); });
+  const signature = JSON.stringify(jobs); if ($('jobs').dataset.signature === signature) return;
   $('jobs').dataset.signature = signature; $('jobs').replaceChildren();
   if (!jobs.length) node('p', 'No requests yet.', $('jobs'));
-  for (const job of [...jobs].sort((a, b) => b.started_at.localeCompare(a.started_at))) {
-    const box = node('div', undefined, $('jobs'), { class: 'job' });
-    node('p', job.input.request.prompt, box);
-    node('p', `${job.id.slice(0,8)} · ${job.status} / ${job.outcome ?? 'pending'} · ${job.progress || 'queued'} · attempt ${job.attempt ?? 1}/${job.input.budget?.attempts ?? 1}`, box);
-    node('p', budgetText(job), box, { id: `budget-${job.id}` });
-    for (const attempt of job.attempts ?? []) node('p', `Seed ${attempt.seed}: ${attempt.reason}${attempt.result ? ' → ' + (attempt.result.outcome ?? attempt.result.evaluation?.verdict ?? 'needs_review') : ''}`, box);
-    if (job.status === 'interrupted' && job.attempts) button('Recover saved candidate', box, async () => { await api(`jobs/${job.id}/recover`, {}); await refresh(); });
-    if (job.error) node('p', job.error, box);
-    if (job.status === 'interrupted') button('Acknowledge uncertain outcome', box, async () => {
-      await api(`jobs/${job.id}/acknowledge`, {}); await refresh(); say('Interrupted outcome acknowledged. Evidence is preserved; a new request may now be started.');
-    });
-    if (['running', 'canceling'].includes(job.status)) button('Cancel job', box, async () => { await api(`jobs/${job.id}/cancel`, {}); await refresh(); say('Cancellation saved. Owned work is stopping or draining.'); });
-    else if (!jobs.some(next => next.parent_id === job.id) && !job.resumed_by) {
-      const exhausted = (job.attempt ?? 1) >= (job.input.budget?.attempts ?? 1) || job.status === 'exhausted' || job.budget_started_at && Date.now() - Date.parse(job.budget_started_at) >= job.input.budget.minutes * 60000;
-      if (exhausted) {
-        node('p', 'Budget exhausted. All takes remain available for review.', box);
-        button('Continue with composer budget', box, async () => {
-          const key = recall('continue-' + job.id, uid()); remember('continue-' + job.id, key);
-          await api(`jobs/${job.id}/continue`, { budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } }, key);
-          await refresh(); say('Additional budget recorded as a linked continuation.');
-        });
-      }
-      else button(job.status === 'interrupted' ? 'Resume with new attempt' : 'Retry with new seed', box, async () => {
-        const key = recall('retry-' + job.id, uid()); remember('retry-' + job.id, key);
-        await api(`jobs/${job.id}/retry`, {}, key); await refresh(); say('New attempt saved; reconnecting will attach to it.');
-      });
-    }
-    const c = ['running', 'canceling'].includes(job.status) ? job.candidate_ids.at(-1) : job.result?.candidate_sha256 ?? job.candidate_ids.at(-1);
-    if (c) { node('p', `Current candidate: ${c.slice(0,8)}`, box); button('Listen to take', box, () => select(c)); }
-    else if (!['running', 'canceling'].includes(job.status)) node('p', 'No playable take. Retry if budget remains, or start a new request.', box);
-  }
+  for (const job of [...jobs].reverse()) { const box = node('article', undefined, $('jobs'), { class: 'job' }); node('h3', job.input.request.prompt, box); node('p', `${job.status} · ${job.progress ?? 'queued'} · ${budgetText(job)}`, box); const details = node('details', undefined, box); node('summary', 'Details', details); node('pre', JSON.stringify(job, null, 2), details); const id = job.result?.candidate_sha256 ?? job.candidate_ids.at(-1); if (id) button('Open saved take', box, async () => { currentJob = job.id; await select(id); navigate('listen'); }); if (job.status === 'interrupted') button('Open recovery', box, () => { currentJob = job.id; renderGeneration(); navigate('listen'); }); }
 }
-$('compose').onsubmit = event => { event.preventDefault(); action(async () => {
+$('ready-take').onclick = () => action(async () => { await select(readyCandidate); $('ready-take').hidden = true; navigate('listen'); });
+function newTakeInput(job) { const input = structuredClone(job.input); delete input.request.seed; input.sound_parent_id = job.id; input.budget ??= { attempts: 1, minutes: 20 }; return input; }
+async function anotherTake(take) { if (submitting || jobs.some(j => ['running', 'canceling'].includes(j.status))) { say('Wait for the current generation, or cancel it first.'); return; } const job = take.job; const input = job ? newTakeInput(job) : { request: { ...take.records[0].evidence.generation.request }, mode: 'manual', budget: { attempts: 1, minutes: 20 } }; if (!job) delete input.request.seed; await submitInput(input, `another-${take.id}`); }
+async function submitInput(input, intent) {
+  if (submitting) return; const requestedView = view; submitting = true; $('compose-error').textContent = ''; renderGeneration();
+  const previous = recall('submission', null); const pending = previous ?? { key: uid(), input, intent }; remember('submission', pending);
+  try { const job = await api('jobs', pending.input, pending.key); localStorage.removeItem('studio-submission'); currentJob = job.id; remember('current-job', job.id); jobs = [job, ...jobs.filter(j => j.id !== job.id)]; submitting = false; if (view === requestedView && ['create', 'listen'].includes(view)) navigate('listen'); await refresh(); if (!['running', 'canceling'].includes(job.status) && job.result?.candidate_sha256) await select(job.result.candidate_sha256); say('Request saved. Refresh safely to reconnect.'); }
+  catch (error) { if ([400, 403, 409, 415, 422, 429].includes(error.status)) localStorage.removeItem('studio-submission'); $('compose-error').textContent = error.message; $('generation-error').textContent = error.message; throw error; } finally { submitting = false; renderGeneration(); }
+}
+$('compose').onsubmit = event => { event.preventDefault(); if ($('generate').disabled) return;
   const prompt = [$('prompt').value.trim(), $('events').value ? `Intended event count: ${$('events').value}.` : '', $('constraints').value.trim() ? `Constraints: ${$('constraints').value.trim()}` : ''].filter(Boolean).join('\n');
-  const input = { mode: $('mode').value, request: { prompt, duration_seconds: Number($('duration').value) }, budget: { attempts: Number($('attempts').value), minutes: Number($('minutes').value) } };
-  const previous = recall('submission', null);
-  const pending = previous && JSON.stringify(previous.input) === JSON.stringify(input) ? previous : { key: uid(), input };
-  remember('submission', pending);
-  const job = await api('jobs', pending.input, pending.key);
-  localStorage.removeItem('studio-submission');
-  await refresh(); say(`Request ${job.id.slice(0,8)} saved. Progress appears in request history; you can refresh safely.`);
-}); };
+  const input = { mode: $('mode').value, request: { prompt, duration_seconds: Number($('duration').value), ...($('seed').value ? { seed: Number($('seed').value) } : {}) }, budget: { attempts: $('mode').value === 'automatic' ? Number($('attempts').value) : 1, minutes: $('mode').value === 'automatic' ? Number($('minutes').value) : 20 } };
+  submitting = true; renderGeneration(); action(async () => { submitting = false; await submitInput(input, 'compose'); });
+};
 async function connect() {
-  const response = await fetch('/studio/session', { headers: { 'X-Studio-Bootstrap': '1' } });
-  if (!response.ok) throw new Error('Local session unavailable'); csrf = (await response.json()).csrf;
-  const ready = await api('readiness');
-  $('readiness').textContent = ready.generation === 'fixture' ? 'Ready: controlled synthetic generation (technical review only).' : ready.generation === 'installed' ? 'Medium F16 model files present. Setup verifies readiness before generation.' : 'Setup required: local generation models or environment missing. Generate will run local setup first; allow up to 90 minutes.';
-  await refresh();
+  const response = await fetch('/studio/session', { headers: { 'X-Studio-Bootstrap': '1' } }); if (!response.ok) throw new Error('Local session unavailable'); csrf = (await response.json()).csrf;
+  currentJob = recall('current-job', null); await refresh(); await loadFeedback(); renderLibrary();
   const id = recall('selected', null); if (candidates.some(c => c.candidate_sha256 === id)) await select(id);
-  say('Connected. Saved requests and takes are available. Delivered clips receive experimental CLAP/signal evaluation; human decisions remain separate.');
+  const next = location.hash.slice(1) || recall('view', 'create'); navigate(next, false); $('reconnect').hidden = true; say('Connected · saved locally');
+  const pending = recall('submission', null); if (pending) await submitInput(pending.input, pending.intent);
+  else { const job = jobs.find(j => j.id === currentJob); if (job?.result?.candidate_sha256 && job.result.candidate_sha256 !== selected) { if (!selected && view === 'listen') await select(job.result.candidate_sha256); else { readyCandidate = job.result.candidate_sha256; $('ready-take').hidden = false; } } }
 }
-$('export-evaluation').onclick = () => action(async () => {
-  const response = await fetch('/studio/evaluation/export');
-  if (!response.ok) throw new Error((await response.json()).error);
-  const url = URL.createObjectURL(await response.blob());
-  const link = node('a', undefined, document.body, { href: url, download: 'audio-factory-evaluation.json' });
-  link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-  say('Local evaluation dataset downloaded. Freeze family groups before tuning; quality remains unestablished.');
-});
+$('export-evaluation').onclick = () => action(async () => { const response = await fetch('/studio/evaluation/export'); if (!response.ok) throw new Error((await response.json()).error); const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: 'audio-factory-evaluation.json' }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Local evaluation dataset downloaded.'); });
 $('reconnect').onclick = () => action(connect);
-renderLibrary();
-action(connect);
-setInterval(() => { if (!busy && csrf) action(refresh); }, 2000);
+renderLibrary(); action(connect); setInterval(() => { if (!busy && csrf) action(refresh); }, 2000);

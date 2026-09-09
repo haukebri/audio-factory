@@ -1,35 +1,27 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Review studio · Audio Factory</title><link rel="stylesheet" href="/studio.css">
-<body>
-<header><a href="#workspace" class="skip">Skip to listening workspace</a><span class="brand">AF / AUDIO FACTORY</span><span>LOCAL ONLY · REVIEW STUDIO</span></header>
-<main>
-<div class="intro"><div><p class="eyebrow">MAKE SOMETHING WORTH HEARING</p><h1>From a thought<br>to a sound.</h1></div><p>Your listening desk.<br>Generate, compare and keep the right take.</p></div>
-<p id="status" role="status">Connecting to your local studio…</p><button id="reconnect" type="button">Refresh connection</button>
-<div class="layout">
-<section class="composer" aria-labelledby="compose-title"><p class="eyebrow">01 / DIRECTION</p><h2 id="compose-title">Describe the sound</h2>
-<form id="compose">
-<label for="prompt">Prompt</label><textarea id="prompt" required maxlength="1600" rows="5" placeholder="A single dry wooden knock, close and clear."></textarea>
-<label for="constraints">Constraints</label><textarea id="constraints" maxlength="300" rows="2" placeholder="No voices, no music, quiet background"></textarea>
-<div class="pair"><div><label for="events">Event count (optional)</label><input id="events" type="number" min="1" max="100" step="1"></div><div><label for="duration">Duration / seconds</label><input id="duration" type="number" min="0.5" max="30" step="0.1" value="3" required></div></div>
-<div class="pair"><div><label for="attempts">Attempt budget</label><input id="attempts" type="number" min="1" max="10" value="3" required></div><div><label for="minutes">Time budget / minutes</label><input id="minutes" type="number" min="1" max="60" value="20" required></div></div>
-<label for="mode">Review mode</label><select id="mode"><option value="manual">Manual listening</option><option value="automatic">Automatic retries</option></select>
-<p class="hint">Automatic mode retries rejected sounds within your budget. Uncertainty stops for review. Time budget starts after setup. Delivered clips receive experimental CLAP/signal evaluation. Listen and record your own decision.</p>
-<p id="qa-readiness" role="status">Checking QA setup…</p><button id="setup-qa" type="button">Prepare QA model</button><button id="cancel-qa" type="button">Cancel QA setup</button>
-<p id="readiness">Checking local setup…</p><button class="primary" id="generate">Generate candidate</button>
-</form></section>
-<section id="workspace" tabindex="-1" aria-labelledby="listen-title"><div class="section-head"><div><p class="eyebrow">02 / LISTEN & DECIDE</p><h2 id="listen-title">The listening desk</h2></div><label class="check"><input id="blind" type="checkbox"> Blind review</label></div>
-<p id="empty">No candidate selected. Generate a sound or choose a saved take below.</p><div id="candidate"></div>
-<label for="compare">Compare with a saved take</label><select id="compare"><option value="">Choose a comparison</option></select><div id="comparison"></div>
-</section>
-<aside aria-labelledby="history-title"><p class="eyebrow">03 / SAVED WORK</p><h2 id="history-title">Request history</h2><div id="jobs"></div><h3>Candidate library</h3><div id="library"></div></aside>
-</div>
-<section aria-labelledby="evaluation-title" class="take" id="evaluation-panel">
-<p class="eyebrow">04 / LEARN FROM LISTENING</p><h2 id="evaluation-title">Feedback collection</h2>
-<p id="evaluation-counts" role="status">Loading label coverage…</p>
-<p class="hint">Real human labels only. Corrections replace earlier decisions in metrics; all history stays preserved. Synthetic fixtures and automatic scores never establish quality.</p>
-<div class="actions"><button type="button" id="review-unreviewed">Review an unreviewed clip</button><button type="button" id="export-evaluation">Export evaluation dataset</button></div>
-<p class="hint">Export includes local audio and immutable provenance. Freeze prompt families and a development/holdout split with the evaluation CLI before tuning. Nothing is uploaded.</p>
-</section></main><footer>Originals stay preserved. Decisions belong to you.</footer>
-<script src="/studio.js"></script></body></html>
+<title>Audio Factory · Studio</title><link rel="stylesheet" href="/studio.css">
+<body data-view="create">
+<header><a href="#main" class="skip">Skip to main content</a><a href="#create" class="brand">AF / Audio Factory</a><nav aria-label="Main"><a href="#create">Create</a><a href="#library">Library</a><details id="more-menu"><summary>More</summary><a href="#settings">Settings</a><a href="#evaluation">Evaluation tools</a></details></nav></header>
+<main id="main" tabindex="-1">
+<div class="status-line"><p id="status" role="status">Connecting…</p><button id="reconnect" type="button" hidden>Reconnect</button><button id="ready-take" type="button" hidden>New take ready · Open</button><a id="active-link" href="#listen" hidden>Generation in progress · Open</a></div>
+<section id="create-view"><div class="layout">
+<section class="composer" aria-labelledby="compose-title"><h1 id="compose-title">Create a sound</h1><p class="hint">Describe it. Hear it. Make it yours.</p>
+<form id="compose"><label for="prompt">Describe your sound</label><textarea id="prompt" required maxlength="1600" rows="3" placeholder="A single dry wooden knock, close and clear."></textarea>
+<label for="duration">Duration (seconds)</label><input id="duration" type="number" min="0.5" max="30" step="0.1" value="3" required>
+<details id="more-options"><summary>More options</summary>
+<label for="constraints">Constraints</label><textarea id="constraints" maxlength="300" rows="2" placeholder="No voices, no music"></textarea>
+<label for="events">Intended event count (optional)</label><input id="events" type="number" min="1" max="100" step="1">
+<label for="seed">Seed override (optional)</label><input id="seed" type="number" min="0" max="2147483647" step="1"><p class="hint">New variation each time. Set a seed only to reproduce a take.</p>
+<label for="mode">Generation mode</label><select id="mode"><option value="manual">Manual listening</option><option value="automatic">Automatic retries</option></select>
+<div id="retry-budgets" hidden><div class="pair"><div><label for="attempts">Maximum attempts</label><input id="attempts" type="number" min="1" max="10" value="3" required></div><div><label for="minutes">Time budget (minutes)</label><input id="minutes" type="number" min="1" max="60" value="20" required></div></div><p class="hint">Retries rejected sounds within this budget. Uncertainty stops for your review.</p></div></details>
+<p id="readiness" class="hint">Checking local setup…</p><button id="prepare-local" type="button" hidden>Prepare local models</button><p id="local-setup" role="status"></p><button id="cancel-local" type="button" hidden>Cancel preparation</button><button class="primary" id="generate">Generate sound</button><p id="compose-error" role="alert" class="error"></p></form></section>
+<section id="workspace" tabindex="-1" aria-labelledby="listen-title"><h2 id="listen-title">Your listening desk</h2>
+<div id="generation-progress" class="generation-progress" hidden><div class="generation-heading" role="status" aria-live="polite"><span id="generation-spinner" class="spinner" aria-hidden="true"></span><strong id="generation-stage"></strong></div><p id="generation-prompt"></p><p id="generation-detail" class="hint"></p><button id="cancel-generation" type="button" hidden>Cancel generation</button><p id="generation-error" class="error"></p><div id="recovery"></div></div>
+<p id="empty" class="empty">Your next sound starts with a few words.<br>Generate a sound or open your Library.</p><div id="candidate"></div></section></div></section>
+<section id="library-view" hidden><h1>Library</h1><p>Saved sounds, takes and your decisions.</p><div class="pair"><div><label for="search">Search sounds</label><input id="search" type="search" placeholder="Search descriptions"></div><div><label for="human-filter">Human review</label><select id="human-filter"><option value="all">All versions</option><option value="accepted">Approved</option><option value="rejected">Rejected</option><option value="unreviewed">Unreviewed</option></select></div></div><div id="library"></div></section>
+<section id="compare-view" hidden><a href="#listen">Back to listening</a><h1>Compare takes</h1><label class="check"><input id="blind" type="checkbox"> Blind review · hide automated checks</label><label for="compare-scope">Choose from</label><select id="compare-scope"><option value="sound">This sound</option><option value="library">All Library takes</option><option value="versions">Versions of this take</option></select><label for="compare">B · Compare with</label><select id="compare"><option value="">Choose a second take</option></select><div class="compare-grid"><div id="comparison-a"></div><div id="comparison"></div></div></section>
+<section id="settings-view" hidden><h1>Settings</h1><h2>Local model setup</h2><p id="settings-readiness"></p><p id="qa-readiness" role="status"></p><button id="setup-qa" type="button">Prepare local models and evaluation</button><button id="cancel-qa" type="button" hidden>Cancel preparation</button><details><summary>Request history and diagnostics</summary><div id="jobs"></div></details><p class="hint">The studio stays on this computer. Originals and exact-version decisions stay preserved.</p></section>
+<section id="evaluation-view" hidden><h1>Evaluation tools</h1><p id="evaluation-counts" role="status"></p><p>Human labels only. Corrections replace earlier decisions in metrics; history stays preserved.</p><div class="actions"><button type="button" id="review-unreviewed">Blind review an unreviewed clip</button><button type="button" id="export-evaluation">Export evaluation dataset</button></div><p class="hint">Includes local audio and immutable provenance. Freeze prompt families and a development/holdout split with the evaluation CLI before tuning. Nothing is uploaded.</p></section>
+</main><footer>Originals stay preserved. Decisions belong to you.</footer><script src="/studio.js"></script></body></html>
