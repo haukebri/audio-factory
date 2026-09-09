@@ -22,7 +22,9 @@ A **sound** groups explicitly related requests. A **take** is one actual generat
 
 ## Options, settings and evaluation
 
-**More options** holds constraints, intended event count, an explicit seed override and automatic retries. Random seed is the default. Manual requests have one attempt and a 20-minute generation budget after setup. Automatic retries expose attempt/time budgets; uncertainty stops for review.
+Each new request first prepares three sound-effect prompt variants and a separate, fixed QA sentence using one local Ollama call (`gemma4:latest`, localhost:11434). The model is unloaded after the reply. The original intent remains the sound title; Automated checks shows the actual generation prompt and QA description. Retries cycle through the three variants with new seeds. Saved plans survive restarts and explicit bounded retries. If preparation is unavailable or interrupted, the request uses the original wording and records that fallback. Preparation takes at most two minutes, before the generation budget starts.
+
+**More options** holds constraints, intended event count, an explicit seed override and automatic retries. Random seed is the default. Manual requests have one attempt and a 20-minute generation budget after setup. Automatic retries expose attempt/time budgets; scores below the 0.30 acceptance threshold trigger retries within that budget. Inconclusive margins or unavailable QA stop for review.
 
 **More → Settings** contains model preparation, cancellation and request diagnostics. **More → Evaluation tools** retains blind review, coverage counts and the existing dataset export. Blind review hides automated assessments without rebuilding players or erasing draft notes. Human decisions remain distinct from automated checks.
 

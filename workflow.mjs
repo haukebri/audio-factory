@@ -11,6 +11,7 @@ import { qaRequest, qaOperation } from "./dist/qa.js";
 import { atomicJson, createFactory } from "./dist/service.js";
 import { ensureSetup } from "./dist/setup.js";
 import { judge } from './judge.mjs';
+import { preparePromptPlan, fallbackPlan } from './prompt-plan.mjs';
 import { selectedPolicy } from './evaluation.mjs';
 import { openReviewStore } from "./review-store.mjs";
 
@@ -54,6 +55,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
     operationSignal.throwIfAborted();
   };
   const preserve = async (evidence, source, audio = null, evaluation = null) => {
+    if (job.prompt_plan) evidence = { ...evidence, generation: { ...evidence.generation, prompt_plan: job.prompt_plan } };
     const candidate = store.saveCandidate({ attempt_id: attempt.id, fixture, evidence, evaluation }, source, audio);
     if (!job.candidate_ids.includes(candidate.candidate_sha256)) job.candidate_ids.push(candidate.candidate_sha256);
     attempt.candidate_id = candidate.candidate_sha256;
@@ -112,7 +114,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
       await stage('generating');
       const response = await fetch(`http://127.0.0.1:${factory.server.address().port}/v1/sound-effects`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'Idempotency-Key': key },
-        body: JSON.stringify({ ...job.input.request, seed: attempt.seed }), signal: AbortSignal.timeout(config.timeout_ms + 30000),
+        body: JSON.stringify({ ...job.input.request, prompt: job.prompt_plan?.generation_prompts[(job.attempt - 1) % job.prompt_plan.generation_prompts.length] ?? job.input.request.prompt, seed: attempt.seed }), signal: AbortSignal.timeout(config.timeout_ms + 30000),
       });
       await response.arrayBuffer();
       if (!response.ok) throw new Error(`Generation failed: ${response.status}`);
@@ -146,7 +148,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
       return qaOperation(root, generation.id, kind, input);
     };
     if (!analysis) {
-      analysis = await qa('analyses', job.input.mode === 'automatic' ? { clap: false } : job.input.qa);
+      analysis = await qa('analyses', job.input.mode === 'automatic' ? { clap: false } : { ...job.input.qa, ...(job.input.qa.clap && job.prompt_plan ? { target: job.prompt_plan.qa_target } : {}) });
       candidate = await preserve({ generation, analyses: [analysis], cut_failure: null, reason: 'Source and QA preserved before cut' }, source);
     }
     if (analysis.status !== 'completed') throw new Error(analysis.error ?? 'Analysis failed');
@@ -174,7 +176,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
       const audio = store.readAsset(c.candidate_sha256, 'audio');
       const path = join(directory, 'judge-input.wav');
       await writeFile(path, audio);
-      const evaluation = await evaluate(path, job.input.request.prompt, { signal: operationSignal, ...(job.evaluation_policy ? { policy: job.evaluation_policy.judge } : {}) });
+      const evaluation = await evaluate(path, job.prompt_plan?.qa_target ?? job.input.request.prompt, { signal: operationSignal, ...(job.evaluation_policy ? { policy: job.evaluation_policy.judge } : {}) });
       return preserve(c.evidence, source, audio, evaluation);
     };
     candidate = await score(candidate);
@@ -290,6 +292,16 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       try {
         await persisted;
         controller.signal.throwIfAborted();
+        if (job.prompt_plan_pending) {
+          job.progress = 'planning';
+          // Persist the safe continuation first: recovery never repeats an uncertain LLM call.
+          job.prompt_plan_pending = false;
+          job.prompt_plan = fallbackPlan(job.input.request.prompt, 'Prompt preparation interrupted; using original prompt');
+          await save(job);
+          job.prompt_plan = await (execution.preparePrompts ?? preparePromptPlan)(job.input.request.prompt, { signal: controller.signal });
+          controller.signal.throwIfAborted();
+          await save(job);
+        }
         while (true) {
           const attempt = job.attempts.at(-1);
           job.result = attempt.result ?? await execute(job, { root, token, store, save: () => save(job), signal: controller.signal, ...execution });
@@ -363,7 +375,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           const saved = store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation: null, evidence }, source, audio);
           if (!candidate.evaluation) return saved;
           const selected = selectedPolicy(root);
-          const evaluation = await (execution.evaluate ?? judge)(cut.delivery.audio, run.request.prompt, selected ? { policy: selected.judge } : {});
+          const evaluation = await (execution.evaluate ?? judge)(cut.delivery.audio, run.prompt_plan?.qa_target ?? run.request.prompt, selected ? { policy: selected.judge } : {});
           return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation, evidence }, source, audio);
         } finally { await rm(temporary, { recursive: true, force: true }); }
       })();
@@ -440,6 +452,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
         minutes: Math.min(input.budget.minutes, evaluation_policy.selection.milliseconds / 60000),
       } };
       const job = { id, signature, sound_id, ...(evaluation_policy ? { evaluation_policy } : {}), input: { ...input, request: { ...input.request, seed } },
+        ...(resuming?.prompt_plan ? { prompt_plan: resuming.prompt_plan } : { prompt_plan_pending: execute === runWorkflow && !execution.fixture || !!execution.preparePrompts }),
         started_at: new Date().toISOString(), candidate_ids: [],
         used_seeds: [...new Set([...usedSeeds, ...(resuming?.used_seeds ?? [])])],
         ...(resuming ? { attempt: (resuming.attempt ?? 1) + 1, budget_started_at: resuming.budget_started_at, parent_id: resuming.id } : { attempt: 1 }) };

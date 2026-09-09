@@ -31,7 +31,7 @@ function node(tag, text, parent, attrs = {}) {
   parent?.append(element); return element;
 }
 function button(text, parent, operation) { const b = node('button', text, parent, { type: 'button' }); b.onclick = () => action(operation); return b; }
-function title(c) { return c.evidence.generation.request.prompt; }
+function title(c) { return c.evidence.generation.prompt_plan?.intent ?? c.evidence.generation.request.prompt; }
 function groupTakes(records, requests) {
   const groups = new Map();
   const root = job => { const seen = new Set(); while (!job?.sound_id && job?.parent_id && !seen.has(job.id)) { seen.add(job.id); const parent = requests.find(j => j.id === job.parent_id); if (!parent) break; job = parent; } return job?.sound_id ?? job?.id; };
@@ -85,6 +85,12 @@ function automated(c, box) {
   const details = node('details', undefined, box, { 'data-automated': '' }); details.hidden = $('blind').checked;
   node('summary', `Automated checks · ${c.evaluation ? c.evaluation.verdict.replaceAll('_', ' ') : 'Checks unavailable'}`, details);
   node('p', c.evaluation?.note ?? 'Needs your review. Automated checks are separate from your approval.', details);
+  const plan = c.evidence.generation.prompt_plan;
+  if (plan) {
+    node('p', `Generation prompt: ${c.evidence.generation.request.prompt}`, details);
+    node('p', `QA description: ${plan.qa_target}`, details);
+    if (plan.error) node('p', `Prompt preparation unavailable; used original wording. ${plan.error}`, details);
+  }
   const evidence = node('details', undefined, details); node('summary', 'Details · scores and provenance', evidence); node('pre', JSON.stringify(c, null, 2), evidence);
 }
 async function download(c) {
@@ -188,7 +194,7 @@ function renderGeneration() {
   const working = submitting || Boolean(active);
   $('generate').disabled = working; $('generate').textContent = submitting ? 'Submitting…' : active ? 'Generation in progress…' : 'Generate sound';
   $('generation-progress').hidden = !submitting && !job; $('generation-spinner').hidden = !working;
-  const stages = { queued: 'Starting your request…', setup: 'Preparing local models…', generating: 'Generating your sound…', analyzing: 'Checking audio…', cutting: 'Preparing your clip…', evaluating: 'Checking the prepared clip…', retry_pending: 'Preparing another attempt…' };
+  const stages = { queued: 'Starting your request…', planning: 'Preparing prompt variations…', setup: 'Preparing local models…', generating: 'Generating your sound…', analyzing: 'Checking audio…', cutting: 'Preparing your clip…', evaluating: 'Checking the prepared clip…', retry_pending: 'Preparing another attempt…' };
   const outcomes = { completed: job?.candidate_ids?.length ? 'Generation finished — listen to your take' : 'Generation finished — no audio available', failed: 'Generation failed', canceled: 'Generation canceled', interrupted: 'Generation interrupted — review required', exhausted: 'Budget reached — review saved takes' };
   const stage = submitting ? 'Submitting request…' : active ? active.status === 'canceling' ? 'Stopping generation…' : stages[active.progress] ?? 'Working on your sound…' : outcomes[job?.status] ?? '';
   if ($('generation-stage').textContent !== stage) $('generation-stage').textContent = stage;

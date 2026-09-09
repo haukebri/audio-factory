@@ -11,6 +11,7 @@ import { decide, judge, policy } from './judge.mjs';
 import { hash } from './dist/config.js';
 import { wavFixture } from './wav-fixture.mjs';
 import { verifyExport } from './export-lineage.mjs';
+import { fallbackPlan } from './prompt-plan.mjs';
 
 const input = { mode: 'automatic', request: { prompt: 'A short tone', duration_seconds: 1, seed: 42 } };
 const token = 'quality-loop-fixture';
@@ -25,10 +26,11 @@ export function fixture(root, sequence = ['rejected', 'auto_accepted']) {
       const audio_sha256 = hash(await readFile(path));
       const wanted = sequence[Math.min(scores++, sequence.length - 1)];
       record({ operation: 'judge', audio_sha256, wanted });
-      const score = wanted === 'rejected' ? .1 : wanted === 'needs_review' ? .2 : .5;
+      const score = wanted === 'rejected' ? .1 : wanted === 'below_acceptance' ? .28 : .5;
+      const margin = wanted === 'needs_review' ? .02 : .1;
       const result = { silence: { fraction: 0 }, clipping_fraction: 0, boundary_peak: wanted === 'trim' ? .1 : 0,
-        clap: { status: 'completed', scores: [{ kind: 'window', start_seconds: 0, end_seconds: 1, target_margin: .1,
-          ranking: [{ description: target, similarity: score }, ...policy.alternatives.map(description => ({ description, similarity: score - .1 }))] }] } };
+        clap: { status: 'completed', scores: [{ kind: 'window', start_seconds: 0, end_seconds: 1, target_margin: margin,
+          ranking: [{ description: target, similarity: score }, ...policy.alternatives.map(description => ({ description, similarity: score - margin }))] }] } };
       const decision = decide(result, target);
       return { actor: 'automatic', audio_sha256, model: 'controlled-policy-input', revision: 'fixture-only', rubric_sha256: hash(JSON.stringify(policy)),
         verdict: decision.decision === 'accept' ? 'auto_accepted' : decision.decision === 'reject' ? 'rejected' : 'needs_review',
@@ -65,9 +67,39 @@ if (process.argv[2] === '--crash') {
   process.on('SIGUSR2', async () => { await studio.close(); studio = await createStudio({ ...options, port }); console.log('Restarted same request store'); });
   process.on('SIGTERM', async () => { await studio.close(); await rm(root, { recursive: true, force: true }); console.log('Owned browser fixture removed'); });
 } else {
+  test('one saved prompt plan drives distinct retries, stable QA, exports and later trims', async () => {
+    const root = await mkdtemp(resolve('.runtime/prompt-workflow-'));
+    const options = fixture(root, ['rejected', 'rejected', 'auto_accepted']);
+    const plan = { ...fallbackPlan(input.request.prompt, ''), status: 'completed', error: null,
+      generation_prompts: ['A short tone.', 'A brief clear tone.', 'A tone starts and fades.'], qa_target: 'This is a sound of a short tone.' };
+    let planned = 0;
+    options.preparePrompts = async intent => { planned++; assert.equal(intent, input.request.prompt); return plan; };
+    const prompts = [], targets = [];
+    const generate = options.backend.generate, evaluate = options.evaluate;
+    options.backend.generate = async request => { prompts.push(request.prompt); return generate(request); };
+    options.evaluate = async (path, target) => { targets.push(target); return evaluate(path, target); };
+    let studio = await createStudio(options);
+    try {
+      const job = await studio.jobs.submit('prompt-plan', input); await studio.jobs.wait();
+      assert.equal(job.outcome, 'auto_accepted', job.error);
+      assert.equal(planned, 1);
+      assert.deepEqual(prompts, plan.generation_prompts);
+      assert.deepEqual(targets, Array(3).fill(plan.qa_target));
+      assert.equal(job.input.request.prompt, input.request.prompt);
+      const c = studio.jobs.store.loadCandidate(job.result.candidate_sha256);
+      assert.deepEqual(c.evidence.generation.prompt_plan, plan);
+      assert.equal(c.evidence.generation.request.prompt, plan.generation_prompts[2]);
+      verifyExport(c.evidence, studio.jobs.store.readAsset(c.candidate_sha256, 'audio'), () => wave);
+      const cut = await studio.jobs.cut(c.candidate_sha256, { start_seconds: .1, end_seconds: .3 });
+      assert.equal(cut.evaluation.evidence.target, plan.qa_target);
+      await studio.close(); studio = await createStudio(options);
+      assert.equal((await studio.jobs.submit('prompt-plan', input)).id, job.id);
+      assert.equal(planned, 1);
+    } finally { await studio.close(); await rm(root, { recursive: true, force: true }); }
+  });
   test('automatic outcomes, exact budgets, seed history, human override and portable export', async () => {
     assert.deepEqual(workflowInput(input).budget, { attempts: 3, minutes: 20 });
-    for (const [sequence, expected, count] of [[['rejected', 'auto_accepted'], 'auto_accepted', 2], [['rejected'], 'exhausted', 3], [['needs_review'], 'needs_review', 1], [['trim', 'auto_accepted'], 'auto_accepted', 1]]) {
+    for (const [sequence, expected, count] of [[['below_acceptance', 'auto_accepted'], 'auto_accepted', 2], [['below_acceptance'], 'exhausted', 3], [['rejected', 'auto_accepted'], 'auto_accepted', 2], [['rejected'], 'exhausted', 3], [['needs_review'], 'needs_review', 1], [['trim', 'auto_accepted'], 'auto_accepted', 1]]) {
       const root = await mkdtemp(resolve('.runtime/quality-sequence-'));
       const options = fixture(root, sequence);
       let studio = await createStudio(options);
@@ -120,7 +152,7 @@ if (process.argv[2] === '--crash') {
         }
         await studio.close();
         if (sequence.length === 2 && sequence[0] === 'rejected') {
-          for (const name of ['dist', 'evaluation.mjs', 'docs/tasks/m02/clap-m1-baseline.lock.json', 'workflow.mjs', 'review-store.mjs', 'judge.mjs', 'judge-policy.json', 'export-lineage.mjs', 'config.json', 'qa-config.json', 'qa-model.lock.json', ...(await readdir('.')).filter(n => n.endsWith('.schema.json'))])
+          for (const name of ['dist', 'evaluation.mjs', 'docs/tasks/m02/clap-m1-baseline.lock.json', 'workflow.mjs', 'review-store.mjs', 'judge.mjs', 'prompt-plan.mjs', 'judge-policy.json', 'export-lineage.mjs', 'config.json', 'qa-config.json', 'qa-model.lock.json', ...(await readdir('.')).filter(n => n.endsWith('.schema.json'))])
             await cp(resolve(name), join(root, name), { recursive: true });
           await writeFile(join(root, 'workflow-input.json'), JSON.stringify(input));
           const cli = spawnSync(process.execPath, [join(root, 'dist/cli.js'), 'workflow', join(root, 'workflow-input.json'), 'sequence'], { timeout: 15000, encoding: 'utf8' });

@@ -16,7 +16,7 @@ const baseline = JSON.parse(readFileSync('docs/tasks/m02/clap-m1-baseline.lock.j
 const id = n => n.toString(16).padStart(32, '0');
 function seed(store) {
   const rows = [], jobs = [];
-  // Independent expected table: TP=2, FP=1, FN=1, TN=1, abstain approved=1/rejected=1; one unlabelled.
+  // Independent expected table: TP=2, FP=1, FN=2, TN=2, abstain approved=0/rejected=0; one unlabelled.
   const cases = [['accepted', .4], ['accepted', .4], ['rejected', .4], ['accepted', .1], ['rejected', .1], ['accepted', .2], ['rejected', .2], [null, .4]];
   cases.forEach(([human, score], i) => {
     const source = wavFixture(t => t > (i+1)/100 && t < .9), sha = digest(source);
@@ -71,7 +71,7 @@ test('known confusion table, correction, deduplication, grouped splits, portable
     assert.equal(coverage(dataset.rows).corrections, 2);
     const reports = ['development','holdout'].map(split => evaluate(dataset, defaultPolicy, split, true));
     for (const key of ['tp','fp','fn','tn','abstained_approved','abstained_rejected']) {
-      assert.equal(reports.reduce((n,r) => n+r.results.larger[key],0), { tp:2, fp:1, fn:1, tn:1, abstained_approved:1, abstained_rejected:1 }[key], key);
+      assert.equal(reports.reduce((n,r) => n+r.results.larger[key],0), { tp:2, fp:1, fn:2, tn:2, abstained_approved:0, abstained_rejected:0 }[key], key);
     }
     for (const [key, count] of Object.entries({tp:4,fp:3,fn:0,tn:0,abstained_approved:0,abstained_rejected:0})) assert.equal(reports.reduce((n,r)=>n+r.results.baseline[key],0),count, 'M1 proxy '+key);
     const lineageRows = structuredClone(dataset.rows.slice(0,2));

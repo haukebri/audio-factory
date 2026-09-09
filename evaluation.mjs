@@ -19,7 +19,7 @@ const implementation = Object.fromEntries(['evaluation.mjs', 'judge.mjs', 'revie
 const targets = { clips: 100, approved: 50, rejected: 50, families: 10,
   false_accept_reduction: 0.5, precision: 0.9, false_reject_rate: 0.2, selection_approval_increase: 0.2 };
 const audioHash = c => c.evidence.cut?.audio_sha256 ?? c.evidence.generation.audio_sha256;
-const prompt = c => c.evidence.generation.request.prompt;
+const prompt = c => c.evidence.generation.prompt_plan?.intent ?? c.evidence.generation.request.prompt;
 const normalized = text => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 function validateComparison(p) {
   assert(p && Object.keys(p).sort().join() === 'judge,selection,version' && typeof p.version === 'string' && p.version.length > 0, 'Invalid comparison policy');
@@ -159,7 +159,7 @@ export function metrics(items) {
     decision_coverage: rate(items.filter(r => r.decision !== 'uncertain').length, items.length) };
 }
 function cachedDecision(c, kind, p) {
-  const target = prompt(c), wanted = kind === 'baseline' ? baseline : model;
+  const target = c.evidence.generation.prompt_plan?.qa_target ?? prompt(c), wanted = kind === 'baseline' ? baseline : model;
   const expected = kind === 'baseline' ? [target.slice(0, 200), ...policy.alternatives] : [target, ...p.judge.alternatives];
   const results = kind === 'baseline' ? c.evidence.analyses.map(a => ({ result: a.result, target: a.request.target })) :
     c.evaluation?.evidence ? [{ result: c.evaluation.evidence.result, target: c.evaluation.evidence.target, evaluation: c.evaluation }] : [];

@@ -14,10 +14,10 @@ function report(score = .5, margin = .2) {
 }
 test('experimental policy boundaries, invalid evidence and instruction-like comparison data', () => {
   assert.equal(decide(report(.3, .1), target).decision, 'accept');
-  assert.equal(decide(report(.3 - 1e-8, .1), target).decision, 'uncertain');
+  assert.equal(decide(report(.3 - 1e-8, .1), target).decision, 'reject');
   assert.equal(decide(report(.5, .05 + 1e-8), target).decision, 'accept');
   assert.equal(decide(report(.5, .05 - 1e-8), target).decision, 'uncertain');
-  assert.equal(decide(report(.15, .1), target).decision, 'uncertain');
+  assert.equal(decide(report(.15, .1), target).decision, 'reject');
   assert.deepEqual(decide(report(.15 - 1e-8, .1), target).reason_tags, ['low_similarity']);
   assert.equal(decide(report(.5, -.05 + 1e-8), target).decision, 'uncertain');
   assert.deepEqual(decide(report(.5, -.05 - 1e-8), target).reason_tags, ['alternative_preferred']);

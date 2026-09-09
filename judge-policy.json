@@ -1,5 +1,5 @@
 {
-  "version": "clap-signal-v1-experimental",
+  "version": "clap-signal-v2-experimental",
   "descriptions_version": "general-alternatives-v1",
   "alternatives": [
     "Radio static noise",
@@ -8,7 +8,7 @@
   ],
   "accept_score": 0.3,
   "accept_margin": 0.05,
-  "reject_score": 0.15,
+  "reject_score": 0.3,
   "reject_margin": -0.05,
   "silence_fraction": 0.98,
   "clipping_fraction": 0.001,
