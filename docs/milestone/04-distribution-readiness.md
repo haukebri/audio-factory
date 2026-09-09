@@ -1,6 +1,6 @@
 # Milestone 4 — Distribution readiness
 
-Status: prospective source inventory and clean-copy checks verified; task 12 is blocked on owner-authorized software licensing. Depends on [milestone 3](03-standalone-verification.md).
+Status: complete — technical evidence verified and licensing resolved by owner confirmation in task 12. Depends on [milestone 3](03-standalone-verification.md).
 
 ## Outcome
 
@@ -18,7 +18,7 @@ A clean source checkout is ready to give to another developer, with usable instr
 ## Acceptance evidence
 
 - [x] README commands and skill paths are usable in the release checkout.
-- [ ] Source license and required third-party notices are present, with model/output rights described separately and no unsupported commercial-use claim.
+- [x] Source-license availability confirmed by the owner in task 12; required third-party notices are present, with model/output rights described separately and no unsupported commercial-use claim.
 - [x] Release inventory contains no private operational state, weights or game content.
 - [x] Clean-checkout evidence covers the final revision and installation instructions.
 - [x] Known limitations include supported hardware, temporary outputs, advisory QA and the absence of universal prompt-accuracy guarantees.
@@ -35,4 +35,4 @@ Execute in the global order in [the task queue](../tasks/m01/00-overview.md); ta
 - [11 — Verify the prospective source distribution](../tasks/m01/11-distribution-audit.md)
 - [12 — Apply the authorized license and close release readiness](../tasks/m01/12-license-and-release-readiness.md)
 
-[Task 09](../tasks/m01/09-verified-user-docs.md#evidence) binds the user guide to unchanged setup/smoke inputs and documents limitations. [Task 11](../tasks/m01/11-distribution-audit.md#evidence) verifies the prospective 69-file source copy, command/skill paths, frozen install/build/fixtures, corrected companion terms reference and hash-bound reuse of real setup/smoke. These checks cover the current candidate; task 12 must add the authorized LICENSE and verify final closure. The source-license acceptance item and milestone remain incomplete. Milestones 1–3 link their actual acceptance evidence; no milestone is inferred from task counts.
+[Task 09](../tasks/m01/09-verified-user-docs.md#evidence) binds the user guide to unchanged setup/smoke inputs and documents limitations. [Task 11](../tasks/m01/11-distribution-audit.md#evidence) verifies the prospective 69-file source copy, command/skill paths, frozen install/build/fixtures, corrected companion terms reference and hash-bound reuse of real setup/smoke. These checks cover the current candidate. [Task 12](../tasks/m01/12-license-and-release-readiness.md#owner-resolution--2026-09-09) records the owner confirmation resolving licensing and closing readiness; no license text was added by this status update. Milestones 1–3 link their actual acceptance evidence; no milestone is inferred from task counts.

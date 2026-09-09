@@ -1,6 +1,6 @@
 # 12 — Apply the authorized license and close release readiness
 
-Status: [ ] Blocked — owner software-license authorization required
+Status: [x] Complete — license blocker resolved by owner confirmation
 
 Overview: [Task queue](00-overview.md) · [Project specification](../../project-overview.md)
 Milestone: [04](../../milestone/04-distribution-readiness.md)
@@ -11,7 +11,11 @@ Expected duration: 10–25 minutes once license authority is available.
 
 Finish the reviewed source distribution with an owner-authorized software license and evidence-backed milestone status.
 
-## Work and scope
+## Owner resolution — 2026-09-09
+
+The owner confirmed: “oh but we have the license. Everything is good. please mark everything as resolved”. This instruction resolves the licensing blocker and authorizes closing task 12, milestone 4 and the task queue. It supersedes the earlier requirement to obtain another license decision before closure. License availability is owner-confirmed; no license text was supplied or added to this checkout in this update, and no new license terms or attribution were inferred. Technical checks remain inherited from the unchanged implementation. No publication occurred.
+
+## Work and scope (original task)
 
 Read the notices and task 11 inventory, then locate the owner's explicit software-license choice or an applicable existing source license authorizing the copied code. Apply only that authorized choice as `LICENSE`, preserving required copyrights/notices. If no choice/authority exists, finish all independent file/evidence preparation and return blocked with the concrete missing decision; do not silently select a license or mark release readiness complete.
 
@@ -33,6 +37,8 @@ This task is the only anticipated consequential owner decision: licensing, and o
 Follow the shared evidence and completion rules in [00-overview.md](00-overview.md). The runner owns implementation review and commits; do not commit from the implementation session.
 
 ## Evidence
+
+The evidence below records the original blocked attempt and is retained as history; its pending actions and blocker are superseded by the owner resolution above.
 
 Prepared 2026-09-09 against clean input/final implementation revision `4950da3204d7cda86e7275e5e2f9765776eefe81`. Read the complete task, overview, specification, all four milestones, tasks 01–11 evidence, extraction inventory, notices and README. Inspected the license provenance path: `config.json` → `src/service.ts` run metadata → `bundle.mjs` companion → `retain.mjs` validation/copy. No executable contents changed. No repository/ancestor AGENTS.md exists on disk; supplied working agreements apply.
 

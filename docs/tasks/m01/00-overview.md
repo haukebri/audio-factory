@@ -1,6 +1,6 @@
 # Audio Factory build tasks
 
-This is the executable breakdown of the [project overview](../../project-overview.md) and its four milestones. All tasks are planned. Run the queue sequentially; each numbered file is one independently reviewed commit with a concrete demo/check. Independence means reviewable changes, not parallel execution or absence of prerequisites.
+This is the executable breakdown of the [project overview](../../project-overview.md) and its four milestones. All 12 tasks are complete; task 12 was closed by owner confirmation of license availability. Run the queue sequentially; each numbered file is one independently reviewed commit with a concrete demo/check. Independence means reviewable changes, not parallel execution or absence of prerequisites.
 
 ## Runner format and commands
 
@@ -37,7 +37,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 | 09 | [x] | [Finish the verified installation and usage guide](09-verified-user-docs.md) | 04 | 08 |
 | 10 | [x] | [Prepare the source and third-party notice inventory](10-third-party-notices.md) | 04 | 09 |
 | 11 | [x] | [Verify the prospective source distribution](11-distribution-audit.md) | 04 | 10 |
-| 12 | [ ] | [Apply the authorized license and close release readiness](12-license-and-release-readiness.md) | 04 | 11 |
+| 12 | [x] | [Apply the authorized license and close release readiness](12-license-and-release-readiness.md) | 04 | 11 |
 
 Service checks from milestone 3 are deliberately brought forward before portable workflow work. This gives each incremental change useful verification; it does not change the milestone requirements. Task 04 supports both milestone 2's portable delivery and milestone 3's QA coverage. The final user guide follows real setup/smoke evidence so it describes a demonstrated workflow.
 
@@ -59,4 +59,4 @@ Record concise evidence in the task's Evidence section, including exact commands
 
 After the task's implementation and all mandatory checks are complete, change its Status to `[x]` and this overview row to `[x]`, then let the runner review and commit. Update milestone checkboxes only when evidence proves the whole item; do not mark a milestone complete because one task passed. If a required check or external input is missing, leave the task unchecked and report the exact blocker. Tasks do not require routine owner acceptance; `owner_acceptance_required` is false for completed tasks.
 
-The only anticipated unresolved owner decision is the software license at task 12, if no applicable license/owner choice has appeared by then. Complete notices, distribution preparation and technical verification first. Do not invent approval pauses for provisional listening, redundant checks or safe local recovery. Publishing is outside this queue.
+The software-license decision at task 12 was resolved by owner confirmation on 2026-09-09. Complete notices, distribution preparation and technical verification first. Do not invent approval pauses for provisional listening, redundant checks or safe local recovery. Publishing is outside this queue.
