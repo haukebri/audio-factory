@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -71,22 +72,43 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
     JSON.stringify({ sourceHash, kind, request, settings, implementationHash }),
   ).slice(0, 32);
   const directory = join(runPath, kind, id);
+  const deliver = async (report: Record<string, unknown>) => {
+    const bundle = await execute(
+      process.execPath,
+      [`${factoryRoot}/bundle.mjs`, root, JSON.stringify(report)],
+      {
+        timeout: Math.max(1, deadline - Date.now()),
+        maxBuffer: 4 * 1024 * 1024,
+        killSignal: "SIGKILL",
+      },
+    );
+    report.delivery = JSON.parse(bundle.stdout);
+  };
+  let saved;
   try {
-    const saved = JSON.parse(await readFile(join(directory, "report.json"), "utf8"));
+    saved = JSON.parse(await readFile(join(directory, "report.json"), "utf8"));
     if (!validReport(saved)) throw new Error("Invalid saved QA report");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (saved?.status === "completed" && saved.result?.clap?.status !== "failed") {
+    if (kind === "cuts") {
+      await deliver(saved);
+      await save(join(directory, "report.json"), saved);
+    }
     return saved;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  try {
-    const previous = JSON.parse(await readFile(join(directory, "attempt.json"), "utf8"));
-    previous.status = "interrupted";
-    previous.error = "Previous QA attempt did not complete; evidence retained";
-    await save(join(directory, "report.json"), previous);
-    return previous;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  if (!saved) {
+    try {
+      saved = JSON.parse(await readFile(join(directory, "attempt.json"), "utf8"));
+      saved.status = "interrupted";
+      saved.error = "Previous QA attempt did not complete; evidence retained";
+      await save(join(directory, "report.json"), saved);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
+  if (saved) await rename(directory, `${directory}-attempt-${randomUUID()}`);
   const runAnalysis = async (clap: boolean) => {
     const python = `${factoryRoot}/.runtime/${clap ? "qa" : "mlx"}-venv/bin/python`;
     const { stdout } = await execute(
@@ -213,22 +235,13 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
     report.status = "completed";
     report.finished_at = new Date().toISOString();
     if (kind === "cuts") {
-      const bundle = await execute(
-        process.execPath,
-        [`${factoryRoot}/bundle.mjs`, root, JSON.stringify(report)],
-        {
-          timeout: Math.max(1, deadline - Date.now()),
-          maxBuffer: 4 * 1024 * 1024,
-          killSignal: "SIGKILL",
-        },
-      );
-      report.delivery = JSON.parse(bundle.stdout);
+      await deliver(report);
     }
   } catch (error) {
     report.status = "failed";
     report.error = String(error);
+    report.finished_at = new Date().toISOString();
   }
-  report.finished_at = new Date().toISOString();
   await save(join(directory, "report.json"), report);
   return report;
 }

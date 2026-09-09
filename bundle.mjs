@@ -5,6 +5,7 @@ import { verifyExport } from "./export-lineage.mjs";
 
 const [root, serializedCut] = process.argv.slice(2);
 const cut = JSON.parse(serializedCut);
+delete cut.delivery;
 if (!/^[a-f0-9]{32}$/.test(cut.run_id) || !/^[a-f0-9]{32}$/.test(cut.id))
   throw new Error("Invalid cut identity");
 const runDirectory = `${root}/out/runs/${cut.run_id}`;

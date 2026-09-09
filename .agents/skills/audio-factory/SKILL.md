@@ -20,7 +20,8 @@ and recovery details. This is a local developer tool: first-use setup needs
 network; installed generation and QA use local weights. The guide links verified
 clean setup and two real jobs (tasks 07–08), tested versions and storage/timing
 observations. Neither smoke nor source listening history establishes acceptance
-of a new candidate. Software release/licensing remains pending through task 12;
+of a new candidate. The owner confirmed license availability and closed release
+readiness in [task 12](../../../docs/tasks/m01/12-license-and-release-readiness.md#owner-resolution--2026-09-09);
 model/output rights remain separate.
 
 ## Generate and evaluate

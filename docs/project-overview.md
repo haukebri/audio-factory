@@ -33,7 +33,7 @@ Current implementation and its README supersede historical descriptions of resid
 - **Offline review:** `inspect`, `analyze`, `cut`, and `retain` work with saved output; mutating offline operations require the HTTP session to be stopped. Review sequentially before opening a new session.
 - **Manual service:** loopback `127.0.0.1:8766`, bearer token, Origin rejection, bounded input, single active generation/QA operation and 429 contention responses. Preserve session-scoped idempotency, conflict handling, accepted-work draining and owned-process recovery. Manual sessions stop after 30 seconds idle.
 
-The normal entry point is a CLI and an agent skill. The existing HTTP API is retained for advanced use; a desktop app, web UI, hosted API, engine plugin system, alternative model backends, batch scheduler, and Windows/Linux generation support are outside the first release.
+For the completed first release, the normal entry point is a CLI and an agent skill. The existing HTTP API is retained for advanced use; a desktop app, web UI, hosted API, engine plugin system, alternative model backends, batch scheduler, and Windows/Linux generation support are outside the first release. The owner has now authorized a second phase for a local review UI, human feedback and automatic quality control; its [M2 milestone](milestone/05-review-and-quality.md) and [task queue](tasks/m02/00-overview.md) define that extension. Other first-release exclusions remain unchanged.
 
 ## Storage contract
 

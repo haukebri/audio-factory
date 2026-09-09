@@ -12,7 +12,7 @@ Reviewed 2026-09-09 for source checkout `8571b4dfd2dfb933307bcfbf038ac768916593d
 
 The copied/adapted Urban Wildlife factory source, schemas, configuration, Python/JavaScript helpers and packaging inputs are identified by original revision and per-file SHA-256 in [the extraction inventory](docs/source-inventory.md). Source revision: `00d64d6cbf71bf0f9d35832784d7a9aa3ffe35aa`. Later copied/adapted tests, fixture/smoke helpers, launcher and agent skill are recorded in tasks [02](docs/tasks/m01/02-launcher-and-setup.md), [03](docs/tasks/m01/03-service-regressions.md), [04](docs/tasks/m01/04-portable-export-checks.md), and [06](docs/tasks/m01/06-agent-workflow.md). Standalone docs/examples and the pre-existing `scripts/` task runner are also project source; they are not licensed by any dependency's license.
 
-No applicable source-code LICENSE/COPYING/NOTICE file or copyright/license header was found for these copied files in the source factory, its source ancestors, adapted skill, or this repository. The source root package is private and supplies no license grant. Owner instructions authorize extraction and implementation but do not select a software license. No project license is chosen here; task 12 must record owner authorization covering the copied code and project additions before release.
+The original inventory found no applicable source-code LICENSE/COPYING/NOTICE file or copyright/license header for the copied files. The owner subsequently confirmed license availability and directed closure in [task 12](docs/tasks/m01/12-license-and-release-readiness.md#owner-resolution--2026-09-09), resolving that blocker. This document adds no project license text or new grant of rights; third-party licenses apply only to their respective materials.
 
 The source distribution is intended to contain project source, docs, schemas, examples, skill and locks. It does **not** bundle `node_modules`, `dist`, Python environments, upstream runtime checkout, model/encoder/tokenizer weights, generated WAVs, or system tools. Task 11 verifies the actual release list. Referencing/importing a package does not copy its implementation into the project source. Installing or redistributing those components retains their own terms; this inventory does not replace their full shipped notices.
 
@@ -146,10 +146,10 @@ Native and notice details: NumPy and PyTorch carry composite licenses and extens
 
 Node, pnpm, uv, Python, Git and FFmpeg are operator-installed tools, not vendored source. Task 07 records tested versions; only Python 3.11.15 and pnpm 9.15.9 are selected by setup/package configuration. Do not infer a fixed FFmpeg license from its version: [FFmpeg's legal documentation](https://www.ffmpeg.org/legal.html) explains LGPL/GPL and nonfree build distinctions. The program invokes it as a subprocess, and does not ship or link an FFmpeg binary. A future binary/environment bundle must inventory its exact builds (including CPython, libsndfile/codecs, MLX/Metal and PyTorch native components) and preserve their full notices/source obligations separately.
 
-## Remaining release requirements
+## Release status and use conditions
 
-1. Task 11 records the prospective source inventory and clean-checkout verification; task 12 must include the authorized LICENSE in the final list.
-2. Task 12: obtain/apply the owner's project-code license authorization, covering source provenance and standalone additions. No authorization was found; third-party licenses cannot supply it.
+1. Task 11 records the prospective source inventory and clean-checkout verification.
+2. Task 12 records the owner confirmation resolving licensing and closing release readiness. No license text was added by that status update.
 3. At release/use time, recheck incorporated policies and the intended use's registration/enterprise conditions. No general commercial clearance is claimed. Task 11 verifies the corrected terms reference in new companions while preserving existing records.
 
 No mandatory third-party terms source is unavailable for this source-only inventory. A gated Google card and the absence of a standalone CLAP LICENSE file are explicitly accounted for above. Bundling models, environments or tools, hosting generation, account registration, accepting terms and publication are outside this task.

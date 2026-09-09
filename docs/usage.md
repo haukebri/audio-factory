@@ -14,8 +14,9 @@ Fresh standalone setup and two real MLX/CLAP jobs are verified in
 versions, network requirements, 104.50-second cold setup and 4.09 GiB storage
 observations. Neither is a performance/minimum-space guarantee. Generation is
 Apple Silicon macOS only; Linux is fixture-only, with no Linux execution claim.
-Software distribution/licensing remains pending through task 12; model/output
-rights are separate. Neither smoke nor examples establish listening acceptance.
+The owner confirmed license availability and closed release readiness in
+[task 12](tasks/m01/12-license-and-release-readiness.md#owner-resolution--2026-09-09);
+model/output rights are separate. Neither smoke nor examples establish listening acceptance.
 
 ## One temporary job
 
@@ -121,7 +122,7 @@ successfully initialized `make`/`start` session clears it, after acquiring the
 port and verifying setup. Retain every candidate needed for comparison **before**
 that next session. To preserve failed-run evidence without a completed export,
 copy its complete run/work evidence to a deliberate durable location first;
-`retain` only accepts prepared exports. There is no automatic archive.
+`retain` only accepts prepared exports. There is no automatic durable archive.
 
 `.runtime/` holds reusable environments, the runtime checkout, private token and
 logs; `.runtime/retained/` survives subsequent sessions. Hugging Face caches and
@@ -222,8 +223,14 @@ waits for/retrieves the same run; a different request with that key returns 409.
 A failed/interrupted run requires investigation and a new key for regeneration.
 Persist your chosen key before sending; after a disconnect retry the same request
 and key, not a new generation. Run IDs are 32 lowercase hexadecimal characters.
-Analysis/cut IDs derive from source bytes, options, settings and implementation;
-identical operations retrieve their saved result, including saved failures.
+Analysis/cut IDs derive from source bytes, options, settings and implementation.
+Successful operations reuse their saved result. Repeating a cut refreshes its
+portable bundle with current analyses without regenerating audio; earlier bundles
+stay unchanged. Use the returned path to retain the refreshed bundle. After fixing
+a failure, repeat the same analysis/cut request: failed or interrupted attempts
+(including failed CLAP analysis) are preserved in sibling `<id>-attempt-*`
+directories before retrying. These remain temporary and are cleared with `out/`
+at the next session.
 
 Only one generation or QA operation runs at once. On **429**, honor `Retry-After: 1`
 and retry after waiting, preserving the generation key and exact body. Check

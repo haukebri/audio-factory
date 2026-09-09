@@ -187,6 +187,18 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     assert.equal(inspectWav(prepared).channels, 2);
     assert.deepEqual(await readFile(`${runPath}/audio.wav`), bytes);
     assert.deepEqual(await readFile(`${runPath}/run.json`), originalRun);
+    // Model-free stand-in for a repaired CLAP interpreter; signal QA remains real.
+    await mkdir(`${directory}/.runtime/qa-venv/bin`, { recursive: true });
+    const repairedResult = { ...missing.result, clap: { status: "completed", scores: [] } };
+    await writeFile(`${directory}/.runtime/qa-venv/bin/python`,
+      `#!${process.execPath}\nconsole.log(${JSON.stringify(JSON.stringify(repairedResult))});\n`, { mode: 0o755 });
+    const retried = await qaOperation(directory, id, "analyses", { clap: true, target: "A tone" });
+    assert.equal(retried.result.clap.status, "completed");
+    const archived = (await readdir(`${runPath}/analyses`)).find(name => name.startsWith(`${missing.id}-attempt-`));
+    assert.ok(archived);
+    assert.equal(JSON.parse(await readFile(`${runPath}/analyses/${archived}/report.json`)).result.clap.status, "failed");
+    // The already delivered bundle still carries its original, honest QA evidence.
+    assert.equal(verify().review.status, "provisional");
     // Keep evidence until the destination has verified, then remove only this run.
     await rm(runPath, { recursive: true });
     assert.equal(verify().generation.id, id);
@@ -223,5 +235,78 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     await factory.close();
     await rm(directory, { recursive: true, force: true });
     console.log(`Removed offline fixture: ${directory}`);
+  }
+});
+
+test("QA retries preserve evidence, refresh bundles and renew the idle deadline", async (t) => {
+  const { readdir, rename } = await import("node:fs/promises");
+  const { qaOperation } = await import("./dist/qa.js");
+  const { config } = await import("./dist/config.js");
+  const directory = await mkdtemp(`${root}/.runtime/qa-recovery-`);
+  const previousIdle = config.idle_ms;
+  let now = 0;
+  t.mock.method(Date, "now", () => now);
+  config.idle_ms = 1000;
+  let stopped = false;
+  const bytes = wavFixture(time => time > 0.2 && time < 0.4);
+  const factory = await createFactory({ root: directory, token: "test", backend: {
+    async generate() { return bytes; }, async reset() {}, async unload() {},
+  }, shutdown() { stopped = true; } });
+  try {
+    await new Promise(resolve => factory.server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${factory.server.address().port}`;
+    const headers = { Authorization: "Bearer test", "Content-Type": "application/json" };
+    const post = (path, input) => fetch(url + path, { method: "POST", headers, body: JSON.stringify(input) });
+    const generated = await post("/v1/sound-effects", { prompt: "A tone", duration_seconds: 1 });
+    assert.equal(generated.status, 200);
+    await generated.arrayBuffer();
+    const id = generated.headers.get("x-run-id");
+    const cuts = `${directory}/out/runs/${id}/cuts`;
+    const request = { start_seconds: 0.21, end_seconds: 0.38 };
+    const previousPath = process.env.PATH;
+    let failed;
+    try {
+      process.env.PATH = "/nonexistent-fixture-path";
+      failed = await qaOperation(directory, id, "cuts", request);
+    } finally { process.env.PATH = previousPath; }
+    assert.equal(failed.status, "failed");
+    const failureBytes = await readFile(`${cuts}/${failed.id}/report.json`);
+    // Preserve even partial output: a retry must not collide with FFmpeg's -n.
+    await writeFile(`${cuts}/${failed.id}/audio.wav`, "partial output");
+    const recovered = await qaOperation(directory, id, "cuts", request);
+    assert.equal(recovered.status, "completed");
+    const archives = (await readdir(cuts)).filter(name => name.startsWith(`${failed.id}-attempt-`));
+    assert.equal(archives.length, 1);
+    assert.deepEqual(await readFile(`${cuts}/${archives[0]}/report.json`), failureBytes);
+    assert.equal(await readFile(`${cuts}/${archives[0]}/audio.wav`, "utf8"), "partial output");
+    const originalMetadata = await readFile(recovered.delivery.metadata);
+    const originalAudio = await readFile(recovered.delivery.audio);
+    now = 900;
+    const response = await post(`/v1/runs/${id}/analyses`, {});
+    assert.equal(response.status, 200);
+    const analysis = await response.json();
+    now = 1100;
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(stopped, false, "QA must renew the idle deadline");
+    const refreshed = await qaOperation(directory, id, "cuts", request);
+    const record = JSON.parse(await readFile(refreshed.delivery.metadata));
+    assert.ok(record.analyses.some(item => item.id === analysis.id));
+    verifyExport(record, await readFile(refreshed.delivery.audio), () => bytes);
+    assert.deepEqual(await readFile(recovered.delivery.metadata), originalMetadata);
+    assert.deepEqual(await readFile(refreshed.delivery.audio), originalAudio);
+    assert.deepEqual((await qaOperation(directory, id, "cuts", request)).delivery, refreshed.delivery);
+    // A killed operation leaves attempt.json and partial output, but no final report.
+    await rm(`${cuts}/${recovered.id}/report.json`);
+    await rename(`${cuts}/${recovered.id}/audio.wav`, `${cuts}/${recovered.id}/partial.wav`);
+    assert.equal((await qaOperation(directory, id, "cuts", request)).status, "completed");
+    assert.equal((await readdir(cuts)).filter(name => name.startsWith(`${failed.id}-attempt-`)).length, 2);
+    now = 2000;
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    assert.equal(stopped, true, "idle shutdown must still occur");
+  } finally {
+    t.mock.restoreAll();
+    config.idle_ms = previousIdle;
+    await factory.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

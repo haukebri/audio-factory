@@ -238,6 +238,7 @@ export async function createFactory(options: {
             } else json(res, report.status === "completed" ? 200 : 502, report);
           } finally {
             qaActive = undefined;
+            lastUse = Date.now();
           }
           return;
         }
