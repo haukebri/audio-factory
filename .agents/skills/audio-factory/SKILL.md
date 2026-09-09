@@ -62,7 +62,8 @@ Read the detailed report before deciding whether to use the prepared candidate:
 
 - Signal analysis identifies active regions and rhythmic bass. CLAP ranks supplied
   descriptions for the recording/regions; scores are not correctness probabilities.
-  It neither rejects audio nor starts another generation.
+  The separate delivered-clip judge can reject; automatic workflow mode retries
+  only a judged rejection within its budget.
 - Investigate unexpected high-ranked content. Source cat-plus-swish examples really
   contained both. Choose explicit bounds if the boundary is established; otherwise
   try another seed or revise the prompt.
@@ -79,6 +80,27 @@ Bound quality searches to **three generations per requested sound by default**;
 a task may set another budget. Record evidence and limitations rather than loop
 indefinitely. Missing listening tools do not stop unrelated work. Provisional
 local use is authorized within the task's scope; this skill adds no human gate.
+
+## Studio and durable automatic requests
+
+Use `./run studio` for browser review at `http://127.0.0.1:8767`; prepare
+`./run setup-qa` first for automatic mode. Both 8766 and 8767 must be free.
+With the studio open, agents use its bearer API without an Origin header;
+with it stopped, use `./run workflow workflow.json my-durable-key`.
+The [studio guide](../../../docs/usage.md#local-studio-service) defines the
+request shape, reconnect, cancellation and recovery endpoints. Preserve the
+same input/key to reattach instead of generating again. Default automatic
+budget is three attempts/20 minutes after setup; uncertainty stops for review.
+
+Larger CLAP General judges the delivered bytes with experimental score/signal
+thresholds. `auto_accepted` is not human approval. Candidate history, rejected
+cuts and explicit feedback persist outside `out/`; download the complete studio
+bundle to retain candidate/judge/feedback identity together. Agent-created
+feedback checks belong on explicitly fixture-tagged copies, never real labels.
+Use [evaluation](../../../docs/evaluation.md) for quality counts and policy
+selection/rollback. Zero human labels means `quality_not_established`.
+[Integrated verification](../../../docs/tasks/m02/07-integrated-verification.md#evidence)
+records real inference separately from technical playback and synthetic feedback.
 
 ## Adjust and preserve
 
@@ -118,7 +140,7 @@ eligibility is separate from quality acceptance and model/license references.
 `out/` paths and run IDs last until the next successfully initialized `make` or
 manual `start`, after setup and port acquisition. **Retain candidates needed for
 comparison before the next session.** Review, adjust, retain and copy sequentially.
-There is no automatic archive. Preserve failed run/work evidence separately when
+The shared workflow preserves candidates in `.runtime/studio/`. Preserve failed run/work evidence separately when
 no prepared export exists. Environments, verified caches, retained bundles and
 project copies survive startup. Never run setup or an offline mutation during a
 manual HTTP session. Saved retained bundles are durable delivery, not input IDs
@@ -140,7 +162,7 @@ and preserve wanted evidence before restarting.
 
 `pnpm test:audio-factory` checks service, lifecycle, signal QA and portable lineage
 with fixtures; see the [fixture prerequisites](../../../readme.md#fixture-checks).
-There is no standalone browser UI. `pnpm audio:smoke` runs and retains two real
+The local browser studio uses the same workflow. `pnpm audio:smoke` runs and retains two real
 MLX/CLAP jobs and verifies session cleanup; retain wanted output first. Reuse the
 guide's recorded smoke evidence when inputs are unchanged. Linux instructions
 cover fixtures only, not generation. Real inference and technical checks do not

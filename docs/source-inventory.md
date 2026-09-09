@@ -64,3 +64,22 @@ New standalone `package.json` SHA-256: `a34f00d3cdfd5d9415247ef4831241ef53979a97
 `config.json`, every schema, both Python locks, QA settings/model lock, backend, signal analyzer and download scripts are byte-identical. This preserves runtime `779434a908193105335fd8d833418603625b2859`, model revision `da6edc54ddba10bfd79a077102ded687f80e882b`, all three artifact hashes/sizes, Python 3.11.15, Small-SFX F16 / SAME-S F32 / T5Gemma F16, eight steps, zero padding, -3 dB attenuation, stereo 44100 Hz PCM16, QA thresholds and schema identifiers. No model verification by download or inference is claimed.
 
 All CLI runtime helpers are present: setup.mjs → download_models.py, qa-setup.py, qa.py, bundle.mjs → export-lineage.mjs, and retain.mjs → export-lineage.mjs. The source launcher is read but deferred to task 02, as is the obsolete setup progress diagnostic in src/setup.ts. Game import/builders/loop conversion, browser checks, audition/experiment helpers, pilot assets and operational state are omitted. Source regression suites and fixtures remain for tasks 03–04.
+
+
+## M2 integration inventory — task 07
+
+The tables above describe extraction-time bytes, not current implementation
+hashes. The [integration evidence](tasks/m02/07-integrated-verification.md#evidence)
+records the current input revision and full tracked-file SHA-256 manifest.
+Current standalone additions are `workflow.mjs` (durable bounded jobs),
+`review-store.mjs` (immutable assets/feedback), `studio.mjs`, `studio.html`,
+`studio.js`, `studio.css` (local service/workspace), `judge.mjs` and
+`judge-policy.json` (experimental delivered-audio policy), and `evaluation.mjs`
+(cached benchmark/policy comparison). Their focused tests are source checks;
+`judge-smoke.mjs` is a controlled retained-audio replay, not generation evidence.
+`docs/tasks/m02/clap-m1-baseline.lock.json` retains historical M1 QA pins;
+`qa-model.lock.json` now pins Larger CLAP General. Generation pins remain MLX
+Small-SFX through task 07; the Medium GGUF migration belongs to task 08.
+Ignored verification checkouts, model/runtime symlinks, private sessions, audio,
+TARs, screenshots and evaluation datasets are local evidence, not distribution
+inputs. No weights, tokens or generated audio were added to tracked source.

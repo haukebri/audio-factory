@@ -1,10 +1,12 @@
 # Audio Factory
 
-A local sound-effect tool for developers and coding agents: describe a sound, generate it on an Apple Silicon Mac, review advisory QA, and take away a WAV with its generation and processing history. No game workspace or assets are required.
+A local sound-effect tool for developers and coding agents: describe a sound, generate it on an Apple Silicon Mac, review it in a local browser studio with experimental automatic QA, and take away a WAV with its generation and processing history. No game workspace or assets are required.
 
 **Powered by Stability AI.** See [third-party notices and exact artifact terms](THIRD_PARTY_NOTICES.md).
 
-**Status: standalone installation and two real MLX/CLAP jobs verified.** The [clean setup](docs/tasks/m01/07-fresh-installation.md#evidence) and [smoke evidence](docs/tasks/m01/08-real-job-smoke.md#evidence) cover setup, normalized export, retention, relocation and shutdown. Listening quality remains provisional. Third-party notices and the prospective source inventory are verified in tasks 10–11. Source-distribution readiness is marked complete following the owner’s confirmation of license availability in task 12; nothing has been published.
+**Status: pre-migration studio integration verified; quality_not_established.** The [M2 integration evidence](docs/tasks/m02/07-integrated-verification.md#evidence) covers a real browser request, delivered-audio judging, playback, synthetic feedback, export and restart. The Medium GGUF migration remains task 08.
+
+**Historical standalone installation and two real MLX/CLAP jobs verified.** The [clean setup](docs/tasks/m01/07-fresh-installation.md#evidence) and [smoke evidence](docs/tasks/m01/08-real-job-smoke.md#evidence) cover setup, normalized export, retention, relocation and shutdown. Listening quality remains provisional. Third-party notices and the prospective source inventory are verified in tasks 10–11. Source-distribution readiness is marked complete following the owner’s confirmation of license availability in task 12; nothing has been published.
 
 ## Install and generate
 
@@ -34,12 +36,18 @@ Read the report and listen where possible. Retention returns a new WAV path unde
 
 This sequence is supported by task 07's root setup output and task 08's two `make` calls plus offline inspect/retain/status output through the same CLI. Template paths vary per job. The [usage guide](docs/usage.md) covers manual HTTP access, logs and repair; the [agent skill](.agents/skills/audio-factory/SKILL.md) covers bounded review and delivery from another project.
 
+## Review studio
+
+Run `./run setup` and `./run setup-qa`, then `./run studio`; open **http://127.0.0.1:8767**. Keep both 8766 and 8767 free. The studio retains candidates, supports original/prepared playback, blind review, explicit human feedback and complete bundle downloads. Automatic mode defaults to three attempts and 20 minutes after setup; uncertainty stops for review. Ctrl-C closes the studio and owned work. Agents use the same durable workflow; see [studio/API instructions](docs/usage.md#local-studio-service) and [feedback evaluation](docs/evaluation.md).
+
+The selected Larger CLAP General checkpoint adds 779,810,876 cached artifact bytes; QA setup requires those bytes plus 10 GiB reserve. Its isolated Python 3.11.15 environment uses the pinned QA lock. Reuse existing caches and allow up to 45 minutes for initial QA setup; each delivered-clip judge has a 120-second deadline. Historical setup timings above used the older M1 CLAP checkpoint.
+
 ## Lifetime and limitations
 
-- **Temporary output:** the next successfully initialized `make` or `start` clears `out/`, after setup and port acquisition. Retain every wanted candidate before retrying. Retained bundles, environments, caches and project copies survive. There is no automatic archive.
+- **Temporary output:** the next successfully initialized `make` or `start` clears `out/`, after setup and port acquisition. Retain every wanted candidate before retrying. Retained bundles, environments, caches and project copies survive. The shared `make`/studio workflow also preserves immutable candidates under `.runtime/studio/`; raw work logs in `out/` remain temporary.
 - **Local generation:** inference and QA use local weights without cloud inference. Initial setup/downloads need network; later jobs reuse verified local components. Explicit setup/repair can still contact remote sources. The backend is pinned MLX Small-SFX F16, F32 SAME-S decoder and F16 T5Gemma, eight steps, zero extra duration padding.
 - **Advisory quality:** CLAP similarity and signal checks do not establish prompt accuracy or listening acceptance. Region 1 may contain multiple events. No listener evaluated the two standalone smoke candidates; both remain provisional. Default searches stop after **three generations per requested sound** unless another budget is specified.
-- **Platform:** generation is supported on Apple Silicon macOS only. Linux instructions below cover model-free fixtures; they are not Linux generation support or evidence of a Linux run. Intel Macs and Windows generation are unsupported. There is no browser UI.
+- **Platform:** generation is supported on Apple Silicon macOS only. Linux instructions below cover model-free fixtures; they are not Linux generation support or evidence of a Linux run. Intel Macs and Windows generation are unsupported. The review studio is a local browser UI.
 - **Recovery:** inspect `.runtime/setup.log` for automatic setup, `.runtime/service.log` for manual startup, and `out/work/mlx-job-*/inference.log`/`export.log` for jobs. Check `./run status`; use `./run stop` to drain an owned session. Repair with explicit `setup`/`setup-qa` while stopped, preserving and investigating mismatched artifacts. See [storage and recovery](docs/usage.md#storage-and-recovery).
 - **Rights:** third-party attribution and artifact terms are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the owner confirmed license availability and resolved the licensing blocker in [task 12](docs/tasks/m01/12-license-and-release-readiness.md). This status update adds no license text or new grant of rights. Model and generated-output rights are separate from the software license and quality review. Bundle license references alone do not grant rights. No weights are intended in the source distribution.
 

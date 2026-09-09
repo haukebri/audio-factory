@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control tasks
 
-This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–06 are complete; tasks 07–08 remain planned. Task 06 delivers evaluation tooling with quality_not_established because real human labels are absent. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
+This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–07 are complete; task 08 remains planned. Task 07 verifies real pre-migration studio integration; human listening quality remains unestablished. Task 06 delivers evaluation tooling with quality_not_established because real human labels are absent. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
 
 ## Ordered queue
 
@@ -12,7 +12,7 @@ This queue implements the [new M2 milestone](../../milestone/05-review-and-quali
 | 04 | [x] | [Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md) | 03 |
 | 05 | [x] | [Reject and regenerate within a durable budget](05-automatic-quality-loop.md) | 04 |
 | 06 | [x] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |
-| 07 | [ ] | [Verify the studio and quality loop end to end](07-integrated-verification.md) | 06 |
+| 07 | [x] | [Verify the studio and quality loop end to end](07-integrated-verification.md) | 06 |
 | 08 | [ ] | [Migrate generation to Stable Audio 3 Medium GGUF F16](08-medium-gguf-generation.md) | 07 |
 
 Task 08 is the owner-authorized generation migration to the Medium GGUF F16 set, including `stable-audio-3-medium-same-l-v1.0-F16.gguf`; it owns verification of the final migrated backend. Tasks 04–07 keep the existing generator while completing QA integration.

@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store, studio service, review workspace, CLAP judge, bounded automatic retries and feedback evaluation tooling are complete; final integration/migration and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service, review workspace, CLAP judge, bounded automatic retries and feedback evaluation tooling are complete; pre-migration integration is verified; the Medium GGUF migration and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -74,6 +74,8 @@ If data or targets are insufficient, keep the tested product usable with explici
 ## Acceptance
 
 Product integration:
+
+Task 07 [integrated evidence](../tasks/m02/07-integrated-verification.md#evidence) verifies the current MLX generator through the real browser/shared workflow, Larger CLAP delivered-audio judging, technical playback, explicitly synthetic feedback, complete exports and relocated restart. One real request stopped at uncertainty; zero real human labels means quality_not_established.
 
 - [ ] Stable Audio 3 Medium GGUF F16 is the verified default generator, including the exact requested SAME-L file and matching components, with retained export, QA and lifecycle checks (task 08).
 

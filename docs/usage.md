@@ -343,3 +343,13 @@ Uncertainty, unavailable QA and operational failures never trigger another gener
 After restart, use `recover` to reuse completed source/cut/judge evidence; an
 in-flight operation without a verified result remains unresolved. Persisted
 cancellation stays cancelled. `make`/`generate` retain their single-attempt interface.
+
+
+Task 07's [integrated verification](tasks/m02/07-integrated-verification.md#evidence)
+binds this workflow to current runtime/model hashes. Its real request stopped
+at `needs_review`; browser playback did not create a human label. The feedback
+check used a separate `fixture: true` copy of the real candidate, with a synthetic
+note, so evaluation excludes it. Do not submit agent-created test feedback on a
+real candidate: the store's synthetic exclusion is at candidate level.
+The complete studio TAR includes `candidate.json` and `feedback.json` in addition
+to portable audio lineage; preserve all files after extraction.
