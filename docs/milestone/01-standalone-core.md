@@ -1,6 +1,6 @@
 # Milestone 1 — Standalone core
 
-Status: core extraction verified; launcher work pending (task 02). Dependency: documentation baseline in [project overview](../project-overview.md).
+Status: core extraction and root launcher verified (tasks 01–02). Dependency: documentation baseline in [project overview](../project-overview.md).
 
 ## Outcome
 
@@ -24,13 +24,15 @@ Read destination status before copying; do not overwrite unrelated work. Verify 
 - [x] Standalone frozen dependency installation and TypeScript build pass.
 - [x] Core modules resolve with the source project unavailable to the process; no symlink or absolute path supplies a hidden dependency.
 - [x] A focused search and import inspection find no required game workspace, content-schema package path or game asset builder.
-- [ ] The root launcher reaches the standalone CLI; invalid usage reports its supported commands without starting inference.
+- [x] The root launcher reaches the standalone CLI; invalid usage reports its supported commands without starting inference.
 - [x] Copied configuration, locks and model hashes match the recorded source, except documented path/package adaptations.
 - [x] Git's candidate file list excludes caches, tokens, PID files, audio history, weights and build products.
 
 Task 01 evidence: `pnpm install --frozen-lockfile`, `pnpm build` and `node standalone-core.test.mjs` passed on 2026-09-09. The packaging check independently installs/builds a disposable copy, restricts import reads to that copy, verifies dependency paths and invalid-command usage, then removes it. All 29 copied/adapted file hash pairs and all 28 retained lock package/snapshot entries were verified. See the [source inventory](../source-inventory.md) and [task evidence](../tasks/m01/01-standalone-core.md#evidence). The root launcher is intentionally pending task 02; no model setup/inference was run. A successful build proves packaging only; real inference belongs to milestone 3.
 
 ## Runner tasks
+
+Task 02 evidence: `sh -n run`, `pnpm build`, root launcher status/invalid usage and `node standalone-core.test.mjs` passed on 2026-09-09. The disposable launcher bootstrap reused cached packages with a frozen lockfile and compiled locally. Outside-checkout invalid request probes preserved existing output and triggered no setup/inference. The setup/QA/export call chain was inspected; real downloads remain task 07. See [task 02 evidence](../tasks/m01/02-launcher-and-setup.md#evidence).
 
 Execute in the global order in [the task queue](../tasks/m01/00-overview.md); task status is authoritative for execution.
 

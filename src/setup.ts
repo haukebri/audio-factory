@@ -24,7 +24,7 @@ export async function ensureSetup(qa = false, signal?: AbortSignal) {
   for (const [command, args] of commands) {
     signal?.throwIfAborted();
     console.error(
-      "Preparing local audio factory; progress: assets-src/audio-factory/.runtime/setup.log",
+      "Preparing local audio factory; progress: .runtime/setup.log",
     );
     const log = openSync(`${root}/.runtime/setup.log`, "a", 0o600);
     const child = spawn(command, args, { stdio: ["ignore", log, log], detached: true });

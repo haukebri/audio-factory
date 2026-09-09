@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")"
+if [ ! -x node_modules/.bin/tsc ]; then
+  pnpm install --frozen-lockfile
+fi
+exec pnpm --silent audio:factory "$@"

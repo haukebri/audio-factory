@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("./", import.meta.url));
 const isolated = realpathSync(mkdtempSync(join(tmpdir(), "audio-factory-core-")));
 console.log(`Isolated copy: ${isolated}`);
-const run = (command, args) => {
+const run = (command, args, cwd = isolated) => {
   const result = spawnSync(command, args, {
-    cwd: isolated,
+    cwd,
     env: { ...process.env, NODE_PATH: "", NODE_OPTIONS: "", CI: "true" },
     encoding: "utf8",
     timeout: 120000,
@@ -19,7 +19,7 @@ const run = (command, args) => {
   return result;
 };
 try {
-  const files = ["src", "package.json", "pnpm-lock.yaml", "tsconfig.json",
+  const files = ["run", "src", "package.json", "pnpm-lock.yaml", "tsconfig.json",
     "config.json", "qa-config.json", "qa-model.lock.json", "requirements.lock",
     "qa-requirements.lock", "setup.mjs", "download_models.py", "qa-setup.py",
     "qa.py", "bundle.mjs", "export-lineage.mjs", "retain.mjs",
@@ -52,6 +52,34 @@ try {
   `]);
   assert.equal(imports.status, 0, imports.stdout + imports.stderr);
   assert.ok(!existsSync(join(isolated, ".runtime")));
+  // Exercise first-use bootstrap independently of the explicit installation above.
+  rmSync(join(isolated, "node_modules"), { recursive: true });
+  rmSync(join(isolated, "dist"), { recursive: true });
+  const status = run(join(isolated, "run"), ["status"], tmpdir());
+  assert.equal(status.status, 0, status.stdout + status.stderr);
+  assert.match(status.stdout, /Lockfile is up to date, resolution step is skipped/);
+  assert.match(status.stdout, /"status":"stopped"/);
+  assert.ok(existsSync(join(isolated, "dist/cli.js")));
+  assert.equal(readFileSync(join(isolated, "pnpm-lock.yaml"), "utf8"), readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
+  console.log(status.stdout.trim());
+  assert.deepEqual(readdirSync(join(isolated, ".runtime")), ["token"]);
+  assert.ok(!existsSync(join(isolated, "out")));
+  mkdirSync(join(isolated, "out"));
+  writeFileSync(join(isolated, "out/sentinel"), "preserve existing output");
+  const invalidRequest = join(isolated, "invalid request.json");
+  writeFileSync(invalidRequest, JSON.stringify({ prompt: "" }));
+  for (const [command, request, error] of [
+    ["make", join(isolated, "nonexistent request.json"), /ENOENT/],
+    ["generate", invalidRequest, /minLength/],
+  ]) {
+    const result = run(join(isolated, "run"), [command, request], tmpdir());
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, error);
+    assert.deepEqual(readdirSync(join(isolated, ".runtime")), ["token"]);
+    assert.deepEqual(readdirSync(join(isolated, "out")), ["sentinel"]);
+    assert.equal(readFileSync(join(isolated, "out/sentinel"), "utf8"), "preserve existing output");
+  }
+  rmSync(join(isolated, "out"), { recursive: true });
   for (const command of ["invalid-command", "import"]) {
     const usage = run(process.execPath, [...permissions, `--allow-fs-write=${isolated}`, "dist/cli.js", command]);
     assert.equal(usage.status, 1, usage.stdout + usage.stderr);
