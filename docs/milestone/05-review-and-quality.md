@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control
 
-Status: in progress — the durable store, studio service, review workspace, CLAP judge and bounded automatic retries are complete; evaluation, final integration/migration and measured quality improvement remain pending.
+Status: in progress — the durable store, studio service, review workspace, CLAP judge, bounded automatic retries and feedback evaluation tooling are complete; final integration/migration and measured quality improvement remain pending.
 
 Overview: [Project](../project-overview.md) · [Executable tasks](../tasks/m02/00-overview.md)
 
@@ -84,7 +84,7 @@ Product integration:
 - [x] A judged rejection causes a bounded new attempt; cancellation, restart and exhaustion preserve evidence without duplicate work (task 05 controlled policy/backend, crash/relocation, browser and cleanup checks).
 - [x] CLI/agent access uses the same workflow and decision records as the studio (task 02 shared workflow and durable store).
 - [x] Local auth/origin/path boundaries, accessibility, playback, error states and cleanup have direct checks (tasks 02–03 service/browser evidence).
-- [ ] Human feedback exports and repeatable evaluation/policy rollback work; synthetic fixture labels are excluded from real quality metrics.
+- [x] Human feedback exports and repeatable evaluation/policy rollback work; synthetic fixture labels are excluded from real quality metrics (task 06 controlled checks and browser journey; zero real labels, quality_not_established).
 
 Quality improvement (separate from software delivery):
 

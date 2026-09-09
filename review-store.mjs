@@ -159,7 +159,7 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     }
     return events;
   }
-  function feedback(input) {
+  function feedback(input, importedTimestamp) {
     input = JSON.parse(serialize(input));
     check(validFeedback, input);
     const events = history(input.candidate_sha256);
@@ -174,7 +174,7 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     mkdirSync(path, { recursive: true, mode: 0o700 });
     directory(path);
     syncDirectory(join(root, "feedback"));
-    const event = { ...input, timestamp: new Date().toISOString() };
+    const event = { ...input, timestamp: importedTimestamp ?? new Date().toISOString() };
     const temporary = join(path, `pending-${randomUUID()}.json`);
     write(temporary, serialize(event));
     // Exclusive link publishes one revision across processes; no persistent lock to recover.
@@ -194,7 +194,23 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     return readdirSync(join(root, "candidates")).filter(name => /^[a-f0-9]{64}$/.test(name)).sort().map(loadCandidate);
   }
   return {
-    saveCandidate, loadCandidate, listCandidates, feedback, history,
+    saveCandidate, loadCandidate, listCandidates, feedback: input => feedback(input), history,
+    importHistory(candidateId, events) {
+      if (!Array.isArray(events)) throw new Error("Invalid feedback history");
+      events.forEach((event, index) => {
+        check(validEvent, event);
+        if (event.candidate_sha256 !== candidateId || event.supersedes !== (events[index - 1]?.event_id ?? null) ||
+            events.slice(0, index).some(e => e.event_id === event.event_id)) throw new Error("Feedback history conflict");
+      });
+      const existing = history(candidateId);
+      if (existing.length > events.length || existing.some((event, i) => serialize(event) !== serialize(events[i]))) throw new Error("Feedback import conflict");
+      for (const event of events.slice(existing.length)) {
+        const { timestamp, ...input } = event;
+        const saved = feedback(input, timestamp);
+        if (serialize(saved) !== serialize(event)) throw new Error("Feedback import conflict");
+      }
+      return history(candidateId);
+    },
     readAsset(candidateId, asset) {
       if (!["source", "audio"].includes(asset)) throw new Error("Unknown candidate asset");
       const candidate = loadCandidate(candidateId);

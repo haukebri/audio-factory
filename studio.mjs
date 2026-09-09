@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { openJobs } from "./workflow.mjs";
+import { collect, coverage, exportDataset } from "./evaluation.mjs";
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 async function body(req) {
@@ -74,6 +75,11 @@ export async function createStudio({ port = 8767, ...options }) {
           const input = await body(req);
           json(res, 202, action === 'recover' ? await jobs.recover(id) : action === 'continue' ? await jobs.continue(id, req.headers['idempotency-key'], input.budget) : action === 'acknowledge' ? await jobs.acknowledge(id) : action === 'cancel' ? await jobs.cancel(id) : action === 'retry' ? await jobs.retry(id, req.headers['idempotency-key']) : await jobs.resume(id, req.headers['idempotency-key'])); return;
         }
+      }
+      if (req.method === 'GET' && path === '/studio/evaluation') { json(res, 200, coverage(collect(jobs.store))); return; }
+      if (req.method === 'GET' && path === '/studio/evaluation/export') {
+        res.setHeader('Content-Disposition', 'attachment; filename="audio-factory-evaluation.json"');
+        json(res, 200, exportDataset(jobs.store, jobs.list())); return;
       }
       if (req.method === 'GET' && path === '/studio/candidates') { json(res, 200, jobs.store.listCandidates()); return; }
       const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut))?$/.exec(path);

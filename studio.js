@@ -140,7 +140,10 @@ function budgetText(job) {
 }
 async function refresh() {
   await refreshQa();
-  const [nextJobs, nextCandidates] = await Promise.all([api('jobs'), api('candidates')]);
+  const [nextJobs, nextCandidates, counts] = await Promise.all([api('jobs'), api('candidates'), api('evaluation')]);
+  $('evaluation-counts').textContent = `${counts.status} · ${counts.human_labelled}/${counts.real_unique_audio} real clips labelled · ${counts.approved} approved · ${counts.rejected} rejected · ${counts.families} prompt families · ${counts.unreviewed} unreviewed · ${counts.disagreements} conflicting labels · ${counts.human_auto_disagreements} human/automatic disagreements · ${counts.corrections} corrections · ${counts.synthetic_candidates} synthetic candidates excluded. Missing: ${counts.missing.clips} clips, ${counts.missing.approved} approved, ${counts.missing.rejected} rejected, ${counts.missing.families} families.`;
+  $('review-unreviewed').disabled = !counts.unreviewed_candidates.length;
+  $('review-unreviewed').onclick = () => action(async () => { $('blind').checked = true; remember('blind', true); await select(counts.unreviewed_candidates[0]); $('workspace').focus(); });
   jobs = nextJobs;
   if (JSON.stringify(candidates) !== JSON.stringify(nextCandidates)) {
     candidates = nextCandidates; renderLibrary();
@@ -206,6 +209,14 @@ async function connect() {
   const id = recall('selected', null); if (candidates.some(c => c.candidate_sha256 === id)) await select(id);
   say('Connected. Saved requests and takes are available. Delivered clips receive experimental CLAP/signal evaluation; human decisions remain separate.');
 }
+$('export-evaluation').onclick = () => action(async () => {
+  const response = await fetch('/studio/evaluation/export');
+  if (!response.ok) throw new Error((await response.json()).error);
+  const url = URL.createObjectURL(await response.blob());
+  const link = node('a', undefined, document.body, { href: url, download: 'audio-factory-evaluation.json' });
+  link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+  say('Local evaluation dataset downloaded. Freeze family groups before tuning; quality remains unestablished.');
+});
 $('reconnect').onclick = () => action(connect);
 renderLibrary();
 action(connect);

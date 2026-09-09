@@ -120,7 +120,7 @@ if (process.argv[2] === '--crash') {
         }
         await studio.close();
         if (sequence.length === 2 && sequence[0] === 'rejected') {
-          for (const name of ['dist', 'workflow.mjs', 'review-store.mjs', 'judge.mjs', 'judge-policy.json', 'export-lineage.mjs', 'config.json', 'qa-config.json', 'qa-model.lock.json', ...(await readdir('.')).filter(n => n.endsWith('.schema.json'))])
+          for (const name of ['dist', 'evaluation.mjs', 'docs/tasks/m02/clap-m1-baseline.lock.json', 'workflow.mjs', 'review-store.mjs', 'judge.mjs', 'judge-policy.json', 'export-lineage.mjs', 'config.json', 'qa-config.json', 'qa-model.lock.json', ...(await readdir('.')).filter(n => n.endsWith('.schema.json'))])
             await cp(resolve(name), join(root, name), { recursive: true });
           await writeFile(join(root, 'workflow-input.json'), JSON.stringify(input));
           const cli = spawnSync(process.execPath, [join(root, 'dist/cli.js'), 'workflow', join(root, 'workflow-input.json'), 'sequence'], { timeout: 15000, encoding: 'utf8' });

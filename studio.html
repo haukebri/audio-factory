@@ -24,5 +24,12 @@
 <label for="compare">Compare with a saved take</label><select id="compare"><option value="">Choose a comparison</option></select><div id="comparison"></div>
 </section>
 <aside aria-labelledby="history-title"><p class="eyebrow">03 / SAVED WORK</p><h2 id="history-title">Request history</h2><div id="jobs"></div><h3>Candidate library</h3><div id="library"></div></aside>
-</div></main><footer>Originals stay preserved. Decisions belong to you.</footer>
+</div>
+<section aria-labelledby="evaluation-title" class="take" id="evaluation-panel">
+<p class="eyebrow">04 / LEARN FROM LISTENING</p><h2 id="evaluation-title">Feedback collection</h2>
+<p id="evaluation-counts" role="status">Loading label coverage…</p>
+<p class="hint">Real human labels only. Corrections replace earlier decisions in metrics; all history stays preserved. Synthetic fixtures and automatic scores never establish quality.</p>
+<div class="actions"><button type="button" id="review-unreviewed">Review an unreviewed clip</button><button type="button" id="export-evaluation">Export evaluation dataset</button></div>
+<p class="hint">Export includes local audio and immutable provenance. Freeze prompt families and a development/holdout split with the evaluation CLI before tuning. Nothing is uploaded.</p>
+</section></main><footer>Originals stay preserved. Decisions belong to you.</footer>
 <script src="/studio.js"></script></body></html>

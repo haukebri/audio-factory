@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -32,11 +33,11 @@ export function scoreProcess(python, args, { timeout, signal }) {
   });
 }
 
-export function decide(result, target) {
-  try { return applyPolicy(result, target); }
+export function decide(result, target, selectedPolicy = policy) {
+  try { return applyPolicy(result, target, selectedPolicy); }
   catch { return { status: 'unavailable', decision: 'uncertain', reason_tags: ['invalid_scores'] }; }
 }
-function applyPolicy(result, target) {
+function applyPolicy(result, target, policy) {
   const unavailable = reason => ({ status: 'unavailable', decision: 'uncertain', reason_tags: [reason] });
   if (result?.clap?.status !== 'completed') return unavailable('scores_unavailable');
   const windows = result.clap.scores?.filter(row => row.kind === 'window');
@@ -66,7 +67,8 @@ function applyPolicy(result, target) {
   return { status: 'completed', decision: 'uncertain', reason_tags: ['uncertainty_band'] };
 }
 
-export async function judge(path, target, { signal, timeout = 120000, python = `${root}/.runtime/qa-venv/bin/python` } = {}) {
+export async function judge(path, target, { signal, timeout = 120000, python = `${root}/.runtime/qa-venv/bin/python`, policy: selectedPolicy = policy } = {}) {
+  const policy = validatePolicy(selectedPolicy);
   const started = Date.now();
   const audioHash = hash(await readFile(path));
   let result = null, error = null;
@@ -77,10 +79,24 @@ export async function judge(path, target, { signal, timeout = 120000, python = `
     if (result.audio_sha256 !== audioHash || hash(await readFile(path)) !== audioHash ||
         result.clap?.status === 'completed' && (result.clap.model.model !== model.model || result.clap.model.revision !== model.revision)) throw new Error('Judge input/model provenance mismatch');
   } catch (failure) { error = String(failure).slice(0, 2000); result = null; }
-  const decision = decide(result, target);
+  const decision = decide(result, target, policy);
   return { actor: 'automatic', audio_sha256: audioHash, model: model.model, revision: model.revision,
-    rubric_sha256: hash(policyBytes), verdict: decision.decision === 'accept' ? 'auto_accepted' : decision.decision === 'reject' ? 'rejected' : 'needs_review',
+    rubric_sha256: policyHash(policy), verdict: decision.decision === 'accept' ? 'auto_accepted' : decision.decision === 'reject' ? 'rejected' : 'needs_review',
     reason_tags: decision.reason_tags, note: 'Experimental score/signal policy. Human review remains separate.',
     evidence: { ...decision, policy, target, target_sha256: hash(target), descriptions_sha256: hash(JSON.stringify([target, ...policy.alternatives])),
       elapsed_ms: Date.now() - started, error, result } };
+}
+
+export function policyHash(value) {
+  return isDeepStrictEqual(value, policy) ? hash(policyBytes) : hash(JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v));
+}
+export function validatePolicy(value) {
+  if (!value || Object.keys(value).sort().join() !== Object.keys(policy).sort().join() ||
+      !['version', 'descriptions_version'].every(k => typeof value[k] === 'string' && value[k].length > 0 && value[k].length <= 200) ||
+      !['alternatives', 'limitations'].every(k => Array.isArray(value[k]) && value[k].length > 0 && value[k].length <= 16 && value[k].every(s => typeof s === 'string' && s.length > 0 && s.length <= 2000)) ||
+      new Set(value.alternatives).size !== value.alternatives.length ||
+      !['accept_score', 'reject_score', 'accept_margin', 'reject_margin'].every(k => Number.isFinite(value[k]) && Math.abs(value[k]) <= 1) ||
+      !['silence_fraction', 'clipping_fraction', 'boundary_peak'].every(k => Number.isFinite(value[k]) && value[k] >= 0 && value[k] <= 1) ||
+      value.reject_score > value.accept_score || value.reject_margin > value.accept_margin) throw new Error('Invalid judge policy');
+  return value;
 }

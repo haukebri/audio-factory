@@ -1,6 +1,6 @@
 # M2 — Review studio and automatic quality control tasks
 
-This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–05 are complete; tasks 06–08 remain planned. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
+This queue implements the [new M2 milestone](../../milestone/05-review-and-quality.md). The completed [m01 queue](../m01/00-overview.md) covered the original four milestones. Tasks 01–06 are complete; tasks 07–08 remain planned. Task 06 delivers evaluation tooling with quality_not_established because real human labels are absent. Owner scope now includes a local frontend, human feedback and automatic audio rejection/regeneration; first-release exclusions of those features no longer apply.
 
 ## Ordered queue
 
@@ -11,7 +11,7 @@ This queue implements the [new M2 milestone](../../milestone/05-review-and-quali
 | 03 | [x] | [Build the prompt and listening workspace](03-review-frontend.md) | 02 |
 | 04 | [x] | [Connect and preflight LAION Larger CLAP General QA](04-audio-judge.md) | 03 |
 | 05 | [x] | [Reject and regenerate within a durable budget](05-automatic-quality-loop.md) | 04 |
-| 06 | [ ] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |
+| 06 | [x] | [Use human feedback for repeatable quality evaluation](06-feedback-evaluation.md) | 05 |
 | 07 | [ ] | [Verify the studio and quality loop end to end](07-integrated-verification.md) | 06 |
 | 08 | [ ] | [Migrate generation to Stable Audio 3 Medium GGUF F16](08-medium-gguf-generation.md) | 07 |
 

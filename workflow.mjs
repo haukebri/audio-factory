@@ -11,6 +11,7 @@ import { qaRequest, qaOperation } from "./dist/qa.js";
 import { atomicJson, createFactory } from "./dist/service.js";
 import { ensureSetup } from "./dist/setup.js";
 import { judge } from './judge.mjs';
+import { selectedPolicy } from './evaluation.mjs';
 import { openReviewStore } from "./review-store.mjs";
 
 export function workflowInput(input) {
@@ -172,12 +173,12 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
       const audio = store.readAsset(c.candidate_sha256, 'audio');
       const path = join(directory, 'judge-input.wav');
       await writeFile(path, audio);
-      const evaluation = await evaluate(path, job.input.request.prompt, { signal: operationSignal });
+      const evaluation = await evaluate(path, job.input.request.prompt, { signal: operationSignal, ...(job.evaluation_policy ? { policy: job.evaluation_policy.judge } : {}) });
       return preserve(c.evidence, source, audio, evaluation);
     };
     candidate = await score(candidate);
     checkBudget();
-    if (!attempt.alternate && candidate.evaluation?.reason_tags.some(tag => ['active_boundary', 'silence', 'bad_trim'].includes(tag))) {
+    if (job.evaluation_policy?.selection.region !== 'first' && !attempt.alternate && candidate.evaluation?.reason_tags.some(tag => ['active_boundary', 'silence', 'bad_trim'].includes(tag))) {
       const bounds = candidate.evidence.cut.bounds;
       const region = analysis.result?.regions?.find(r => Math.round(r.start_seconds * bounds.sample_rate) !== bounds.start_sample || Math.round(r.end_seconds * bounds.sample_rate) !== bounds.end_sample);
       const input = region ? { start_seconds: region.start_seconds, end_seconds: region.end_seconds } : {
@@ -353,7 +354,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           const source = store.readAsset(id, 'source'), audio = await readFile(cut.delivery.audio);
           const saved = store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation: null, evidence }, source, audio);
           if (!candidate.evaluation) return saved;
-          const evaluation = await (execution.evaluate ?? judge)(cut.delivery.audio, run.request.prompt);
+          const selected = selectedPolicy(root);
+          const evaluation = await (execution.evaluate ?? judge)(cut.delivery.audio, run.request.prompt, selected ? { policy: selected.judge } : {});
           return store.saveCandidate({ attempt_id: candidate.attempt_id, fixture: candidate.fixture, evaluation, evidence }, source, audio);
         } finally { await rm(temporary, { recursive: true, force: true }); }
       })();
@@ -418,7 +420,12 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       if ([...jobs.values()].some(job => job.status === "interrupted" && !jobs.has(job.resumed_by) && !jobs.has(hash(job.retry_key ?? "").slice(0,32)) &&
           !(job === resuming && (job.resumed_by === id || job.retry_key === key))))
         throw Object.assign(new Error("Interrupted outcome requires explicit resume before new generation"), { status: 409 });
-      const job = { id, signature, input: { ...input, request: { ...input.request, seed: input.request.seed ?? randomInt(2147483648) } },
+      const evaluation_policy = selectedPolicy(root);
+      if (evaluation_policy && input.mode === 'automatic') input = { ...input, budget: {
+        attempts: Math.min(input.budget.attempts, evaluation_policy.selection.attempts),
+        minutes: Math.min(input.budget.minutes, evaluation_policy.selection.milliseconds / 60000),
+      } };
+      const job = { id, signature, ...(evaluation_policy ? { evaluation_policy } : {}), input: { ...input, request: { ...input.request, seed: input.request.seed ?? randomInt(2147483648) } },
         started_at: new Date().toISOString(), candidate_ids: [],
         used_seeds: [...(resuming?.used_seeds ?? [])],
         ...(resuming ? { attempt: (resuming.attempt ?? 1) + 1, budget_started_at: resuming.budget_started_at, parent_id: resuming.id } : { attempt: 1 }) };
