@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "signature",
+    "status",
+    "request",
+    "started_at",
+    "audio_path",
+    "models",
+    "runtime",
+    "settings",
+    "licenses",
+    "review"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urban:audio-factory-run@1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "status": {
+      "enum": ["generating", "completed", "failed", "interrupted"]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "duration_seconds", "seed"],
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 30
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "progress": {},
+    "error": {
+      "type": "string"
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_rate", "channels", "seconds", "peak", "rms", "bytes"],
+      "properties": {
+        "sample_rate": {
+          "const": 44100
+        },
+        "channels": {
+          "const": 2
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 30
+        },
+        "peak": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.708
+        },
+        "rms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 44
+        }
+      }
+    },
+    "audio_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "audio_path": {
+      "type": "string",
+      "pattern": "^(out/)?runs/[a-f0-9]{32}/audio\\.wav$"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "url", "sha256", "bytes"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.-]+\\.(gguf|npz)$"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://huggingface.co/"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "licenses": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "backend"],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "backend": {
+          "enum": ["metal", "mlx"]
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "cfg_scale", "duration_padding_sec", "peak_db"],
+      "properties": {
+        "steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cfg_scale": {
+          "const": 1
+        },
+        "duration_padding_sec": {
+          "enum": [0, 6]
+        },
+        "peak_db": {
+          "type": "number",
+          "minimum": -20,
+          "maximum": -3
+        }
+      }
+    },
+    "review": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        }
+      },
+      "then": {
+        "required": ["audio", "audio_sha256", "finished_at", "elapsed_ms"],
+        "properties": {
+          "audio": true,
+          "audio_sha256": true,
+          "finished_at": true,
+          "elapsed_ms": true
+        }
+      }
+    }
+  ]
+}

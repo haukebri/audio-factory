@@ -26,7 +26,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 
 | Task | Done | Reviewable result | Milestone | Requires |
 | --- | --- | --- | --- | --- |
-| 01 | [ ] | [Extract a buildable standalone core](01-standalone-core.md) | 01 | — |
+| 01 | [x] | [Extract a buildable standalone core](01-standalone-core.md) | 01 | — |
 | 02 | [ ] | [Wire the root launcher and setup paths](02-launcher-and-setup.md) | 01 | 01 |
 | 03 | [ ] | [Port service and recovery checks](03-service-regressions.md) | 03 | 02 |
 | 04 | [ ] | [Verify offline QA and portable exports](04-portable-export-checks.md) | 02 | 03 |

@@ -1,6 +1,6 @@
 # Milestone 1 — Standalone core
 
-Status: planned. Dependency: documentation baseline in [project overview](../project-overview.md).
+Status: core extraction verified; launcher work pending (task 02). Dependency: documentation baseline in [project overview](../project-overview.md).
 
 ## Outcome
 
@@ -21,14 +21,14 @@ Read destination status before copying; do not overwrite unrelated work. Verify 
 
 ## Acceptance evidence
 
-- [ ] Standalone frozen dependency installation and TypeScript build pass.
-- [ ] Core modules resolve with the source project unavailable to the process; no symlink or absolute path supplies a hidden dependency.
-- [ ] A focused search and import inspection find no required game workspace, content-schema package path or game asset builder.
+- [x] Standalone frozen dependency installation and TypeScript build pass.
+- [x] Core modules resolve with the source project unavailable to the process; no symlink or absolute path supplies a hidden dependency.
+- [x] A focused search and import inspection find no required game workspace, content-schema package path or game asset builder.
 - [ ] The root launcher reaches the standalone CLI; invalid usage reports its supported commands without starting inference.
-- [ ] Copied configuration, locks and model hashes match the recorded source, except documented path/package adaptations.
-- [ ] Git's candidate file list excludes caches, tokens, PID files, audio history, weights and build products.
+- [x] Copied configuration, locks and model hashes match the recorded source, except documented path/package adaptations.
+- [x] Git's candidate file list excludes caches, tokens, PID files, audio history, weights and build products.
 
-Record commands, results and the copied-file inventory in this milestone when implemented. A successful build proves packaging only; real inference belongs to milestone 3.
+Task 01 evidence: `pnpm install --frozen-lockfile`, `pnpm build` and `node standalone-core.test.mjs` passed on 2026-09-09. The packaging check independently installs/builds a disposable copy, restricts import reads to that copy, verifies dependency paths and invalid-command usage, then removes it. All 29 copied/adapted file hash pairs and all 28 retained lock package/snapshot entries were verified. See the [source inventory](../source-inventory.md) and [task evidence](../tasks/m01/01-standalone-core.md#evidence). The root launcher is intentionally pending task 02; no model setup/inference was run. A successful build proves packaging only; real inference belongs to milestone 3.
 
 ## Runner tasks
 

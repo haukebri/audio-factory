@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "run_id",
+    "source_sha256",
+    "request",
+    "settings",
+    "implementation_sha256",
+    "started_at",
+    "status",
+    "advisory"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "kind": {
+      "enum": ["analyses", "cuts"]
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "implementation_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "audio_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "audio_url": {
+      "type": "string"
+    },
+    "metadata_url": {
+      "type": "string"
+    },
+    "ffmpeg": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "urban:audio-factory-qa@1"
+    },
+    "status": {
+      "enum": ["running", "completed", "failed", "interrupted"]
+    },
+    "advisory": {
+      "const": true
+    },
+    "request": {
+      "type": "object"
+    },
+    "settings": {
+      "type": "object"
+    },
+    "result": {
+      "type": "object"
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_sample", "end_sample", "sample_rate", "fade_seconds"],
+      "properties": {
+        "start_sample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_sample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sample_rate": {
+          "const": 44100
+        },
+        "fade_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "region": {
+          "enum": [1, null]
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "target_peak_db", "gain_db", "input_peak"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "target_peak_db": {
+          "type": "number"
+        },
+        "gain_db": {
+          "type": "number"
+        },
+        "input_peak": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audio", "metadata", "original"],
+      "properties": {
+        "audio": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "string",
+          "minLength": 1
+        },
+        "original": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          },
+          "kind": {
+            "const": "cuts"
+          }
+        }
+      },
+      "then": {
+        "required": ["audio_sha256", "bounds", "finished_at", "ffmpeg"],
+        "properties": {
+          "audio_sha256": true,
+          "bounds": true,
+          "finished_at": true,
+          "ffmpeg": true
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          },
+          "kind": {
+            "const": "analyses"
+          }
+        }
+      },
+      "then": {
+        "required": ["result", "finished_at"],
+        "properties": {
+          "result": true,
+          "finished_at": true
+        }
+      }
+    }
+  ]
+}

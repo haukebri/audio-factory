@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "runtime_revision",
+    "models",
+    "licenses",
+    "port",
+    "timeout_ms",
+    "idle_ms",
+    "steps",
+    "duration_padding_sec",
+    "default_duration_seconds",
+    "max_duration_seconds",
+    "peak_db"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urban:audio-factory-config@1"
+    },
+    "runtime_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "url", "sha256", "bytes"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.-]+\\.npz$"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://huggingface.co/"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "licenses": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 65535
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "idle_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "steps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "duration_padding_sec": {
+      "const": 0
+    },
+    "default_duration_seconds": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 30
+    },
+    "max_duration_seconds": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 30
+    },
+    "peak_db": {
+      "type": "number",
+      "minimum": -20,
+      "maximum": -3
+    }
+  }
+}

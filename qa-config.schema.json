@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "frame_ms",
+    "silence_db",
+    "minimum_gap_ms",
+    "margin_ms",
+    "bass_min_hz",
+    "bass_max_hz",
+    "rhythm_min_hz",
+    "rhythm_max_hz",
+    "rhythm_window_seconds",
+    "rhythm_min_energy_ratio",
+    "rhythm_min_correlation",
+    "rhythm_min_modulation",
+    "rhythm_min_persistence",
+    "fade_ms",
+    "timeout_ms",
+    "clap_model",
+    "clap_revision",
+    "rhythm_min_wave_correlation",
+    "export_peak_db"
+  ],
+  "properties": {
+    "version": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "frame_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "exclusiveMinimum": 0
+    },
+    "silence_db": {
+      "type": "number",
+      "minimum": -120,
+      "maximum": 0
+    },
+    "minimum_gap_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "margin_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "bass_min_hz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "bass_max_hz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "rhythm_min_hz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "exclusiveMinimum": 0
+    },
+    "rhythm_max_hz": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "exclusiveMinimum": 0
+    },
+    "rhythm_window_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "exclusiveMinimum": 0
+    },
+    "rhythm_min_energy_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "rhythm_min_correlation": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "rhythm_min_modulation": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "rhythm_min_persistence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "fade_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "timeout_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000,
+      "exclusiveMinimum": 0
+    },
+    "clap_model": {
+      "const": "laion/clap-htsat-unfused"
+    },
+    "clap_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "rhythm_min_wave_correlation": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "export_peak_db": {
+      "type": "number",
+      "minimum": -30,
+      "maximum": -3
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "audio-factory",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.11"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "audio:factory": "pnpm build && node dist/cli.js"
+  },
+  "dependencies": {
+    "ajv": "8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "3.1.5"
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "request"],
+      "properties": {
+        "kind": {
+          "const": "analyses"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "clap": {
+              "type": "boolean"
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            },
+            "alternatives": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "\\S"
+              }
+            },
+            "attempt": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": ["clap"],
+                "properties": {
+                  "clap": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "required": ["target"],
+                "properties": {
+                  "target": true
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "request"],
+      "properties": {
+        "kind": {
+          "const": "cuts"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start_seconds": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "end_seconds": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "attempt": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+            },
+            "normalize": {
+              "type": "boolean"
+            },
+            "peak_db": {
+              "type": "number",
+              "minimum": -30,
+              "maximum": -3
+            }
+          },
+          "dependentRequired": {
+            "start_seconds": ["end_seconds"],
+            "end_seconds": ["start_seconds"]
+          }
+        }
+      }
+    }
+  ]
+}

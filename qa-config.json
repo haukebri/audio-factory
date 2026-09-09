@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "frame_ms": 20,
+  "silence_db": -50,
+  "minimum_gap_ms": 120,
+  "margin_ms": 30,
+  "bass_min_hz": 35,
+  "bass_max_hz": 300,
+  "rhythm_min_hz": 4,
+  "rhythm_max_hz": 25,
+  "rhythm_window_seconds": 1,
+  "rhythm_min_energy_ratio": 0.25,
+  "rhythm_min_correlation": 0.65,
+  "rhythm_min_modulation": 0.2,
+  "rhythm_min_persistence": 0.65,
+  "fade_ms": 5,
+  "timeout_ms": 120000,
+  "clap_model": "laion/clap-htsat-unfused",
+  "clap_revision": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+  "rhythm_min_wave_correlation": 0.38,
+  "export_peak_db": -3
+}

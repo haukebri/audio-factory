@@ -1,0 +1,42 @@
+{
+  "schema": "urban:audio-factory-config@1",
+  "runtime_revision": "779434a908193105335fd8d833418603625b2859",
+  "models": [
+    {
+      "file": "dit_sm-sfx_f16.npz",
+      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/dit_sm-sfx_f16.npz",
+      "sha256": "7e702d2640699a57fe436ca975fda16832040ba568c1e092c2ae826987558118",
+      "bytes": 919193814
+    },
+    {
+      "file": "same_s_decoder_f32.npz",
+      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/same_s_decoder_f32.npz",
+      "sha256": "909928a8e6937c1ebe6ac4b729f0462bd3773704a11ea18278e42671dc69bfe4",
+      "bytes": 218090820
+    },
+    {
+      "file": "t5gemma_f16.npz",
+      "url": "https://huggingface.co/stabilityai/stable-audio-3-optimized/resolve/da6edc54ddba10bfd79a077102ded687f80e882b/MLX/t5gemma_f16.npz",
+      "sha256": "8deb20489f36d9aec539f26c9c67321f99bc5fe300d470435ed6e76be4f16bbd",
+      "bytes": 567443068
+    }
+  ],
+  "port": 8766,
+  "timeout_ms": 600000,
+  "idle_ms": 30000,
+  "steps": 8,
+  "duration_padding_sec": 0,
+  "peak_db": -3,
+  "default_duration_seconds": 3,
+  "max_duration_seconds": 30,
+  "licenses": [
+    {
+      "name": "Stability AI Community License",
+      "url": "https://huggingface.co/thepatch/stable-audio-3-small-sfx-GGUF/blob/fcbd756cde8f9cc4d0213433d868063593d6ca22/LICENSE.md"
+    },
+    {
+      "name": "Gemma Terms of Use",
+      "url": "https://ai.google.dev/gemma/terms"
+    }
+  ]
+}

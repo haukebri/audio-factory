@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source_file", "generation", "cut", "analyses", "review"],
+  "properties": {
+    "schema": {
+      "const": "urban:audio-factory-export@1"
+    },
+    "source_file": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}-source\\.wav$"
+    },
+    "generation": {
+      "$ref": "factory-run"
+    },
+    "cut": {
+      "$ref": "factory-qa"
+    },
+    "analyses": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "factory-qa"
+      }
+    },
+    "review": {
+      "$ref": "factory-review"
+    }
+  }
+}

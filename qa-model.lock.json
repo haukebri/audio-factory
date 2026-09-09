@@ -1,0 +1,47 @@
+{
+  "model": "laion/clap-htsat-unfused",
+  "revision": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "sha256": "9efb9557bc804f2ca6e394486af2e45dfed0b18554909735a99c6220b84e4288",
+      "bytes": 5390,
+      "file": "config.json"
+    },
+    {
+      "sha256": "fe36cab26d4f4421ed725e10a2e9ddb7f799449c603a96e7f29b5a3c82a95862",
+      "bytes": 456356,
+      "file": "merges.txt"
+    },
+    {
+      "sha256": "9739f58296aa6f9ac18008fd0150fb2649bc554985fbde86d0a4041c882ac753",
+      "bytes": 541,
+      "file": "preprocessor_config.json"
+    },
+    {
+      "sha256": "1cd3c601bc4afe0fa87be3de4c13dd2cfadd249fac1e29acf74a9b296c3219bb",
+      "bytes": 614525833,
+      "file": "pytorch_model.bin"
+    },
+    {
+      "sha256": "06e405a36dfe4b9604f484f6a1e619af1a7f7d09e34a8555eb0b77b66318067f",
+      "bytes": 280,
+      "file": "special_tokens_map.json"
+    },
+    {
+      "sha256": "77ef92283d67f0d97e1454909a964afcbfa2019f0fb9f18f8e88d5c25c3ba729",
+      "bytes": 2108746,
+      "file": "tokenizer.json"
+    },
+    {
+      "sha256": "377f91458f7729a4574a84c77bdce67dbc3c58c1a345a29bbf8c4eb1307948a3",
+      "bytes": 384,
+      "file": "tokenizer_config.json"
+    },
+    {
+      "sha256": "ed19656ea1707df69134c4af35c8ceda2cc9860bf2c3495026153a133670ab5e",
+      "bytes": 798293,
+      "file": "vocab.json"
+    }
+  ]
+}
