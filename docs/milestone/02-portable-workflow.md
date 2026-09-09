@@ -25,8 +25,8 @@ A new successfully initialized session clears `out/`; review, adjust and retain 
 - [x] A fixture export carries original audio, hash-bound generation and cut records, QA references and provisional review status.
 - [x] `retain` verifies and copies all required files; the copied bundle validates from another directory without game assets or the original temporary run.
 - [x] Existing behavior checks establish default first-region cuts, normalization target/off, explicit bounds and source preservation.
-- [ ] CLI help, README and skill agree on commands, output lifetime and standalone delivery.
-- [ ] The skill references files that exist and contains no required Urban Wildlife import, build or catalog step.
+- [x] CLI help, README and skill agree on commands, output lifetime and standalone delivery.
+- [x] The skill references files that exist and contains no required Urban Wildlife import, build or catalog step.
 
 Use focused existing fixtures for this milestone; the real end-to-end job and successive-session checks are required in milestone 3. Do not label fixture output or CLAP scores as listening acceptance.
 

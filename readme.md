@@ -4,7 +4,7 @@ A local sound-effect tool for developers and coding agents: describe a sound, ge
 
 This project is a **lift and shift** of the working audio factory in Urban Wildlife. The first release will preserve its official Stable Audio 3 MLX backend, temporary job lifecycle, signal analysis, optional CLAP analysis, and normalized exports.
 
-**Status: documentation and extraction plan.** The implementation has not been copied into this repository yet. The existing `scripts/` directory contains task-runner utilities, not the audio factory. There is no standalone installation command to run yet.
+**Status: standalone core and fixture workflow extracted.** The root launcher is available. Fresh full installation and real-generation verification remain pending tasks 07–08; the final verified installation guide follows those checks. See the [usage guide](docs/usage.md) and [agent skill](.agents/skills/audio-factory/SKILL.md).
 
 ## Intended workflow
 
@@ -23,7 +23,7 @@ A request looks like this:
 }
 ```
 
-The planned root launcher is `./run make request.json [qa-request.json]`. This is a target interface, not an available command today.
+Use `./run make examples/request.json examples/qa-signal.json` from this checkout for a job with signal-only QA. `generate` is an alias; omitting the QA file enables optional CPU CLAP setup/analysis. `make` already cuts region 1 and shuts down; each model subprocess exits after its operation. Review and retain before another job. See the [examples](examples/readme.md) for options and the usage guide for setup and manual HTTP access.
 
 ## Requirements and limits
 

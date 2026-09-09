@@ -31,7 +31,7 @@ Preflight Python 3, Git, a usable Git author identity, and an authenticated Code
 | 03 | [x] | [Port service and recovery checks](03-service-regressions.md) | 03 | 02 |
 | 04 | [x] | [Verify offline QA and portable exports](04-portable-export-checks.md) | 02 | 03 |
 | 05 | [x] | [Add validated request and cut examples](05-request-examples.md) | 02 | 04 |
-| 06 | [ ] | [Document the standalone agent and manual workflows](06-agent-workflow.md) | 02 | 05 |
+| 06 | [x] | [Document the standalone agent and manual workflows](06-agent-workflow.md) | 02 | 05 |
 | 07 | [ ] | [Verify first-use setup in an isolated checkout](07-fresh-installation.md) | 03 | 06 |
 | 08 | [ ] | [Verify two real jobs and session cleanup](08-real-job-smoke.md) | 03 | 07 |
 | 09 | [ ] | [Finish the verified installation and usage guide](09-verified-user-docs.md) | 04 | 08 |
