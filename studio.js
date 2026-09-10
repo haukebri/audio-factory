@@ -253,12 +253,25 @@ async function recreate(c) {
   catch (error) { if ([400, 409, 429].includes(error.status)) localStorage.removeItem('studio-recreate-' + id); throw error; }
 }
 async function useTake(c) {
-  const id = c.candidate_sha256, sound = takeFor(id).sound, latest = selections.find(s => s.sound_id === sound);
-  if (latest?.candidate_sha256 === id) return;
-  const value = { event_id: uid(), supersedes: latest?.event_id ?? null };
-  const pending = recall('selection-' + sound, null) ?? { id, value }; remember('selection-' + sound, pending);
-  try { await api(`candidates/${pending.id}/select`, pending.value); localStorage.removeItem('studio-selection-' + sound); selections = await api('selections'); $('batch-results').dataset.signature = ''; renderBatch(); renderLibrary(); await refresh(); say('Best take saved. Other takes remain available.'); }
-  catch (error) { if (error.status === 409) { localStorage.removeItem('studio-selection-' + sound); selections = await api('selections'); } throw error; }
+  const id = c.candidate_sha256, sound = takeFor(id).sound;
+  const save = async pending => {
+    remember('selection-' + sound, pending);
+    await api(`candidates/${pending.id}/select`, pending.value);
+    localStorage.removeItem('studio-selection-' + sound);
+  };
+  try {
+    const pending = recall('selection-' + sound, null);
+    if (pending) await save(pending);
+    selections = await api('selections');
+    const latest = selections.find(s => s.sound_id === sound);
+    if (latest?.candidate_sha256 !== id) await save({ id, value: { event_id: uid(), supersedes: latest?.event_id ?? null } });
+    await refresh(); renderBatch(); renderLibrary();
+    if (selections.find(s => s.sound_id === sound)?.candidate_sha256 !== id) throw new Error('The saved winner changed; choose this take again');
+    say(`Best take saved: ${identity(c)}. Other takes remain available.`);
+  } catch (error) {
+    if (error.status === 409) { localStorage.removeItem('studio-selection-' + sound); await refresh(); renderBatch(); renderLibrary(); }
+    throw new Error(`${identity(c)} could not be confirmed as best take: ${error.message}. Reconnect and choose this take again`);
+  }
 }
 function renderBatch() {
   const job = jobs.find(j => j.id === currentJob), sound = batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey)?.sound_id ?? job?.sound_id ?? takeFor(selected)?.sound;
@@ -268,7 +281,7 @@ function renderBatch() {
   const winner = selections.find(s => s.sound_id === sound)?.candidate_sha256;
   let best = box.querySelector('[data-best]');
   if (!best) best = node('div', undefined, box, { 'data-best': '', class: 'best-take' });
-  if (best.dataset.id !== (winner ?? '')) { best.dataset.id = winner ?? ''; best.replaceChildren(); const c = candidates.find(c => c.candidate_sha256 === winner); if (c) { node('strong', 'Selected best take', best); button('Listen / open selected version', best, () => select(winner)); } }
+  if (best.dataset.id !== (winner ?? '')) { best.dataset.id = winner ?? ''; best.replaceChildren(); const c = candidates.find(c => c.candidate_sha256 === winner); if (c) { node('strong', `Selected best take: ${identity(c)}`, best); button('Listen / open selected version', best, () => select(winner)); } }
 
   for (const group of jobs.filter(j => j.sound_id === sound && j.variants)) for (const variant of group.variants) {
     const key = `${group.id}-${variant.index}`;
@@ -276,8 +289,8 @@ function renderBatch() {
     if (!card) card = node('article', undefined, box, { class: 'variant-card', 'data-variant': key });
     const attempts = group.attempts.filter(a => a.variant_index === variant.index);
     const signature = JSON.stringify([variant.status, variant.result, attempts.map(a => a.result), winner]);
-    if (card.dataset.signature === signature || [...card.querySelectorAll('audio')].some(a => !a.paused)) continue;
-    card.dataset.signature = signature; card.replaceChildren();
+    if (card.dataset.signature === signature || (card.dataset.winner === (winner ?? '') && [...card.querySelectorAll('audio')].some(a => !a.paused))) continue;
+    card.dataset.signature = signature; card.dataset.winner = winner ?? ''; card.replaceChildren();
     node('h4', group.provider === 'elevenlabs' ? 'ElevenLabs recreation' : `Local variation ${variant.index + 1}`, card);
     node('p', variant.prompt, card, { class: 'variant-prompt' });
     node('p', `${variant.status} · ${attempts.length}/${group.provider === 'elevenlabs' ? 1 : 3} attempts`, card, { class: 'hint' });
@@ -302,13 +315,18 @@ function batchAction(path, input) {
   path = `batches/${reviewBatchId}/${path}`;
   const intent = JSON.stringify([path, input]);
   if (batchActions.has(intent)) return pendingAction;
-  const pending = recall('batch-submission', null) ?? { path, input, key: uid() };
+  const pending = { path, input, key: uid() };
   batchActions.add(intent); say('Submitting request… Please wait.');
   return action(async () => { try { await batchMutation(pending); } finally { batchActions.delete(intent); } });
 }
 async function batchMutation(pending) {
+  const previous = recall('batch-submission', null);
+  if (previous) {
+    if (JSON.stringify([previous.path, previous.input]) !== JSON.stringify([pending.path, pending.input])) throw new Error(`${pending.path} not queued. Pending ${previous.path} is unresolved. Reconnect to recover it, then request the new action again`);
+    pending = previous;
+  }
   remember('batch-submission', pending);
-  try { await api(pending.path, pending.input, pending.key); localStorage.removeItem('studio-batch-submission'); await refresh(); say('Queued. You can keep reviewing while generation runs.'); }
+  try { await api(pending.path, pending.input, pending.key); localStorage.removeItem('studio-batch-submission'); await refresh(); say(`Queued: ${pending.path}. You can keep reviewing while generation runs.`); }
   catch (error) { if ([400, 403, 404, 409, 413, 415].includes(error.status)) localStorage.removeItem('studio-batch-submission'); throw error; }
 }
 async function openReviewSound(key) {
