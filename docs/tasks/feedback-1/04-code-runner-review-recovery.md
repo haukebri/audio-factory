@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ]
+Status: [x]
 Priority: P1
 Area: code / reliability
 
@@ -24,4 +24,11 @@ Reconcile the durable active transaction before skipping completed tasks. Treat 
 
 An abrupt stop after the implementation status write resumes independent review; it cannot report completion or advance to the next task first. A genuinely reviewed and committed task still resumes without duplicate work.
 
-No implementation change is included in this review.
+## Completion evidence
+
+Completed 2026-09-10. The runner loads and reconciles the active transaction before skipping task checkboxes. Unfinished work uses the existing recovery checkpoint and implementation/review retry flow, retaining its original review base and recording the new recovery checkpoint. The runner records the approved Git tree and parent before committing, so a restart after the commit recognizes completed work without repeating implementation or review and preserves any required owner pause.
+
+- The original isolated reproduction confirmed skipped review before the fix. The new restart regression fails against the original runner (seven failing scenarios).
+- `python3 -m unittest scripts.test_run_codex_tasks`: 10 tests passed, including abrupt stops after the implementation status write, during review, after approval but before commit, and after commit; single-task and multi-task queues; normal completed reruns; and owner-pause recovery.
+- `python3 scripts/test_run_codex_tasks.py --smoke`, `--recovery-smoke`, and `--resume-smoke`: all passed using fake Codex and temporary Git repositories. Fixture repositories were removed by their context cleanup.
+- `git diff --check`: passed. No browser, application build, model, paid-provider, or real Codex smoke was run; none is required for this runner-only task. No commit was made in this checkout.

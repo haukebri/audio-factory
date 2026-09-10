@@ -251,6 +251,112 @@ class ResultAndRenderingTests(unittest.TestCase):
 
 
 class GitRecoveryTests(unittest.TestCase):
+    def test_restart_reconciles_active_task_before_checkboxes(self) -> None:
+        class AbruptStop(BaseException):
+            pass
+
+        for stop_after in ("implementation", "review", "approval", "commit", "completion"):
+            for later_task in (False, True):
+                with self.subTest(stop_after=stop_after, later_task=later_task), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    folder = make_fake_repo(root)
+                    if later_task:
+                        write_task(folder, 2)
+                        git(root, "add", "-A")
+                        git(root, "commit", "-qm", "Add next task")
+                    initial = git(root, "rev-parse", "HEAD")
+                    events = []
+
+                    class CrashRunner(runner.TaskRunner):
+                        crash = True
+
+                        def implement(self, task, log_dir, printer):
+                            events.append(("implement", task.number))
+                            (root / f"implementation-{task.number}.txt").write_text("implementation\n")
+                            task.path.write_text(task.path.read_text().replace("Status: [ ]", "Status: [x]", 1))
+                            if self.crash and stop_after == "implementation":
+                                raise AbruptStop()
+                            return {"status": "completed", "owner_acceptance_required": False}, "fake-thread"
+
+                        def review(self, task, base_head, recovery_commits, log_dir, printer):
+                            events.append(("review", task.number))
+                            if task.number == 1:
+                                self_test.assertEqual(base_head, initial)
+                            self_test.assertEqual((root / f"implementation-{task.number}.txt").read_text(), "implementation\n")
+                            (root / f"reviewed-{task.number}.txt").write_text("reviewed\n")
+                            if self.crash and stop_after == "review":
+                                raise AbruptStop()
+                            return {"status": "approved"}
+
+                        def save_state(self, state):
+                            super().save_state(state)
+                            if self.crash and stop_after == "approval" and state.get("approved_commit"):
+                                raise AbruptStop()
+
+                        def commit_task(self, task, base_head):
+                            sha = super().commit_task(task, base_head)
+                            if self.crash and stop_after == "commit":
+                                raise AbruptStop()
+                            return sha
+
+                    self_test = self
+                    first = CrashRunner(root, folder)
+                    if stop_after == "completion":
+                        first.run()
+                    else:
+                        with self.assertRaises(AbruptStop):
+                            first.run()
+                        self.assertTrue(first.state_path.exists())
+                    committed_head = git(root, "rev-parse", "HEAD")
+                    events.clear()
+                    restarted = CrashRunner(root, folder)
+                    restarted.crash = False
+                    restarted.log_root = first.log_root.with_name(first.log_root.name + "-restart")
+                    self.assertEqual(restarted.run(), 0)
+                    if stop_after in {"implementation", "review", "approval"}:
+                        self.assertIn(("review", 1), events)
+                        if later_task:
+                            self.assertLess(events.index(("review", 1)), events.index(("implement", 2)))
+                    else:
+                        self.assertNotIn(("implement", 1), events)
+                        self.assertNotIn(("review", 1), events)
+                        self.assertEqual(git(root, "rev-parse", "HEAD~1" if later_task and stop_after == "commit" else "HEAD"), committed_head)
+                    self.assertFalse(restarted.state_path.exists())
+                    self.assertEqual(git(root, "status", "--porcelain"), "")
+                    self.assertTrue(all(task.complete for task in runner.discover_tasks(folder)))
+                    self.assertEqual((root / "reviewed-1.txt").read_text(), "reviewed\n")
+
+    def test_restart_after_commit_preserves_owner_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            folder = make_fake_repo(root)
+            write_task(folder, 2)
+            git(root, "add", "-A")
+            git(root, "commit", "-qm", "Add next task")
+            first = runner.TaskRunner(root, folder)
+
+            def implement(task, *args):
+                task.path.write_text(task.path.read_text().replace("Status: [ ]", "Status: [x]", 1))
+                return {"status": "completed", "owner_acceptance_required": True}, "fake-thread"
+
+            commit_task = first.commit_task
+
+            def commit_then_stop(*args):
+                commit_task(*args)
+                raise SystemExit(99)
+
+            with mock.patch.object(first, "implement", side_effect=implement), mock.patch.object(first, "review", return_value={"status": "approved"}), mock.patch.object(first, "commit_task", side_effect=commit_then_stop):
+                with self.assertRaises(SystemExit):
+                    first.run()
+            head = git(root, "rev-parse", "HEAD")
+            restarted = runner.TaskRunner(root, folder)
+            restarted.log_root = first.log_root.with_name(first.log_root.name + "-restart")
+            with mock.patch.object(restarted, "run_task", side_effect=AssertionError("Owner pause must precede any task work")):
+                self.assertEqual(restarted.run(), 0)
+            self.assertEqual(git(root, "rev-parse", "HEAD"), head)
+            self.assertFalse(restarted.state_path.exists())
+            self.assertFalse(runner.parse_task(folder / "02-task-2.md").complete)
+
     def test_dry_run_reports_but_does_not_commit_dirty_tree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -671,6 +671,14 @@ class TaskRunner:
         if run_git(self.root, "diff", "--cached", "--quiet", check=False).returncode == 0:
             raise RunnerError(f"Task {task.number:02d} produced no staged changes")
 
+        state = self.load_state(task)
+        if state is not None:
+            # Record the approved tree before Git commits, closing the post-commit crash window.
+            state["approved_commit"] = {
+                "parent": base_head,
+                "tree": run_git(self.root, "write-tree").stdout.strip(),
+            }
+            self.save_state(state)
         commit = run_git(self.root, "commit", "-m", task.title, check=False)
         if commit.returncode != 0:
             raise RunnerError(f"Task commit failed: {(commit.stderr or commit.stdout).strip()}")
@@ -713,6 +721,10 @@ class TaskRunner:
                 raise RunnerError(f"Review {review['status']}: {review.get('summary', '')}")
 
             printer.set_phase("commit")
+            state = self.load_state(task)
+            if state is not None:
+                state["owner_acceptance_required"] = owner_gate
+                self.save_state(state)
             sha = self.commit_task(task, attempt_head)
             printer.log("commit", f"Committed {sha}: {task.title}")
             printer.finish()
@@ -745,7 +757,33 @@ class TaskRunner:
         if self.dry_run:
             return self.dry_run_report(tasks)
 
-        completed = sum(task.complete for task in tasks)
+        active_state = self.load_state()
+        if active_state is not None:
+            active = next((task for task in tasks if str(task.path.relative_to(self.root)) == active_state["task"]), None)
+            if active is None:
+                raise RunnerError("Active task-runner state belongs to another task folder")
+            approved = active_state.get("approved_commit")
+            if (
+                isinstance(approved, dict)
+                and active.complete
+                and run_git(self.root, "show", "-s", "--format=%P", "HEAD").stdout.strip() == approved.get("parent")
+                and run_git(self.root, "rev-parse", "HEAD^{tree}").stdout.strip() == approved.get("tree")
+            ):
+                self.clear_state()
+                if active_state.get("owner_acceptance_required"):
+                    print(f"Paused after Task {active.number:02d} for required owner acceptance. Rerun to continue.")
+                    return 0
+                active_state = None
+            else:
+                # Finish the durable transaction before considering any task checkbox.
+                tasks = [active, *(task for task in tasks if task != active)]
+                self.active_task = active
+                recovery_commit = self.recover()
+                if recovery_commit:
+                    active_state["recovery_commits"].append(recovery_commit)
+                self.save_state(active_state)
+
+        completed = sum(parse_task(task.path).complete for task in tasks)
         total = len(tasks)
         print(f"Run logs: {self.log_root}")
         for original in tasks:
@@ -816,19 +854,14 @@ class TaskRunner:
             reset_task_status(self.active_task)
         return checkpoint_dirty_tree(self.root)
 
-    def load_state(self, task: Task) -> dict[str, Any] | None:
+    def load_state(self, task: Task | None = None) -> dict[str, Any] | None:
         if self.state_path.exists():
             try:
                 state = json.loads(self.state_path.read_text())
             except json.JSONDecodeError as error:
                 raise RunnerError(f"Invalid task-runner state: {error}") from error
-            state_task = state.get("task")
-            if isinstance(state_task, str):
-                stored_path = self.root / state_task
-                if stored_path.exists() and parse_task(stored_path).complete:
-                    self.clear_state()
-                    return None
-            if state_task == str(task.path.relative_to(self.root)):
+            state_task = state.get("task") if isinstance(state, dict) else None
+            if isinstance(state_task, str) and (task is None or state_task == str(task.path.relative_to(self.root))):
                 base_head = state.get("base_head")
                 attempts = state.get("attempts")
                 recovery_commits = state.get("recovery_commits", [])
@@ -841,9 +874,9 @@ class TaskRunner:
                     state["recovery_commits"] = recovery_commits
                     if run_git(self.root, "cat-file", "-e", f"{base_head}^{{commit}}", check=False).returncode == 0:
                         return state
-            raise RunnerError(f"Active task-runner state does not match Task {task.number:02d}")
+            raise RunnerError("Invalid or mismatched active task-runner state")
 
-        if task.status_note.startswith("Incomplete — task runner stopped"):
+        if task is not None and task.status_note.startswith("Incomplete — task runner stopped"):
             relative_task = str(task.path.relative_to(self.root))
             commits = run_git(self.root, "log", "--format=%H", "--", relative_task).stdout.splitlines()
             recovery_commit = next((
