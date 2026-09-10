@@ -30,7 +30,7 @@ function node(tag, text, parent, attrs = {}) {
   for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
   parent?.append(element); return element;
 }
-function button(text, parent, operation) { const b = node('button', text, parent, { type: 'button' }); b.onclick = () => action(operation); return b; }
+function button(text, parent, operation, enqueue = action) { const b = node('button', text, parent, { type: 'button' }); b.onclick = () => enqueue(operation); return b; }
 function title(c) { return c.evidence.generation.prompt_plan?.intent ?? c.evidence.generation.request.prompt; }
 function groupTakes(records, requests) {
   const groups = new Map();
@@ -150,7 +150,7 @@ async function select(id) {
   const duration = c.evidence.cut?.bounds; node('p', `${(duration ? (duration.end_sample - duration.start_sample) / duration.sample_rate : c.evidence.generation.audio.seconds).toFixed(2)} seconds · ${identity(c)}`, box, { class: 'hint' });
   const player = audio(c, box, `Play take · ${identity(c)}`); button('Play take', box, () => player.play());
   const actions = node('div', undefined, box, { class: 'actions' });
-  button('Generate 5 more local takes', actions, () => anotherTake(take));
+  button('Generate 5 more local takes', actions, () => anotherTake(take), operation => { const item = reviewItem(c); return item ? batchAction(`sounds/${item.key}/regenerate`, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }) : action(operation); });
   recreateButton(c, actions);
   button('Use this take', actions, () => useTake(c));
   button('Compare', actions, () => openCompare('sound'));
@@ -240,14 +240,13 @@ async function refresh() {
 }
 $('ready-take').onclick = () => action(async () => { const c = candidates.find(c => c.candidate_sha256 === readyCandidate), item = c && reviewItem(c); if (item) await openReviewSound(item.key); else { reviewBatchId = null; await select(readyCandidate); } $('ready-take').hidden = true; navigate('listen'); });
 function newTakeInput(job) { const request = { ...job.input.request }; delete request.seed; return { request, provider: 'local', sound_parent_id: job.id }; }
-async function anotherTake(take) { const item = reviewItem(take.records[0]); if (item) { await batchMutation(`sounds/${item.key}/regenerate`, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }); return; } if (submitting || jobs.some(j => ['running', 'canceling'].includes(j.status))) { say('Wait for this batch or cancel it first.'); return; } const input = take.job ? newTakeInput(take.job) : { request: { prompt: title(take.records[0]), duration_seconds: take.records[0].evidence.generation.request.duration_seconds }, provider: 'local' }; await submitInput(input, `another-${take.id}`); }
+async function anotherTake(take) { if (submitting || jobs.some(j => ['running', 'canceling'].includes(j.status))) { say('Wait for this batch or cancel it first.'); return; } const input = take.job ? newTakeInput(take.job) : { request: { prompt: title(take.records[0]), duration_seconds: take.records[0].evidence.generation.request.duration_seconds }, provider: 'local' }; await submitInput(input, `another-${take.id}`); }
 function recreateButton(c, parent) {
   const unavailable = c.evidence.generation.request.duration_seconds > 30;
-  const b = button(unavailable ? 'ElevenLabs · maximum 30 seconds' : 'Recreate with ElevenLabs', parent, () => recreate(c));
+  const b = button(unavailable ? 'ElevenLabs · maximum 30 seconds' : 'Recreate with ElevenLabs', parent, () => recreate(c), operation => { const item = reviewItem(c); return item ? batchAction(`sounds/${item.key}/recreate`, { candidate_sha256: c.candidate_sha256 }) : action(operation); });
   b.disabled = unavailable;
 }
 async function recreate(c) {
-  const item = reviewItem(c); if (item) { await batchMutation(`sounds/${item.key}/recreate`, { candidate_sha256: c.candidate_sha256 }); return; }
   if (jobs.some(j => ['running', 'canceling'].includes(j.status))) { say('Wait for this batch or cancel it first.'); return; }
   const id = c.candidate_sha256, key = recall('recreate-' + id, null) ?? uid(); remember('recreate-' + id, key);
   try { const job = await api(`candidates/${id}/recreate`, {}, key); currentJob = job.id; remember('current-job', job.id); localStorage.removeItem('studio-recreate-' + id); await refresh(); navigate('listen'); }
@@ -298,8 +297,16 @@ function renderBatch() {
   }
 }
 function reviewItem(c) { return batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.sound_id === takeFor(c.candidate_sha256)?.sound); }
-async function batchMutation(path, input) {
-  const pending = recall('batch-submission', null) ?? { path: `batches/${reviewBatchId}/${path}`, input, key: uid() };
+const batchActions = new Set();
+function batchAction(path, input) {
+  path = `batches/${reviewBatchId}/${path}`;
+  const intent = JSON.stringify([path, input]);
+  if (batchActions.has(intent)) return pendingAction;
+  const pending = recall('batch-submission', null) ?? { path, input, key: uid() };
+  batchActions.add(intent); say('Submitting request… Please wait.');
+  return action(async () => { try { await batchMutation(pending); } finally { batchActions.delete(intent); } });
+}
+async function batchMutation(pending) {
   remember('batch-submission', pending);
   try { await api(pending.path, pending.input, pending.key); localStorage.removeItem('studio-batch-submission'); await refresh(); say('Queued. You can keep reviewing while generation runs.'); }
   catch (error) { if ([400, 403, 404, 409, 413, 415].includes(error.status)) localStorage.removeItem('studio-batch-submission'); throw error; }
@@ -338,7 +345,7 @@ function renderReviewBatch() {
 }
 $('batch-sound').onchange = () => action(() => openReviewSound($('batch-sound').value));
 for (const id of ['batch-prompt','batch-duration']) $(id).addEventListener('input', () => remember('batch-edit-' + $('batch-edit').dataset.key, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }));
-$('batch-edit').onsubmit = event => { event.preventDefault(); action(() => batchMutation(`sounds/${reviewSoundKey}/regenerate`, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) })); };
+$('batch-edit').onsubmit = event => { event.preventDefault(); batchAction(`sounds/${reviewSoundKey}/regenerate`, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }); };
 async function submitInput(input, intent) {
   if (submitting) return; const requestedView = view; submitting = true; $('compose-error').textContent = ''; renderGeneration();
   const previous = recall('submission', null); const pending = previous ?? { key: uid(), input, intent }; remember('submission', pending);
@@ -355,7 +362,7 @@ async function connect() {
   currentJob = recall('current-job', null); await refresh(); await loadFeedback(); renderLibrary();
   const id = recall('selected', null); if (!reviewBatchId && candidates.some(c => c.candidate_sha256 === id)) await select(id);
   const next = location.hash.slice(1) || recall('view', 'create'); navigate(next, false); if (reviewBatchId) await openReviewSound($('batch-sound').value); $('reconnect').hidden = true; say('Connected · saved locally');
-  const batchPending = recall('batch-submission', null); if (batchPending) await batchMutation('', {});
+  const batchPending = recall('batch-submission', null); if (batchPending) await batchMutation(batchPending);
   const pending = recall('submission', null); if (pending) await submitInput(pending.input, pending.intent);
   else { const job = jobs.find(j => j.id === currentJob); if (job?.result?.candidate_sha256 && job.result.candidate_sha256 !== selected) { if (!selected && view === 'listen') await select(job.result.candidate_sha256); else { readyCandidate = job.result.candidate_sha256; $('ready-take').hidden = false; } } }
 }

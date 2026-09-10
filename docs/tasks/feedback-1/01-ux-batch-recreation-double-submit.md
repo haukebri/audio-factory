@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ] Not started
+Status: [x] Complete
 Priority: P1
 Area: Studio batch review.
 
@@ -27,3 +27,14 @@ Capture an in-flight intent/key and disable or coalesce duplicate activations at
 - The UI visibly acknowledges the pending submission.
 - A deliberate later operation can still be requested.
 - One regression exercises actual click-handler queuing with a fake provider/API and verifies operation count, not just key formatting.
+
+## Implementation and verification
+
+Completed 2026-09-10. Batch recreation and both regeneration controls capture their request/key at activation time and coalesce matching pending intents before entering the serial queue. The status region immediately acknowledges submission. Completion releases the guard; lost responses retain the saved key.
+
+- Regression uses the real button/action queue and form submit handler with an in-memory idempotent API. It reproduced three operations before the fix and verifies one pending operation, later deliberate submission, and same-key lost-response retry for recreation and regeneration.
+- `pnpm build`, `pnpm test:audio-factory` (28 Node checks and 2 Python checks), final `node --test studio-frontend.test.mjs`, and `git diff --check` passed.
+- Isolated `agent-browser` session `task01` exercised double-click plus Enter on the recreation card, Generate 5 more local takes, and Queue 5 new takes. Each pending intent produced one intercepted operation. A later recreation produced a new operation; a lost-response retry reused its key. Pending status text was verified in the rendered page.
+- Browser API mutations were intercepted; no paid provider or real-model smoke ran (not required for this synthetic task). The owned browser and Studio process exited, and `.runtime/studio-ui-ZOV8SZ` plus its session manifest were removed. No user audio was changed.
+
+No owner acceptance gate is required by this task. No commit was made.

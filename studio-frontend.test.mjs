@@ -70,3 +70,57 @@ test('presentation groups snapshots and trims by generation, uses durable lineag
   assert.equal(grouped[2].preferred, undefined);
   assert.notEqual(grouped[1].id, grouped[0].id);
 });
+
+test('batch click and submit handlers coalesce pending intents and retry lost responses', async () => {
+  const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
+  const elements = Object.fromEntries(['batch-edit', 'batch-prompt', 'batch-duration', 'status', 'reconnect'].map(id => [id, { value: id === 'batch-duration' ? '5' : 'Tone' }]));
+  const storage = new Map(), operations = new Map(), requests = [];
+  let loseResponse = false, nextKey = 0;
+  const context = vm.createContext({
+    $: id => elements[id], uid: () => String(++nextKey),
+    recall: (key, fallback) => storage.get(key) ?? fallback,
+    remember: (key, value) => storage.set(key, value),
+    localStorage: { removeItem: key => storage.delete(key.replace('studio-', '')) },
+    say: message => { elements.status.textContent = message; },
+    node: () => ({}), refresh: async () => {}, reviewItem: () => ({ key: 'tone' }),
+    api: async (path, input, key) => {
+      requests.push({ path, input, key });
+      if (!operations.has(key)) operations.set(key, { path, input });
+      if (loseResponse) { loseResponse = false; throw new Error('Lost response'); }
+    },
+  });
+  vm.runInContext(`let busy = false, pendingAction = Promise.resolve(), reviewBatchId = 'batch', reviewSoundKey = 'tone';
+    ${source.slice(source.indexOf('function action('), source.indexOf('function node('))}
+    ${source.slice(source.indexOf('function button('), source.indexOf('function title('))}
+    ${source.slice(source.indexOf('function recreateButton('), source.indexOf('async function useTake('))}
+    ${source.slice(source.indexOf('const batchActions ='), source.indexOf('async function openReviewSound('))}
+  `, context);
+  // Load the production form handler as well as the production recreation button.
+  vm.runInContext(source.split('\n').find(line => line.startsWith("$('batch-edit').onsubmit =")), context);
+  context.candidate = { candidate_sha256: 'candidate', evidence: { generation: { request: { duration_seconds: 5 } } } };
+  context.node = () => { const element = {}; context.lastButton = element; return element; };
+  vm.runInContext('recreateButton(candidate, null)', context);
+  for (const activate of [() => context.lastButton.onclick(), () => elements['batch-edit'].onsubmit({ preventDefault() {} })]) {
+    let release;
+    context.gate = new Promise(resolve => { release = resolve; });
+    vm.runInContext('action(() => gate)', context);
+    const before = operations.size;
+    activate(); activate(); activate();
+    const acknowledgement = elements.status.textContent;
+    release();
+    await vm.runInContext('pendingAction', context);
+    assert.equal(operations.size, before + 1);
+    assert.match(acknowledgement, /Submitting/);
+    activate();
+    await vm.runInContext('pendingAction', context);
+    assert.equal(operations.size, before + 2, 'a later deliberate activation is allowed');
+    loseResponse = true;
+    activate();
+    await vm.runInContext('pendingAction', context);
+    const lost = requests.at(-1);
+    activate(); activate();
+    await vm.runInContext('pendingAction', context);
+    assert.equal(requests.at(-1).key, lost.key);
+    assert.equal(operations.size, before + 3, 'retry reattaches to the accepted operation');
+  }
+});
