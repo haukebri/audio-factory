@@ -110,14 +110,30 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     directory(path);
     return path;
   }
-  function loadCandidate(candidateId) {
+  const validated = new Map();
+  function fingerprint(path) {
+    return ["candidate.json", "source.wav", "audio.wav"].map(name => {
+      try {
+        const s = lstatSync(join(path, name), { bigint: true });
+        return [s.dev, s.ino, s.mode, s.size, s.mtimeNs, s.ctimeNs].join(":");
+      } catch (error) { if (name === "audio.wav" && error.code === "ENOENT") return "missing"; throw error; }
+    }).join("|");
+  }
+  function loadCandidate(candidateId, verifyBytes = false) {
     const path = candidatePath(candidateId);
+    const stamp = fingerprint(path);
+    const cached = validated.get(candidateId);
+    if (!verifyBytes && cached?.stamp === stamp) return structuredClone(cached.candidate);
+    validated.delete(candidateId);
     const candidate = JSON.parse(read(join(path, "candidate.json")));
     if (hash(serialize(candidate)) !== candidateId) throw new Error("Candidate identity hash mismatch");
     const source = read(join(path, "source.wav"));
     const audio = candidate.evidence?.cut ? read(join(path, "audio.wav")) : null;
     verify(candidate, source, audio);
-    return { candidate_sha256: candidateId, ...candidate };
+    const result = { candidate_sha256: candidateId, ...candidate };
+    // Cache only a stable validation; callers cannot mutate the retained metadata.
+    if (fingerprint(path) === stamp) validated.set(candidateId, { stamp, candidate: structuredClone(result) });
+    return result;
   }
   function saveCandidate(candidate, source, audio = null) {
     // Snapshot caller-owned objects/buffers before validation and persistence.
@@ -191,7 +207,7 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
   }
   function listCandidates() {
     directory(join(root, "candidates"));
-    return readdirSync(join(root, "candidates")).filter(name => /^[a-f0-9]{64}$/.test(name)).sort().map(loadCandidate);
+    return readdirSync(join(root, "candidates")).filter(name => /^[a-f0-9]{64}$/.test(name)).sort().map(id => loadCandidate(id));
   }
   function selectionHistory(soundId) {
     checkId(soundId, 32);
@@ -250,7 +266,7 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     },
     readAsset(candidateId, asset) {
       if (!["source", "audio"].includes(asset)) throw new Error("Unknown candidate asset");
-      const candidate = loadCandidate(candidateId);
+      const candidate = loadCandidate(candidateId, true);
       if (asset === "audio" && !candidate.evidence.cut) throw new Error("No delivered audio");
       const bytes = read(join(candidatePath(candidateId), `${asset}.wav`));
       const expected = asset === "source" ? candidate.evidence.generation.audio_sha256 : candidate.evidence.cut.audio_sha256;

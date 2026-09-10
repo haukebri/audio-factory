@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import fs, { existsSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { openReviewStore } from './review-store.mjs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { get, createServer } from 'node:http';
@@ -189,6 +191,69 @@ if (process.argv.includes('--browser-fixture')) {
       verifyExport(metadata, await readFile(`${exported}/${metadata.cut.id}.wav`), () => studio.jobs.store.readAsset(candidateId, 'source'));
       assert.equal(JSON.parse(await readFile(exported + '/feedback.json')).length, 1);
       console.log(`Verified exported candidate ${candidateId}; tar SHA-256=${hash(archive)}`);
+
+      // A warm 100+ candidate library must serve polls/control without reading WAV bytes.
+      const source = wavFixture(() => true, 5);
+      const writer = openReviewStore(`${root}/.runtime/studio`);
+      const snapshot = { attempt_id: 'e'.repeat(32), fixture: true, evaluation: null,
+        evidence: { generation: { ...candidate.evidence.generation,
+          request: { prompt: 'Synthetic polling fixture', duration_seconds: 5, seed: 42 },
+          audio: { ...candidate.evidence.generation.audio, seconds: 5, bytes: source.length }, audio_sha256: hash(source) },
+        analyses: [], cut_failure: null, reason: 'Synthetic polling fixture' } };
+      const added = [];
+      for (let i = 0; i < 100; i++) added.push(writer.saveCandidate({ ...snapshot, attempt_id: hash(`poll-${i}`).slice(0, 32) }, source));
+      const poll = () => call('/studio/candidates').then(async r => { assert.equal(r.status, 200); return r.json(); });
+      assert.ok((await poll()).length >= 100);
+      assert.equal((await call(`/studio/candidates/${candidateId}/select`, { event_id: 'e'.repeat(32), supersedes: null })).status, 200);
+      const originalRead = fs.readFileSync;
+      let wavBytes = 0;
+      fs.readFileSync = (...args) => {
+        const bytes = originalRead(...args);
+        if (Buffer.isBuffer(bytes) && bytes.toString('ascii', 0, 4) === 'RIFF') wavBytes += bytes.length;
+        return bytes;
+      };
+      syncBuiltinESMExports();
+      try {
+        const timings = [];
+        for (let i = 0; i < 3; i++) {
+          const began = performance.now();
+          await Promise.all([poll(), call(`/studio/jobs/${job.id}/cancel`, {}).then(r => assert.equal(r.status, 202)),
+            ...[feedbackPath, '/studio/selections', `/studio/candidates/${candidateId}/selection-history`].map(path => call(path).then(r => assert.equal(r.status, 200)))]);
+          timings.push(Math.round(performance.now() - began));
+        }
+        console.log(`Warm polling/control milliseconds: ${timings}; WAV bytes read: ${wavBytes}`);
+        assert.equal(wavBytes, 0, 'unchanged metadata requests must not reread WAV files');
+        assert.ok(Math.max(...timings) < 200, 'concurrent control must remain responsive');
+        const fresh = writer.saveCandidate({ ...snapshot, attempt_id: 'f'.repeat(32) }, source);
+        added.push(fresh);
+        assert.ok((await poll()).some(c => c.candidate_sha256 === fresh.candidate_sha256), 'external publication appears on the next poll');
+        const loaded = studio.jobs.store.loadCandidate(fresh.candidate_sha256);
+        loaded.evidence.generation.request.prompt = 'Caller mutation';
+        assert.equal(studio.jobs.store.loadCandidate(fresh.candidate_sha256).evidence.generation.request.prompt, 'Synthetic polling fixture');
+        for (const [id, asset] of [[fresh.candidate_sha256, 'source'], [candidateId, 'audio']]) {
+          const path = `${root}/.runtime/studio/candidates/${id}/${asset}.wav`;
+          const original = await readFile(path), stat = fs.statSync(path);
+          const corrupt = Buffer.from(original); corrupt[44] ^= 1;
+          await writeFile(path, corrupt);
+          fs.utimesSync(path, stat.atime, stat.mtime); // Same size and restored mtime still invalidate validation.
+          assert.equal((await call('/studio/candidates')).status, 500);
+          for (const action of [asset, 'export']) assert.equal((await call(`/studio/candidates/${id}/${action}`)).status, 500);
+          await writeFile(path, original);
+          assert.ok((await poll()).some(c => c.candidate_sha256 === id), 'restored audio is revalidated immediately');
+        }
+        const metadataPath = `${root}/.runtime/studio/candidates/${fresh.candidate_sha256}/candidate.json`;
+        const metadataBytes = await readFile(metadataPath);
+        await writeFile(metadataPath, JSON.stringify({ ...snapshot, fixture: false }));
+        assert.equal((await call('/studio/candidates')).status, 500, 'changed metadata cannot reuse its old identity');
+        await writeFile(metadataPath, metadataBytes);
+        assert.ok((await poll()).some(c => c.candidate_sha256 === fresh.candidate_sha256));
+        wavBytes = 0;
+        assert.equal((await call(`/studio/candidates/${candidateId}/audio`)).status, 200);
+        assert.ok(wavBytes > 0, 'asset delivery always verifies bytes even with a warm cache');
+      } finally {
+        fs.readFileSync = originalRead; syncBuiltinESMExports();
+        for (const c of added) await rm(`${root}/.runtime/studio/candidates/${c.candidate_sha256}`, { recursive: true });
+      }
 
       // Completed generation left before candidate publication must be rescued before cleanup.
       const orphanId = 'a'.repeat(32);

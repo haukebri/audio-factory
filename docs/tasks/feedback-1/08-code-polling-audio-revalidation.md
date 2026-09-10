@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ]
+Status: [x]
 Priority: P2
 Area: code / reliability
 
@@ -25,3 +25,15 @@ Serve validated immutable metadata without rehashing unchanged audio for every l
 With 100+ candidates, unchanged polling does not reread all WAV files or stall a concurrent control request. Corrupt audio must still be rejected on download/export, and new/changed candidates must appear promptly.
 
 No implementation change is included in this review.
+
+## Implementation and verification
+
+Completed 2026-09-10. `loadCandidate` now caches validated metadata per immutable candidate identity. Before reuse it checks the metadata/source/cut file device, inode, mode, size, nanosecond mtime and ctime; changed files undergo full validation. Only stable validations are cached, and callers receive independent objects. Asset delivery/export still explicitly verifies source/cut bytes and hashes. No API, database or frontend change was needed.
+
+- `pnpm build` passed.
+- The added Studio HTTP regression first reproduced 273,083,226 WAV bytes read across three unchanged polling/control rounds. With the fix, the final serial run read zero WAV bytes and completed those rounds in 7/6/5 ms with 100 five-second synthetic candidates plus the existing source/analysis/cut snapshots. Feedback and selection-history requests are included.
+- Regression checks passed for publication through a second store appearing on the next poll, caller mutation isolation, metadata identity changes, same-size source/cut corruption with restored mtime, rejection on download/export, immediate recovery after restoring valid bytes, and byte verification on warm-cache asset delivery.
+- `node --test review-store.test.mjs studio.test.mjs` passed all 3 cases, including retention/relocation, symlink rejection, playback/export, restart, cancellation and owned-process cleanup.
+- `pnpm test:audio-factory` passed 33/34 Node cases; the existing long-trim check returned 500 instead of 400, matching the failure recorded in task 07. `node --test qa.test.mjs` then passed 4/4. The complete package test file list run with `node --test --test-concurrency=1` passed 34/34, followed by `.runtime/signal-venv/bin/python qa_test.py` passing 2/2. Shared-checkout contention is suspected; no unrelated implementation or test scheduling was changed.
+- `git diff --check` passed. Owned test roots were removed and no matching fixture processes remained. The older `studio-resume-test-IXZEtM` fixture (owner PID 4379, timestamp 09:43:23) was preserved as unrelated state.
+- No browser check is required by this task and none was run. Real inference, paid-provider smoke and human listening were not run; acceptance is synthetic HTTP/store behavior. No owner acceptance gate is specified. No commit was created.

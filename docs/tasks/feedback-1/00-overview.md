@@ -15,7 +15,7 @@ Review complete: 2026-09-10. Source revision: `c5ad0b28871a7a9c0b55433f2b0b334bb
 | 05 | P2 | [x] | [Allow manual trimming across the full supported 60-second source](05-code-sixty-second-trim.md) |
 | 06 | P2 | [x] | [Keep retained audio and candidate lineage consistent](06-code-retain-source-lineage.md) |
 | 07 | P2 | [x] | [Recover incomplete signal dependency setup](07-code-setup-readiness.md) |
-| 08 | P2 | [ ] | [Avoid synchronously rereading all audio on every Studio poll](08-code-polling-audio-revalidation.md) |
+| 08 | P2 | [x] | [Avoid synchronously rereading all audio on every Studio poll](08-code-polling-audio-revalidation.md) |
 | 09 | P2 | [ ] | [Refresh human decisions independently of candidate audio](09-ux-review-state-refresh.md) |
 | 10 | P2 | [ ] | [Pause variation-card playback when leaving the listening view](10-ux-hidden-variation-playback.md) |
 | 11 | P2 | [ ] | [Use live operation evidence before restarting quiet task work](11-code-runner-silence-deadline.md) |
