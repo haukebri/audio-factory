@@ -73,12 +73,12 @@
             "start_seconds": {
               "type": "number",
               "minimum": 0,
-              "maximum": 30
+              "maximum": 60
             },
             "end_seconds": {
               "type": "number",
               "minimum": 0,
-              "maximum": 30
+              "maximum": 60
             },
             "attempt": {
               "type": "string",

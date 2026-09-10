@@ -7,6 +7,68 @@ import { root } from "./dist/config.js";
 import { createFactory } from "./dist/service.js";
 import { inspectWav } from "./dist/wav.js";
 import { wavFixture } from "./wav-fixture.mjs";
+import { qaOperation } from "./dist/qa.js";
+import { createStudio } from "./studio.mjs";
+
+test("manual trims span 60-second originals and reject bounds outside the source", async () => {
+  const directory = await mkdtemp(`${root}/.runtime/qa-long-trim-`);
+  const factory = await createFactory({ root: directory, token: "test", backend: {
+    async generate(request) { return wavFixture(() => true, request.duration_seconds); },
+    async reset() {}, async unload() {},
+  } });
+  let studio;
+  const headers = { Authorization: "Bearer test", "Content-Type": "application/json" };
+  const post = (url, input) => fetch(url, { method: "POST", headers, body: JSON.stringify(input) });
+  try {
+    await new Promise(resolve => factory.server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${factory.server.address().port}`;
+    studio = await createStudio({ root: directory, token: "test", port: 0, fixture: true });
+    const studioUrl = `http://127.0.0.1:${studio.server.address().port}`;
+    for (const seconds of [60, 30]) {
+      const generated = await post(`${url}/v1/sound-effects`, { prompt: "Synthetic long tone", duration_seconds: seconds });
+      assert.equal(generated.status, 200);
+      const source = Buffer.from(await generated.arrayBuffer());
+      const id = generated.headers.get("x-run-id");
+      const generation = JSON.parse(await readFile(`${directory}/out/runs/${id}/run.json`, "utf8"));
+      const candidate = studio.jobs.store.saveCandidate({ attempt_id: id, fixture: true, evaluation: null,
+        evidence: { generation, analyses: [], cut_failure: null, reason: "Synthetic trim fixture" } }, source);
+      const route = `${studioUrl}/studio/candidates/${candidate.candidate_sha256}/cut`;
+      for (const [start_seconds, end_seconds] of [[20, 20], [25, 20], [seconds - 1, seconds + 1], ...(seconds === 30 ? [[25, 35], [40, 50]] : [])]) {
+        const input = { start_seconds, end_seconds };
+        await assert.rejects(qaOperation(directory, id, "cuts", input), error => error.status === 400);
+        assert.equal((await post(`${url}/v1/runs/${id}/cuts`, input)).status, 400);
+        assert.equal((await post(route, input)).status, 400);
+      }
+      if (seconds === 30) continue;
+      for (const [start_seconds, end_seconds] of [[40, 50], [59, 60]]) {
+        const input = { start_seconds, end_seconds };
+        const report = await qaOperation(directory, id, "cuts", input);
+        assert.equal(report.status, "completed", report.error);
+        const audio = await readFile(report.delivery.audio);
+        const record = JSON.parse(await readFile(report.delivery.metadata, "utf8"));
+        verifyExport(record, audio, () => source);
+        assert.equal(record.cut.bounds.start_sample, start_seconds * 44100);
+        assert.equal(record.cut.bounds.end_sample, end_seconds * 44100);
+        assert.equal(inspectWav(audio).seconds, end_seconds - start_seconds);
+        const compute = await post(`${url}/v1/runs/${id}/cuts`, input);
+        assert.equal(compute.status, 200);
+        assert.deepEqual(Buffer.from(await compute.arrayBuffer()), audio);
+        const response = await post(route, input);
+        assert.equal(response.status, 200);
+        const trimmed = await response.json();
+        const prepared = studio.jobs.store.readAsset(trimmed.candidate_sha256, "audio");
+        verifyExport(trimmed.evidence, prepared, () => source);
+        assert.deepEqual(trimmed.evidence.cut.bounds, record.cut.bounds);
+        assert.deepEqual(prepared, audio);
+      }
+      assert.deepEqual(await readFile(`${directory}/out/runs/${id}/audio.wav`), source);
+    }
+  } finally {
+    await studio?.close();
+    await factory.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("QA preserves source bytes and exports bounded, repeatable derivatives", async () => {
   await mkdir(`${root}/.runtime`, { recursive: true });
