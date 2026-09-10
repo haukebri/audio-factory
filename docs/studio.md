@@ -10,6 +10,8 @@ Start `./run studio` and open http://127.0.0.1:8767.
 
 Library groups related requests into sounds and actual generations into takes. Analysis snapshots are not extra takes. **Open selected best take** recalls the saved preferred version. Approve/reject notes remain separate from preference; downloads include both review and selection histories. Historical QA evidence remains readable but no listening model runs.
 
+Reviews from another tab refresh when Studio regains focus or reconnects; reopening a version also refreshes its review. If another review wins a save conflict, Studio shows the latest decision and keeps your draft. Read it, then choose **Approve** or **Save rejection** again to replace it.
+
 Drafts, version choices and pending requests survive refresh. A lost response reconnects with the same key. Interrupted work offers explicit recovery; uncertain operations are never replayed automatically. Cancel stops the remaining batch and preserves finished takes. The Studio remains available after compute exits.
 
 [API and recovery details](usage.md).

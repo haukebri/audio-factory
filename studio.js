@@ -83,9 +83,23 @@ function navigate(next, push = true) {
 }
 document.addEventListener('click', event => { const link = event.target.closest('a[href^="#"]'); if (!link || link.classList.contains('skip')) return; event.preventDefault(); navigate(link.hash.slice(1)); });
 window.addEventListener('popstate', () => action(async () => { if (history.state?.selected && history.state.selected !== selected) await select(history.state.selected); navigate(location.hash.slice(1), false); if (reviewBatchId && view === 'listen') await openReviewSound($('batch-sound').value); scrollTo(0, history.state?.scroll ?? 0); }));
-async function loadFeedback() { await Promise.all(candidates.map(async c => { feedback.set(c.candidate_sha256, await api(`candidates/${c.candidate_sha256}/feedback`)); })); }
+async function loadFeedback(ids = candidates.map(c => c.candidate_sha256)) {
+  const histories = await Promise.all(ids.map(id => api(`candidates/${id}/feedback`)));
+  let changed = false;
+  ids.forEach((id, index) => {
+    if (JSON.stringify(feedback.get(id)) === JSON.stringify(histories[index])) return;
+    feedback.set(id, histories[index]); updateHuman(id); changed = true;
+  });
+  if (changed) renderLibrary();
+}
+window.addEventListener('focus', () => { if (csrf) action(() => loadFeedback()); });
 function humanText(id) { const human = feedback.get(id)?.at(-1); return human ? `Human: ${human.verdict === 'accepted' ? 'Approved' : 'Rejected'}${human.note ? ' · ' + human.note : ''}` : 'Human: Unreviewed'; }
-function updateHuman(id) { document.querySelectorAll('[data-human]').forEach(el => { if (el.dataset.human === id) el.textContent = humanText(id); }); }
+function updateHuman(id) {
+  document.querySelectorAll('[data-human]').forEach(el => { if (el.dataset.human === id) el.textContent = humanText(id); });
+  document.querySelectorAll('[aria-label="Exact evidence record"] option').forEach(el => {
+    if (el.value === id) el.textContent = `${versionFor(takeFor(id), id).name} · ${id.slice(0, 12)} · ${humanText(id)}`;
+  });
+}
 function automated(c, box) {
   const details = node('details', undefined, box, { 'data-automated': '' }); details.hidden = $('blind').checked;
   node('summary', 'Signal checks and provenance', details);
@@ -120,7 +134,14 @@ function decision(c, box, prefix) {
     const human = feedback.get(id)?.at(-1);
     const value = { candidate_sha256: id, supersedes: human?.event_id ?? null, actor: 'human', verdict, reason_tags: verdict === 'accepted' ? [] : reason_tags, note: note.value };
     const pending = recall('feedback-' + id, null); const event = pending && JSON.stringify(pending.value) === JSON.stringify(value) ? pending : { value, event_id: uid() }; remember('feedback-' + id, event);
-    try { await api(`candidates/${id}/feedback`, { ...value, event_id: event.event_id }); localStorage.removeItem('studio-feedback-' + id); feedback.set(id, await api(`candidates/${id}/feedback`)); updateHuman(id); renderLibrary(); error.textContent = ''; say(`Saved ${verdict === 'accepted' ? 'approval' : 'rejection'} for ${identity(c)}. Audio is preserved.`); } catch (e) { error.textContent = e.message; reject.open = true; throw e; }
+    try { await api(`candidates/${id}/feedback`, { ...value, event_id: event.event_id }); localStorage.removeItem('studio-feedback-' + id); await loadFeedback([id]); error.textContent = ''; say(`Saved ${verdict === 'accepted' ? 'approval' : 'rejection'} for ${identity(c)}. Audio is preserved.`); } catch (e) {
+      if (e.status === 409) {
+        localStorage.removeItem('studio-feedback-' + id);
+        await loadFeedback([id]);
+        e.message = 'Another review was saved. Read the latest review, then choose Approve or Save rejection again to replace it';
+      }
+      error.textContent = e.message; reject.open = true; throw e;
+    }
   };
   button('Approve', actions, () => submit('accepted')).className = 'primary';
   button('Reject', actions, async () => { reject.open = true; tags.querySelector('input').focus(); });
@@ -139,8 +160,8 @@ function trim(c, box) {
 }
 async function select(id) {
   const c = candidates.find(c => c.candidate_sha256 === id); if (!c) return;
+  await loadFeedback([id]);
   if (selected === id && $('candidate').childElementCount) return;
-  feedback.set(id, await api(`candidates/${id}/feedback`));
   selected = id; $('comparison-a').replaceChildren(); remember('selected', id); remember('version-' + c.evidence.generation.id, id);
   $('empty').hidden = true; $('candidate').replaceChildren();
   const take = takeFor(id); const box = node('article', undefined, $('candidate'), { class: 'take' });
@@ -160,6 +181,7 @@ async function select(id) {
   currentJob = take.job?.id ?? currentJob; renderBatch(); renderLibrary();
 }
 function renderLibrary() {
+  const focused = $('library').contains(document.activeElement) ? document.activeElement.dataset.libraryFocus : null;
   $('library').replaceChildren(); const query = $('search').value.toLowerCase(); const filter = $('human-filter').value;
   const sounds = new Map(); for (const take of takes) { if (!sounds.has(take.sound)) sounds.set(take.sound, []); sounds.get(take.sound).push(take); }
   let shown = 0;
@@ -167,16 +189,21 @@ function renderLibrary() {
     if (!group.some(t => title(t.records[0]).toLowerCase().includes(query))) continue;
     const visible = group.filter(t => filter === 'all' || t.records.some(c => (feedback.get(c.candidate_sha256)?.at(-1)?.verdict ?? 'unreviewed') === filter)); if (!visible.length) continue;
     shown++; const box = node('article', undefined, $('library'), { class: 'take' }); node('h2', title(group[0].records[0]), box); node('p', `${group.length} take${group.length === 1 ? '' : 's'}`, box, { class: 'hint' });
-    const best = selections.find(s => s.sound_id === group[0].sound); if (best) button('Open selected best take', box, async () => { await select(best.candidate_sha256); navigate('listen'); });
+    const best = selections.find(s => s.sound_id === group[0].sound); if (best) button('Open selected best take', box, async () => { await select(best.candidate_sha256); navigate('listen'); }).dataset.libraryFocus = 'best-' + group[0].sound;
     for (const take of visible) {
       const row = node('div', undefined, box, { class: 'library-item' }); const chosen = filter === 'all' ? preferred(take) : take.records.find(c => (feedback.get(c.candidate_sha256)?.at(-1)?.verdict ?? 'unreviewed') === filter);
-      if (chosen) button(`Take ${take.number} · ${versionFor(take, chosen.candidate_sha256).name} · ${humanText(chosen.candidate_sha256)}`, row, async () => { await select(chosen.candidate_sha256); navigate('listen'); });
+      if (chosen) button(`Take ${take.number} · ${versionFor(take, chosen.candidate_sha256).name} · ${humanText(chosen.candidate_sha256)}`, row, async () => { await select(chosen.candidate_sha256); navigate('listen'); }).dataset.libraryFocus = take.id;
       else node('p', `Take ${take.number} · Choose a version`, row);
-      const versions = node('details', undefined, row); node('summary', chosen ? 'Versions' : 'Choose a version', versions); if (!chosen) versions.open = true;
-      for (const v of take.versions) button(`${v.name} · ${humanText(v.candidate.candidate_sha256)}`, versions, async () => { await select(v.candidate.candidate_sha256); navigate('listen'); });
+      const versions = node('details', undefined, row); node('summary', chosen ? 'Versions' : 'Choose a version', versions).dataset.libraryFocus = 'versions-' + take.id; if (!chosen) versions.open = true;
+      for (const v of take.versions) button(`${v.name} · ${humanText(v.candidate.candidate_sha256)}`, versions, async () => { await select(v.candidate.candidate_sha256); navigate('listen'); }).dataset.libraryFocus = v.candidate.candidate_sha256;
     }
   }
   if (!shown) node('p', takes.length ? 'No sounds match these filters.' : 'No saved sounds yet. Start in Create.', $('library'), { class: 'empty' });
+  if (focused) {
+    const target = [...$('library').querySelectorAll('[data-library-focus]')].find(el => el.dataset.libraryFocus === focused) ?? $('human-filter');
+    const details = target.closest('details'); if (details) details.open = true;
+    target.focus({ preventScroll: true });
+  }
 }
 $('search').oninput = renderLibrary; $('human-filter').onchange = renderLibrary;
 function comparisonCard(c, target, letter) { target.replaceChildren(); const box = node('article', undefined, target, { class: 'take' }); node('h2', `${letter} · ${identity(c)}`, box); node('p', title(c), box); audio(c, box, `${letter} · ${identity(c)} playback and seek`); decision(c, box, letter); if (!c.evidence.cut) button('Open version to trim', box, async () => { await select(c.candidate_sha256); navigate('listen'); }); automated(c, box); }
