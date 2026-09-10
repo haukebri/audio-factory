@@ -58,3 +58,28 @@ The runner uses and closes its own browser session, writes incremental evidence 
 ## Limits
 
 These checks establish UI/workflow behavior, not generated sound quality. No real model generation or physical-phone network access was claimed. Native accessibility-tree and keyboard checks were performed; OS screen-reader speech was not audited. The service's loopback, exact Host/Origin, CSRF/session, provenance and immutable-review protections remain unchanged. No new player framework, waveform editor, dark theme or distribution/deployment was added.
+
+## Current batch winner browser check (task 13)
+
+`node scripts/studio-batch-browser-check.mjs` exercises the current [agent batch contract](../agent-api.md): submit one 5-second local sound, open its returned hash link, wait for five generated cards, open variation 2, save and choose a distinct trim, lose the committed selection response, reload without remembered candidate/version preferences, recover the same selection event, and verify the winner candidate and downloaded WAV hash. No app methods or rendered outcomes are replaced; the sole injected fault is a lost fetch acknowledgement. Synthetic selections are test actions, not human listening acceptance.
+
+Prerequisites: Node >=22.11, installed project dependencies, `pnpm build`, `agent-browser` with its Chrome browser available, FFmpeg, and the existing `.runtime/signal-venv/bin/python` signal dependencies. No model, Ollama or provider credentials are needed. Run from the checkout root:
+
+```sh
+mkdir -p .test-artifacts .runtime
+pnpm build
+node scripts/studio-ui-fixture.mjs
+```
+
+Wait until the fixture prints its JSON root/PID/URL manifest (initial synthetic seeding takes tens of seconds). Only then, in another terminal, run:
+
+```sh
+node scripts/studio-batch-browser-check.mjs
+node --test qa.test.mjs studio-frontend.test.mjs studio-sound-grouping.test.mjs
+```
+
+The browser check allows 50 seconds per UI readiness condition and 60 seconds per browser command. It writes `.test-artifacts/studio-batch-browser-results.json` immediately after batch creation and after successful verification, and closes its uniquely named browser session on success or failure. Each invocation creates one new synthetic batch. The existing QA regression verifies 40–50 and 59–60 second cuts of 60-second originals through shared processing, compute and Studio routes, including bounds, exported bytes and invalid bounds.
+
+Use only the owned fixture script: its injected backend, no-op setup and synthetic prompt planner prevent model/provider calls. Do not substitute a real Studio. Stop the fixture with Ctrl-C after checks, verify its PID and port have closed, then remove only its printed `.runtime/studio-ui-*` root. Preserve logs/results as needed and restore any previous session manifest saved before startup. Avoid running other generation suites concurrently with the fixture.
+
+For the required negative control, use an isolated source copy with built files and existing dependencies: in `batches.mjs`'s `winners()` only, substitute the selected candidate with a different candidate from the same generation before constructing the manifest. Run the same fixture and browser command from that copy. It must reach and fail `Winner must bind the exact version chosen in the browser`, not fail startup or an earlier UI assertion. Stop its fixture, verify browser/process/port cleanup, and remove the isolated copy. Never apply this mutation to the working production file.
