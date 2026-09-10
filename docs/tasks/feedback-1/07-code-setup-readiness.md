@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ]
+Status: [x]
 Priority: P2
 Area: code / reliability
 
@@ -25,3 +25,13 @@ Use a successful dependency-lock readiness marker or a cheap required-import che
 Interrupt/fail dependency sync after venv creation, then rerun the supported command. The rerun repairs dependencies and a synthetic analysis succeeds. Already-valid environments avoid unnecessary downloads.
 
 No implementation change is included in this review.
+
+## Implementation and verification
+
+Completed 2026-09-10. Shared setup now probes the `numpy` and `soundfile` imports used by signal analysis. An incomplete environment runs the existing pinned sync and must pass the imports before returning ready. Fresh generation setup owns venv creation/sync, avoiding a second queued venv creation afterward. Existing audio and setup logs are preserved.
+
+- `pnpm build` passed.
+- `node --test setup.test.mjs` first reproduced false readiness against the original implementation, then passed after the fix. The isolated launcher fixture creates a real Python 3.11.15 venv, injects a sync failure, repairs it through `./run setup`, and successfully analyzes synthetic audio through `./run analyze`. Subsequent setup/analysis performs no additional sync. Generation verification/device discovery is synthetic; no weights or inference are used.
+- `pnpm test:audio-factory` passed on rerun: 34 Node cases and 2 Python tests, including standalone bootstrap and controlled lifecycle smokes. The first full run returned 500 instead of 400 in the existing Studio trim test; `node --test qa.test.mjs` then passed all 4 cases, and the full rerun passed. Concurrent tests invoke setup against the shared checkout; transient ownership contention is suspected, not conclusively established. No unrelated test behavior or scheduling was changed.
+- `git diff --check` passed. The regression verified unchanged source/run evidence, preserved failure logs, and released compute claims; its temporary roots were removed. Process inspection found no remaining fixture children.
+- No browser check is required for this setup task. Real model installation/inference, paid-provider smoke and human listening were not run; they are outside this synthetic dependency-recovery acceptance. No owner acceptance gate is specified.

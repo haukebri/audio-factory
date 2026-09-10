@@ -1,20 +1,31 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { closeSync, existsSync, openSync } from "node:fs";
+import { promisify } from "node:util";
 
 import { config, root } from "./config.js";
 import { acquireCompute, recoverBackend } from "./ownership.js";
+
+const execute = promisify(execFile);
 
 export async function ensureSetup(generation = false, signal?: AbortSignal, inherited?: string) {
   const claim = inherited ? undefined : acquireCompute();
   try {
     await recoverBackend();
     const commands: [string, string[]][] = [];
-    if (!existsSync(`${root}/.runtime/signal-venv/bin/python`)) {
-      commands.push(["uv", ["venv", "--python", "3.11.15", `${root}/.runtime/signal-venv`]]);
-      commands.push(["uv", ["pip", "sync", "--python", `${root}/.runtime/signal-venv/bin/python`, `${root}/signal-requirements.lock`]]);
-    }
+    const python = `${root}/.runtime/signal-venv/bin/python`;
+    const imports = ["-c", "import numpy, soundfile"];
     if (generation && (!existsSync(`${root}/.runtime/sa3-gguf/build-manifest.json`) || config.models.some(m => !existsSync(`${root}/.runtime/sa3-gguf/models/${m.file}`))))
-      commands.unshift([process.execPath, [`${root}/setup.mjs`]]);
+      commands.push([process.execPath, [`${root}/setup.mjs`]], [python, imports]);
+    else {
+      try {
+        await execute(python, imports, { timeout: 10000, signal });
+      } catch {
+        signal?.throwIfAborted();
+        if (!existsSync(python))
+          commands.push(["uv", ["venv", "--python", "3.11.15", `${root}/.runtime/signal-venv`]]);
+        commands.push(["uv", ["pip", "sync", "--python", python, `${root}/signal-requirements.lock`]], [python, imports]);
+      }
+    }
     for (const [command, args] of commands) {
       signal?.throwIfAborted();
       console.error(
