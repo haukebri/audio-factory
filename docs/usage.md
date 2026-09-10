@@ -77,3 +77,7 @@ Studio duration choices are 5, 10, 20, 30 and 60 seconds (default 5). The 60-sec
 ## Multi-sound agent batches
 
 The [agent batch API](agent-api.md) adds a durable queue, one review link per batch, prompt revisions, optional queued ElevenLabs recreation, and a hash-bound winners manifest. It uses the same Studio authentication and saved candidates.
+
+## Repository task runner
+
+`python3 scripts/run_codex_tasks.py <task-folder>` warns after five minutes without Codex output and reports pending command/tool items. Silence never triggers a retry. Each implementation and review attempt has a two-hour wall-clock deadline, allowing the supported 90-minute setup plus verification. Set `--execution-timeout-minutes <positive-integer>` before starting work that needs a different budget; output and pending operations do not extend it. A failed Codex turn, nonzero process exit, or expired deadline enters the existing bounded recovery/retry flow (at most six task attempts). Individual command failures remain available for Codex to handle within that budget.

@@ -193,6 +193,39 @@ def resume_smoke() -> int:
         return 0
 
 
+class StreamingDeadlineTests(unittest.TestCase):
+    def test_quiet_operation_failure_and_deadline(self) -> None:
+        for outcome in ("success", "exit", "turn.failed", "deadline", "chatty_deadline"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                printer = runner.LivePrinter(0, 1, runner.parse_task(write_task(root, 1)), "implement")
+                start = {"type": "item.started", "item": {"id": "op", "type": "command_execution"}}
+                end = {"type": "item.completed", "item": {"id": "op", "type": "command_execution"}}
+                script = f"import json, time, sys; print({json.dumps(start)!r}, flush=True); "
+                if outcome == "success":
+                    script += f"time.sleep(1.2); print({json.dumps(end)!r}, flush=True)"
+                elif outcome == "exit":
+                    script += "sys.exit(7)"
+                elif outcome == "turn.failed":
+                    script += "print(json.dumps({'type': 'turn.failed'}), flush=True); time.sleep(30)"
+                elif outcome == "chatty_deadline":
+                    script += "\nwhile True: print('{}', flush=True); time.sleep(0.05)"
+                else:
+                    script += "time.sleep(30)"
+                with mock.patch.object(runner, "WARN_AFTER_SECONDS", 0.1), mock.patch.object(runner, "interrupt_process", wraps=runner.interrupt_process) as interrupt, mock.patch.object(printer, "log", wraps=printer.log) as log:
+                    command = [sys.executable, "-c", script]
+                    if outcome == "success":
+                        runner.run_streaming_process(command, root, root, "quiet", printer, timeout_seconds=5)
+                        interrupt.assert_not_called()
+                        self.assertTrue(any(call.args[0] == "warning" and "op" in call.args[1] for call in log.call_args_list))
+                    else:
+                        expected = "status 7" if outcome == "exit" else "turn failed" if outcome == "turn.failed" else "deadline"
+                        with self.assertRaisesRegex(runner.RunnerError, expected):
+                            runner.run_streaming_process(command, root, root, "quiet", printer, timeout_seconds=1)
+                        if outcome != "exit":
+                            self.assertIsNotNone(interrupt.call_args.args[0].poll())
+
+
 class DiscoveryTests(unittest.TestCase):
     def test_discovers_numeric_order_and_skips_completed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -23,7 +23,7 @@ from typing import Any
 
 
 WARN_AFTER_SECONDS = 5 * 60
-STALL_AFTER_SECONDS = 30 * 60
+EXECUTION_TIMEOUT_SECONDS = 120 * 60
 MAX_TASK_ATTEMPTS = 6
 HEARTBEAT_SECONDS = 30
 RECOVERY_COMMIT_MESSAGE = "Task runner recovery checkpoint"
@@ -412,6 +412,7 @@ def interrupt_process(process: subprocess.Popen[str]) -> None:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    process.wait()
 
 
 def _read_stream(name: str, stream: Any, events: queue.Queue[tuple[str, str | None]]) -> None:
@@ -419,6 +420,7 @@ def _read_stream(name: str, stream: Any, events: queue.Queue[tuple[str, str | No
         for line in iter(stream.readline, ""):
             events.put((name, line))
     finally:
+        stream.close()
         events.put((name, None))
 
 
@@ -428,6 +430,8 @@ def run_streaming_process(
     log_dir: Path,
     log_name: str,
     printer: LivePrinter,
+    *,
+    timeout_seconds: float = EXECUTION_TIMEOUT_SECONDS,
 ) -> str | None:
     stdout_path = log_dir / f"{log_name}.jsonl"
     stderr_path = log_dir / f"{log_name}.stderr.log"
@@ -453,6 +457,9 @@ def run_streaming_process(
     for thread in threads:
         thread.start()
 
+    started = time.monotonic()
+    printer.activity("Codex process started")
+    active_operations: dict[str, str] = {}
     open_streams = 2
     warned = False
     thread_id: str | None = None
@@ -478,6 +485,17 @@ def run_streaming_process(
                         else:
                             if event.get("type") == "thread.started" and event.get("thread_id"):
                                 thread_id = str(event["thread_id"])
+                            if event.get("type") == "turn.failed":
+                                raise RunnerError(f"Codex turn failed; logs: {log_dir}")
+                            item = event.get("item")
+                            if isinstance(item, dict) and item.get("id") is not None:
+                                item_id = str(item["id"])
+                                if event.get("type") == "item.completed":
+                                    active_operations.pop(item_id, None)
+                                elif event.get("type") in {"item.started", "item.updated"} and item.get("type") in {
+                                    "command_execution", "mcp_tool_call", "tool_call", "web_search",
+                                }:
+                                    active_operations[item_id] = str(item["type"])
                             activity, status_message = display_event(event)
                             printer.activity(activity)
                             if status_message:
@@ -489,13 +507,21 @@ def run_streaming_process(
 
                 silence = time.monotonic() - printer.last_activity
                 if silence >= WARN_AFTER_SECONDS and not warned:
-                    printer.log("warning", f"No Codex output for {duration(silence)}")
+                    operations = ", ".join(f"{kind} {item_id}" for item_id, kind in active_operations.items())
+                    printer.log("warning", f"No Codex output for {duration(silence)}; "
+                                f"pending operations: {operations or 'none reported'}; "
+                                f"execution budget remaining {duration(timeout_seconds - (time.monotonic() - started))}")
                     warned = True
-                if silence >= STALL_AFTER_SECONDS:
-                    printer.log("error", f"Stopping Codex after {duration(silence)} without output")
-                    interrupt_process(process)
-                    raise RunnerError(f"Codex stalled for {duration(silence)}")
+                return_code = process.poll()
+                if return_code is not None and return_code != 0:
+                    raise RunnerError(f"Codex exited with status {return_code}; logs: {log_dir}")
+                if time.monotonic() - started >= timeout_seconds:
+                    raise RunnerError(f"Codex execution deadline exceeded ({duration(timeout_seconds)}); logs: {log_dir}")
                 printer.status()
+        except RunnerError as error:
+            printer.log("error", str(error))
+            interrupt_process(process)
+            raise
         except KeyboardInterrupt as error:
             printer.log("interrupt", "Stopping the active Codex process")
             interrupt_process(process)
@@ -550,10 +576,11 @@ When you find an in-scope blocker, fix its root cause immediately with the small
 
 
 class TaskRunner:
-    def __init__(self, root: Path, folder: Path, *, dry_run: bool = False):
+    def __init__(self, root: Path, folder: Path, *, dry_run: bool = False, timeout_seconds: float = EXECUTION_TIMEOUT_SECONDS):
         self.root = root
         self.folder = folder
         self.dry_run = dry_run
+        self.timeout_seconds = timeout_seconds
         self.codex = shlex.split(os.environ.get("CODEX_BIN", "codex"))
         if not self.codex:
             raise RunnerError("CODEX_BIN is empty")
@@ -584,7 +611,7 @@ class TaskRunner:
         log_name: str,
         printer: LivePrinter,
     ) -> tuple[dict[str, Any], str | None]:
-        thread_id = run_streaming_process(command, self.root, log_dir, log_name, printer)
+        thread_id = run_streaming_process(command, self.root, log_dir, log_name, printer, timeout_seconds=self.timeout_seconds)
         return read_structured_result(result_path, allowed), thread_id
 
     def implement(self, task: Task, log_dir: Path, printer: LivePrinter) -> tuple[dict[str, Any], str]:
@@ -916,11 +943,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show task order and planned work without changing Git or starting Codex",
     )
+    parser.add_argument(
+        "--execution-timeout-minutes", type=int, default=EXECUTION_TIMEOUT_SECONDS // 60,
+        help="Deadline per implementation/review attempt (default: 120 minutes, including setup); must be positive",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.execution_timeout_minutes <= 0:
+        parser.error("--execution-timeout-minutes must be positive")
     try:
         root = git_root(Path.cwd())
         folder = args.folder.resolve()
@@ -928,7 +962,7 @@ def main(argv: list[str] | None = None) -> int:
             folder.relative_to(root)
         except ValueError as error:
             raise RunnerError(f"Task folder must be inside the Git repository: {folder}") from error
-        runner = TaskRunner(root, folder, dry_run=args.dry_run)
+        runner = TaskRunner(root, folder, dry_run=args.dry_run, timeout_seconds=args.execution_timeout_minutes * 60)
         try:
             return runner.run()
         except KeyboardInterrupt:
