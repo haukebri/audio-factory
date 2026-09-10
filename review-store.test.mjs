@@ -89,6 +89,33 @@ test("durable candidate and immutable human review lifecycle (model-free smoke)"
     store.feedback({ ...event, candidate_sha256: raw.candidate_sha256, verdict: "rejected", reason_tags: ["wrong_sound"] });
     assert.deepEqual(store.readAsset(raw.candidate_sha256, "source"), source);
     assert.throws(() => store.readAsset(raw.candidate_sha256, "audio"), /No delivered/);
+
+    // Run the real retention entrypoint with all output confined to this fixture.
+    const retain = readFileSync(new URL('./retain.mjs', import.meta.url), 'utf8')
+      .replace('"./export-lineage.mjs"', JSON.stringify(new URL('./export-lineage.mjs', import.meta.url).href))
+      .replace("'./review-store.mjs'", JSON.stringify(moduleUrl));
+    writeFileSync(`${root}/retain.mjs`, retain);
+    const trimmed = wavFixture(() => true, 0.5);
+    const trimmedCandidate = store.saveCandidate({ ...candidate, evaluation: null, evidence: { ...bundle,
+      cut: { ...cut, bounds: { ...cut.bounds, end_sample: 22050 }, audio_sha256: hash(trimmed) },
+    } }, source, trimmed);
+    for (const [entry, asset, expected] of [[trimmedCandidate, 'source', source], [trimmedCandidate, 'audio', trimmed], [raw, 'source', source]]) {
+      const retained = JSON.parse(execFileSync(process.execPath, [`${root}/retain.mjs`,
+        `${root}/.runtime/studio/candidates/${entry.candidate_sha256}/${asset}.wav`], { encoding: 'utf8' }));
+      assert.equal(retained.candidate_sha256, entry.candidate_sha256);
+      assert.deepEqual(readFileSync(retained.audio), expected);
+      const destination = `${root}/retained-${asset}-${entry.candidate_sha256}`;
+      cpSync(resolve(retained.audio, '..'), destination, { recursive: true });
+      rmSync(resolve(retained.audio, '..'), { recursive: true });
+      assert.deepEqual(readFileSync(`${destination}/${asset}.wav`), expected);
+      const record = JSON.parse(readFileSync(`${destination}/candidate.json`));
+      const relocated = openReviewStore(`${destination}/verification`).saveCandidate(record,
+        readFileSync(`${destination}/source.wav`), record.evidence.cut ? readFileSync(`${destination}/audio.wav`) : null);
+      assert.deepEqual(relocated, entry);
+      assert.equal(retained.audio.split('/').at(-1), `${asset}.wav`);
+      assert.deepEqual(JSON.parse(readFileSync(`${destination}/feedback.json`)), store.history(entry.candidate_sha256));
+    }
+    rmSync(`${root}/.runtime/studio/candidates/${trimmedCandidate.candidate_sha256}`, { recursive: true });
     const failure = { ...cut, status: "failed", error: "Interrupted cut fixture" };
     store.saveCandidate({ ...sourceOnly, evidence: { ...sourceOnly.evidence, cut_failure: failure } }, source);
     assert.throws(() => store.saveCandidate({ ...sourceOnly, evidence: { ...sourceOnly.evidence, cut_failure: cut } }, source), /lineage/);

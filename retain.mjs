@@ -11,17 +11,19 @@ if (['source.wav', 'audio.wav'].includes(basename(audio)) && /^[a-f0-9]{64}$/.te
   const id = basename(dirname(audio));
   const candidate = store.loadCandidate(id);
   const asset = basename(audio) === 'source.wav' ? 'source' : 'audio';
-  const bytes = store.readAsset(id, asset);
+  const source = store.readAsset(id, 'source');
+  const delivered = candidate.evidence.cut ? store.readAsset(id, 'audio') : null;
+  if (asset === 'audio' && !delivered) throw new Error('No delivered audio');
   mkdirSync(`${root}/.runtime/retained`, { recursive: true });
   const destination = mkdtempSync(`${root}/.runtime/retained/clip-`);
-  writeFileSync(join(destination, 'audio.wav'), bytes);
-  writeFileSync(join(destination, 'source.wav'), store.readAsset(id, 'source'));
+  if (delivered) writeFileSync(join(destination, 'audio.wav'), delivered);
+  writeFileSync(join(destination, 'source.wav'), source);
   const { candidate_sha256, ...record } = candidate;
   writeFileSync(join(destination, 'candidate.json'), JSON.stringify(record, null, 2));
   writeFileSync(join(destination, 'feedback.json'), JSON.stringify(store.history(id), null, 2));
   const selections = store.selections().filter(s => store.selectionHistory(s.sound_id).some(e => e.candidate_sha256 === id));
   writeFileSync(join(destination, 'selection-history.json'), JSON.stringify(selections.flatMap(s => store.selectionHistory(s.sound_id)), null, 2));
-  console.log(JSON.stringify({ audio: join(destination, 'audio.wav'), candidate_sha256 }));
+  console.log(JSON.stringify({ audio: join(destination, `${asset}.wav`), candidate_sha256 }));
   process.exit(0);
 }
 if (!/^[a-f0-9]{32}\.wav$/.test(basename(audio)))
