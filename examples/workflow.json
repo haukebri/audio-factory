@@ -1,0 +1,4 @@
+{
+  "request": { "prompt": "A cat hissing", "duration_seconds": 5 },
+  "provider": "local"
+}

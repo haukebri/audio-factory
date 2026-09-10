@@ -99,7 +99,7 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
   if (root.split(sep).includes("out")) throw new Error("Review store must be outside out/");
   mkdirSync(root, { recursive: true, mode: 0o700 });
   directory(root);
-  for (const name of ["candidates", "pending", "feedback"]) {
+  for (const name of ["candidates", "pending", "feedback", "selections"]) {
     mkdirSync(join(root, name), { recursive: true, mode: 0o700 });
     directory(join(root, name));
   }
@@ -193,8 +193,45 @@ export function openReviewStore(root = fileURLToPath(new URL("./.runtime/studio/
     directory(join(root, "candidates"));
     return readdirSync(join(root, "candidates")).filter(name => /^[a-f0-9]{64}$/.test(name)).sort().map(loadCandidate);
   }
+  function selectionHistory(soundId) {
+    checkId(soundId, 32);
+    const path = join(root, 'selections', soundId);
+    try { directory(path); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    const events = [];
+    for (const name of readdirSync(path).filter(n => /^\d{10}\.json$/.test(n)).sort()) {
+      const event = JSON.parse(read(join(path, name)));
+      if (name !== `${String(events.length + 1).padStart(10, '0')}.json` || event.sound_id !== soundId || event.supersedes !== (events.at(-1)?.event_id ?? null)) throw new Error('Selection history conflict');
+      checkId(event.event_id, 32); loadCandidate(event.candidate_sha256);
+      events.push(event);
+    }
+    return events;
+  }
+  function selectTake(input) {
+    if (!input || Object.keys(input).sort().join() !== 'candidate_sha256,event_id,sound_id,supersedes') throw new Error('Invalid selection');
+    checkId(input.event_id, 32); checkId(input.sound_id, 32); loadCandidate(input.candidate_sha256);
+    if (input.supersedes !== null) checkId(input.supersedes, 32);
+    const events = selectionHistory(input.sound_id);
+    const existing = events.find(e => e.event_id === input.event_id);
+    if (existing) {
+      const { timestamp, ...previous } = existing;
+      if (serialize(previous) !== serialize(input)) throw new Error('Selection event conflict');
+      return existing;
+    }
+    if (input.supersedes !== (events.at(-1)?.event_id ?? null)) throw new Error('Stale selection');
+    const path = join(root, 'selections', input.sound_id);
+    mkdirSync(path, { recursive: true, mode: 0o700 }); directory(path); syncDirectory(join(root, 'selections'));
+    const event = { ...input, timestamp: new Date().toISOString() };
+    const pending = join(path, `pending-${randomUUID()}.json`);
+    write(pending, serialize(event));
+    try { linkSync(pending, join(path, `${String(events.length + 1).padStart(10, '0')}.json`)); }
+    catch (error) { unlinkSync(pending); if (error.code === 'EEXIST') return selectTake(input); throw error; }
+    syncDirectory(path); unlinkSync(pending); syncDirectory(path);
+    return event;
+  }
   return {
     saveCandidate, loadCandidate, listCandidates, feedback: input => feedback(input), history,
+    selectTake, selectionHistory,
+    selections: () => readdirSync(join(root, 'selections')).filter(id => /^[a-f0-9]{32}$/.test(id)).map(id => selectionHistory(id).at(-1)).filter(Boolean),
     importHistory(candidateId, events) {
       if (!Array.isArray(events)) throw new Error("Invalid feedback history");
       events.forEach((event, index) => {

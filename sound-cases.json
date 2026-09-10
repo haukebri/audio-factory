@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "description": "Exact historical real-generation prompts and durations. Excludes synthetic UI/test fixtures. Human listening determines semantic acceptance.",
+  "cases": [
+    {
+      "id": "1c6b92188ca0",
+      "request": {
+        "prompt": "A car is driving on a road. the audio starts when the car accelerates and shifts gears. The audio ends at the end of the second gear accelerating",
+        "duration_seconds": 10
+      },
+      "expected": "Audible acceleration with revs rising, dropping at an upshift, then rising again; preserve the requested sequence and powerful engine character where specified.",
+      "source_runs": [
+        "93a46f7ca8a2a5e794841be475d64875"
+      ]
+    },
+    {
+      "id": "df7b48ff7398",
+      "request": {
+        "prompt": "A car needs a long time to start",
+        "duration_seconds": 10
+      },
+      "expected": "Prolonged or repeated starter cranking before the engine catches.",
+      "source_runs": [
+        "50b507dee5a491b7e82e10cda0f48466"
+      ]
+    },
+    {
+      "id": "9a36e3c7368d",
+      "request": {
+        "prompt": "A car shifting gears up while driving",
+        "duration_seconds": 10
+      },
+      "expected": "Audible acceleration with revs rising, dropping at an upshift, then rising again; preserve the requested sequence and powerful engine character where specified.",
+      "source_runs": [
+        "0b31b50c16024791e089598d9330a18a",
+        "18557f5fa764353999d76fd45f6dfe02",
+        "3921426db0cb077885a87bdb5544dafa"
+      ]
+    },
+    {
+      "id": "4ee55f54bc67",
+      "request": {
+        "prompt": "A powerful car is driving on a road. the audio starts when the car accelerates and shifts gears. The audio ends at the end of the second gear accelerating",
+        "duration_seconds": 10
+      },
+      "expected": "Audible acceleration with revs rising, dropping at an upshift, then rising again; preserve the requested sequence and powerful engine character where specified.",
+      "source_runs": [
+        "1409eba0cbc5c205ac91c39962a68fed",
+        "a496b0c6c8641a0db81a99968af24b3a"
+      ]
+    },
+    {
+      "id": "30a13b548c6c",
+      "request": {
+        "prompt": "A single dry wooden knock, close and clear.",
+        "duration_seconds": 3
+      },
+      "expected": "Distinct dry wooden impact; no music, speech, or unrelated events.",
+      "source_runs": [
+        "35e73b72d36d256a051c2c9131c46992",
+        "c511edb3a786fa2dd3951e79b65bfab2",
+        "d041f130cfff25557ec32359957b5842"
+      ]
+    },
+    {
+      "id": "5b67807af80e",
+      "request": {
+        "prompt": "Ambient noise of a low traffic street",
+        "duration_seconds": 20
+      },
+      "expected": "Street traffic ambience with passing vehicles; low density when requested, no dominant music or narration.",
+      "source_runs": [
+        "585a9638af062b4d27f35b4e7fe20557",
+        "a7b96b831a1e406f767abf71dad18f37",
+        "ddb9bf74cf8def25f84aa74baa210c69"
+      ]
+    },
+    {
+      "id": "228775186b29",
+      "request": {
+        "prompt": "An angry cat is hissing",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "4d5328c03807fa4e9f4f2c727460da5c"
+      ]
+    },
+    {
+      "id": "7fbdd5623d42",
+      "request": {
+        "prompt": "An angry cat is hissing\nConstraints: no voice, no music, no background noise",
+        "duration_seconds": 5
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "d8d194eb93db2537b6432f2905fecb45"
+      ]
+    },
+    {
+      "id": "9f5a9d04305a",
+      "request": {
+        "prompt": "An angry cat is hissing\nConstraints: no voice, no music, no background noise",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "6593b75b19dcb4491edb8a7f03939a55"
+      ]
+    },
+    {
+      "id": "f36e97739fd3",
+      "request": {
+        "prompt": "An angry cat is hissing\nConstraints: no voice, no music, no background noise",
+        "duration_seconds": 20
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "abf77c4161d67ce68f48b5f4fcf1025d",
+        "cef8ee96847774930c0f08895d756437"
+      ]
+    },
+    {
+      "id": "35575003e2d0",
+      "request": {
+        "prompt": "Cat hissing\nConstraints: no voice, no music, no background noise",
+        "duration_seconds": 3
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "f4498c7b4e4cfc1352a106203450ffd1"
+      ]
+    },
+    {
+      "id": "0389f299596a",
+      "request": {
+        "prompt": "Footsteps on a sidewalk, no background noise",
+        "duration_seconds": 30
+      },
+      "expected": "Repeated footfalls on a hard sidewalk, without background noise or music.",
+      "source_runs": [
+        "446ec106a48643ab9279f3f3b0a2b752",
+        "5866560e15fe02b1f7375bdbace781bc"
+      ]
+    },
+    {
+      "id": "873018f3e411",
+      "request": {
+        "prompt": "Trying to start a car but the motor is not working",
+        "duration_seconds": 10
+      },
+      "expected": "Repeated failed ignition or starter cranking; engine does not settle into successful running.",
+      "source_runs": [
+        "f1b9eb96bbe933adea1415d2882ea48f"
+      ]
+    },
+    {
+      "id": "1bcad51b12f8",
+      "request": {
+        "prompt": "a cat hissing",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "44c9a839e31149fb83d60678ea5a1f1d"
+      ]
+    },
+    {
+      "id": "5e3aafa65c5b",
+      "request": {
+        "prompt": "a cat hissing for 3 seconds",
+        "duration_seconds": 5
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "202e5f2700ea7c91307d9bf7a301e025",
+        "402c4c7e87217f110f343a238d764e09"
+      ]
+    },
+    {
+      "id": "d52ad15537b0",
+      "request": {
+        "prompt": "a cat hissing for a long time",
+        "duration_seconds": 5
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "3f59e1cbab99fcf97beb918e163105df"
+      ]
+    },
+    {
+      "id": "75a9cc6dda5d",
+      "request": {
+        "prompt": "a cat hissing for a long time",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "253d980abaef1632c6ebc37cedbdbf0d",
+        "2b87598805dcd0cff4e6fd3e8e90c894",
+        "368aa1ecec769137fd636b967027eb29",
+        "37879e8ea00aa4990c2142e1e491ca9c",
+        "4a1f6523b48ba0b85caee39bae53b720",
+        "b24ffcfc8894b66d430d6bb803777171"
+      ]
+    },
+    {
+      "id": "6fb987b05713",
+      "request": {
+        "prompt": "background chatter in a small shop",
+        "duration_seconds": 20
+      },
+      "expected": "Indoor small-shop ambience with overlapping background conversation; no dominant narration or music.",
+      "source_runs": [
+        "fc0c0d991f362824f6b46d93c95d8830"
+      ]
+    },
+    {
+      "id": "f739a169455a",
+      "request": {
+        "prompt": "car accelerating",
+        "duration_seconds": 10
+      },
+      "expected": "Engine revs increase clearly as a car accelerates; not a static idle or generic passing traffic.",
+      "source_runs": [
+        "06b5e7c6ac0ac6bbf2b451d99eb973ec",
+        "182a766f23d8a10dca6704ecd5fa14db",
+        "219cef51a5b68d5b610123d51f51362d"
+      ]
+    },
+    {
+      "id": "b5bfa2ea3e27",
+      "request": {
+        "prompt": "cat hissing",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "32eceb0f801ad916c0fcec674862f0f6"
+      ]
+    },
+    {
+      "id": "7396f1a06a58",
+      "request": {
+        "prompt": "cat hissing angrily",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "072bb7fbc260ff1680d8601bd29379c3"
+      ]
+    },
+    {
+      "id": "82230a64c725",
+      "request": {
+        "prompt": "dog barking",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable natural dog barks; reject human imitations, howling-only clips, and unrelated animals.",
+      "source_runs": [
+        "8039a7f74e5e27ce2bf1a9f5c69339c5",
+        "936d9295416f1f74866e6702b21812df",
+        "9750898b314a32ab90ef138dbaeb6132",
+        "a68a9b49c2ceb4c8da678438252c5e93",
+        "db74b10fbe62714561a96d566d24cb3a",
+        "e5d523078d2aa0d2b2b41ea40d002b91"
+      ]
+    },
+    {
+      "id": "6e6af9315c96",
+      "request": {
+        "prompt": "hissing",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "3a35c488a7994f1d24865699aa3b04cc"
+      ]
+    },
+    {
+      "id": "81c402d8a968",
+      "request": {
+        "prompt": "hissing cat",
+        "duration_seconds": 10
+      },
+      "expected": "Recognizable breathy hissing; reject sustained pitched screaming, yowling, or meowing. Honor requested hiss duration.",
+      "source_runs": [
+        "a354799c8d0937b859396a60a28fdccb"
+      ]
+    },
+    {
+      "id": "3e1b1e705109",
+      "request": {
+        "prompt": "traffic noises",
+        "duration_seconds": 20
+      },
+      "expected": "Street traffic ambience with passing vehicles; low density when requested, no dominant music or narration.",
+      "source_runs": [
+        "28885ef8a4a32aad06930acf90a23138",
+        "330e312b55276d77759f77f58b70d03f",
+        "525e77fa8a51e61923cfdcb255b3b95f"
+      ]
+    },
+    {
+      "id": "36fa672e5c3a",
+      "request": {
+        "prompt": "background chatter in a small shop",
+        "duration_seconds": 5
+      },
+      "expected": "Indoor small-shop ambience with overlapping background conversation; no dominant narration or music.",
+      "source_runs": [],
+      "source_jobs": [
+        "bba6f187f59923922a81a564df33028b"
+      ],
+      "history_note": "Requested previously; canceled before a candidate was saved."
+    }
+  ]
+}

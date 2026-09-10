@@ -27,6 +27,9 @@ export class QaError extends Error {
   }
 }
 export function qaRequest(kind: string, input: unknown) {
+  const semantic = input as { clap?: boolean; target?: unknown; alternatives?: unknown } | null;
+  if (semantic?.clap || semantic?.target !== undefined || semantic?.alternatives !== undefined)
+    throw new QaError(400, "Semantic QA was removed; use deterministic signal checks");
   const value = { kind, request: input };
   if (!validate(value)) throw new QaError(400, JSON.stringify(validate.errors));
   return input as {
@@ -62,9 +65,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
         readFile(`${factoryRoot}/bundle.mjs`),
         readFile(`${factoryRoot}/export-lineage.mjs`),
         readFile(`${factoryRoot}/export.schema.json`),
-        readFile(`${factoryRoot}/qa-model.lock.json`),
         readFile(`${factoryRoot}/dist/qa.js`),
-        readFile(`${factoryRoot}/qa-requirements.lock`),
       ]),
     ),
   );
@@ -109,11 +110,11 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
     }
   }
   if (saved) await rename(directory, `${directory}-attempt-${randomUUID()}`);
-  const runAnalysis = async (clap: boolean) => {
-    const python = `${factoryRoot}/.runtime/${clap ? "qa" : "signal"}-venv/bin/python`;
+  const runAnalysis = async (path = source) => {
+    const python = `${factoryRoot}/.runtime/signal-venv/bin/python`;
     const { stdout } = await execute(
       python,
-      [`${factoryRoot}/qa.py`, source, JSON.stringify({ ...request, clap })],
+      [`${factoryRoot}/qa.py`, path, JSON.stringify(request)],
       {
         timeout: Math.max(1, deadline - Date.now()),
         maxBuffer: 4 * 1024 * 1024,
@@ -127,7 +128,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
   if (kind === "cuts") {
     const region =
       request.start_seconds === undefined
-        ? ((await runAnalysis(false)).regions[0] as
+        ? ((await runAnalysis()).regions[0] as
             | { start_seconds: number; end_seconds: number }
             | undefined)
         : request;
@@ -159,18 +160,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
   await save(join(directory, "attempt.json"), report);
   try {
     if (kind === "analyses") {
-      report.result = await runAnalysis(false);
-      if (request.clap) {
-        await save(join(directory, "signal.json"), report.result);
-        try {
-          report.result = await runAnalysis(true);
-        } catch (error) {
-          (report.result as Record<string, unknown>).clap = {
-            status: "failed",
-            error: String(error),
-          };
-        }
-      }
+      report.result = await runAnalysis();
     } else if (bounds) {
       const rate = run.audio.sample_rate;
       const seconds = (bounds.end - bounds.start) / rate;
@@ -228,6 +218,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       report.ffmpeg = (
         await execute("ffmpeg", ["-version"], { timeout: Math.max(1, deadline - Date.now()) })
       ).stdout.split("\n")[0];
+      report.result = await runAnalysis(output);
       report.audio_sha256 = hash(await readFile(output));
       report.audio_url = `/v1/runs/${runId}/cuts/${id}/audio`;
       report.metadata_url = `/v1/runs/${runId}/cuts/${id}`;

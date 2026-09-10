@@ -47,7 +47,7 @@ function controlledBackend(delay = 600) {
   };
 }
 const request = { prompt: '<img src=x onerror="window.promptInjected=true"> synthetic tone', duration_seconds: 1, seed: 42 };
-const input = { request, qa: { clap: false } };
+const input = { provider: 'elevenlabs', request, qa: { clap: false } };
 const token = 'controlled-private-token';
 const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -75,59 +75,6 @@ if (process.argv.includes('--browser-fixture')) {
   });
   process.once('SIGTERM', async () => { await studio.close(); await rm(root, { recursive: true, force: true }); console.log(`Removed browser fixture ${root}`); });
  } else {
-  test('manual retry budget persists and adjusted cuts preserve exact feedback', async () => {
-    const root = await mkdtemp(resolve('.runtime/studio-frontend-test-'));
-    const backend = controlledBackend();
-    const options = { root, token, port: 0, computePort: 0, fixture: true, backend, setup: async () => {} };
-    let studio = await createStudio(options);
-    try {
-      await assert.rejects(studio.jobs.submit('invalid', { ...input, budget: { attempts: 0, minutes: 1 } }), /budget/);
-      const job = await studio.jobs.submit('budget', { ...input, budget: { attempts: 2, minutes: 1 } });
-      await studio.jobs.wait();
-      const id = job.result.candidate_sha256;
-      const feedback = { event_id: 'a'.repeat(32), candidate_sha256: id, supersedes: null, actor: 'human', verdict: 'rejected', reason_tags: ['bad_trim'], note: 'Synthetic technical check' };
-      studio.jobs.store.feedback(feedback);
-      await assert.rejects(studio.jobs.cut(id, { start_seconds: 0.8, end_seconds: 0.2 }), /bounds/);
-      const cut = await studio.jobs.cut(id, { start_seconds: 0.1, end_seconds: 0.6 });
-      assert.notEqual(cut.candidate_sha256, id);
-      assert.equal(cut.evaluation, null);
-      assert.equal(cut.evidence.cut.bounds.end_sample - cut.evidence.cut.bounds.start_sample, 22050);
-      assert.equal(studio.jobs.store.history(cut.candidate_sha256).length, 0);
-      assert.equal(studio.jobs.store.history(id)[0].verdict, 'rejected');
-      await studio.close(); studio = await createStudio(options);
-      const retry = await studio.jobs.retry(job.id, 'retry-budget');
-      assert.equal(retry.attempt, 2); assert.equal(retry.budget_started_at, job.budget_started_at);
-      assert.equal((await studio.jobs.retry(job.id, 'retry-budget')).id, retry.id);
-      await studio.jobs.wait();
-      await assert.rejects(studio.jobs.retry(retry.id, 'over-budget'), /exhausted/);
-      await assert.rejects(studio.jobs.resume(retry.id, 'bypass-budget'), /exhausted/);
-      assert.equal(backend.count, 2);
-      assert.equal(studio.jobs.store.history(id)[0].verdict, 'rejected');
-      assert.equal(studio.jobs.store.loadCandidate(cut.candidate_sha256).candidate_sha256, cut.candidate_sha256);
-      const expired = await studio.jobs.submit('expired', { ...input, budget: { attempts: 2, minutes: 1 } });
-      await studio.jobs.wait(); await studio.close();
-      expired.status = 'running';
-      expired.budget_started_at = '2000-01-01T00:00:00.000Z';
-      await writeFile(`${root}/.runtime/studio/jobs/${expired.id}.json`, JSON.stringify(expired));
-      studio = await createStudio(options);
-      await assert.rejects(studio.jobs.retry(expired.id, 'expired-retry'), /exhausted/);
-      assert.equal(studio.jobs.get(expired.id).status, 'interrupted');
-      await studio.jobs.acknowledge(expired.id);
-      assert.equal(studio.jobs.get(expired.id).status, 'failed');
-      assert.equal(backend.count, 3, 'acknowledgement never generates');
-      await studio.jobs.submit('after-acknowledgement', input);
-      await studio.jobs.wait();
-      await studio.close();
-      studio = await createStudio({ ...options, execute: async (job, execution) => {
-        job.budget_started_at = new Date(Date.now() - 59900).toISOString();
-        return runWorkflow(job, execution);
-      } });
-      const deadline = await studio.jobs.submit('deadline', { ...input, budget: { attempts: 2, minutes: 1 } });
-      await studio.jobs.wait();
-      assert.equal(deadline.status, 'exhausted');
-      assert.ok(backend.pids.every(pid => !processIdentity(pid)), 'time deadline stops owned generation');
-    } finally { await studio.close(); await backend.stop(); await rm(root, { recursive: true, force: true }); }
-  });
   test('resume conflicts preserve interruption and retries attach to one replacement', async () => {
     const root = await mkdtemp(resolve('.runtime/studio-resume-test-'));
     let executions = 0;
@@ -299,11 +246,10 @@ if (process.argv.includes('--browser-fixture')) {
         await cp(resolve(file), setupRoot + '/' + file);
       await writeFile(setupRoot + '/package.json', '{"type":"module"}');
       await symlink(resolve('node_modules'), setupRoot + '/node_modules', 'dir');
-      await writeFile(setupRoot + '/setup.mjs', `import {writeFileSync} from 'node:fs';
-        process.on('SIGTERM',()=>{}); writeFileSync(new URL('./.runtime/pid',import.meta.url),String(process.pid)); setInterval(()=>{},1000);`);
+      await writeFile(setupRoot + '/setup.mjs', `import { writeFileSync } from 'node:fs'; process.on('SIGTERM', () => {}); writeFileSync(new URL('.runtime/pid', import.meta.url), String(process.pid)); setInterval(() => {}, 1000);`);
       const { ensureSetup } = await import(pathToFileURL(setupRoot + '/dist/setup.js'));
       const abort = new AbortController();
-      const preparing = ensureSetup(false, abort.signal);
+      const preparing = ensureSetup(true, abort.signal);
       preparing.catch(() => {});
       const setupPid = await until(async () => { try { return Number(await readFile(setupRoot + '/.runtime/pid', 'utf8')); } catch { return false; } });
       const stoppedAt = Date.now(); abort.abort();

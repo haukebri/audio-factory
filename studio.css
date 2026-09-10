@@ -104,3 +104,20 @@ nav summary { min-width: 44px; }
 #compare-view > a { margin-bottom: 12px; }
 .compare-grid { margin-top: 24px; }
 .generation-progress { margin-bottom: 20px; }
+
+#batch-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:1rem; margin:1.5rem 0; }
+#batch-results > h3 { grid-column:1 / -1; }
+.variant-card { border:1px solid var(--muted); border-radius:8px; background:var(--surface); padding:1rem; min-width:0; }
+.variant-card h4 { margin:0 0 .65rem; color:var(--primary); }
+.variant-card.chosen { outline:3px solid var(--primary); background:var(--selected); }
+.variant-prompt { font-size:.9rem; line-height:1.45; }
+.variant-card audio { width:100%; margin:.5rem 0; }
+.variant-card .actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+.best-take { grid-column: 1 / -1; display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+
+#review-batch { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:24px; margin-bottom:24px; }
+#review-batch h1 { margin:.5rem 0; }
+#review-batches { margin-bottom:24px; display:flex; flex-wrap:wrap; gap:10px; }
+#review-batches h2 { flex-basis:100%; }
+.reviewing-batch .composer { display:none; }
+.reviewing-batch .layout { grid-template-columns:minmax(0,1fr); }

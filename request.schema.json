@@ -13,7 +13,7 @@
     "duration_seconds": {
       "type": "number",
       "minimum": 0.5,
-      "maximum": 30
+      "maximum": 60
     },
     "seed": {
       "type": "integer",

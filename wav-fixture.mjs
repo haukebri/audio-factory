@@ -1,5 +1,5 @@
-export const wavFixture = (active = () => true) => {
-  const bytes = Buffer.alloc(44 + 44100 * 4);
+export const wavFixture = (active = () => true, seconds = 1) => {
+  const bytes = Buffer.alloc(44 + Math.round(44100 * seconds) * 4);
   bytes.write("RIFF");
   bytes.writeUInt32LE(bytes.length - 8, 4);
   bytes.write("WAVEfmt ", 8);
@@ -12,7 +12,7 @@ export const wavFixture = (active = () => true) => {
   bytes.writeUInt16LE(16, 34);
   bytes.write("data", 36);
   bytes.writeUInt32LE(bytes.length - 44, 40);
-  for (let frame = 0; frame < 44100; frame++) {
+  for (let frame = 0; frame < Math.round(44100 * seconds); frame++) {
     const time = frame / 44100;
     const sample = active(time) ? Math.round(2000 * Math.sin(2 * Math.PI * 440 * time)) : 0;
     bytes.writeInt16LE(sample, 44 + frame * 4);

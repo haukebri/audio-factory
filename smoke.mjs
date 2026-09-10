@@ -1,98 +1,35 @@
-import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { verifyExport } from "./export-lineage.mjs";
-import { hash } from "./dist/config.js";
-import { inspectWav } from "./dist/wav.js";
-
-const root = fileURLToPath(new URL("./", import.meta.url));
-const run = (args) =>
-  new Promise((done, reject) => {
-    const child = spawn(process.execPath, [`${root}dist/cli.js`, ...args], {
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    let output = "";
-    child.stdout.on("data", (bytes) => { output += bytes; });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) return reject(new Error(`CLI exited ${code}: ${args[0]}`));
-      try { done(JSON.parse(output)); } catch (error) { reject(error); }
-    });
-  });
-const json = async (path) => JSON.parse(await readFile(path, "utf8"));
-async function stopped() {
-  assert.equal((await run(["status"])).status, "stopped");
-  const processes = execFileSync("ps", ["-axo", "pid=,args="], { encoding: "utf8" })
-    .split("\n").filter((line) => line.includes(root) &&
-      /dist\/cli\.js|\/bin\/python|qa\.py|sa3-generate|sa3-smoke|ffmpeg/.test(line));
-  assert.deepEqual(processes, [], "Owned factory/model processes remain");
-}
-function bundle(audio) {
-  const record = JSON.parse(readFileSync(audio.replace(/\.wav$/, ".json"), "utf8"));
-  const bytes = readFileSync(audio);
-  const original = readFileSync(join(dirname(audio), record.source_file));
-  const lineage = verifyExport(record, bytes, () => original);
-  assert.deepEqual(inspectWav(original), record.generation.audio);
-  assert.equal(inspectWav(original).seconds, record.generation.request.duration_seconds);
-  const cut = inspectWav(bytes);
-  assert.equal(cut.seconds, lineage.duration_seconds);
-  assert.ok(Math.abs(cut.peak - 10 ** (-3 / 20)) < 0.0001);
-  assert.equal(record.cut.bounds.region, 1);
-  assert.equal(record.cut.normalization.enabled, true);
-  assert.equal(record.cut.normalization.target_peak_db, -3);
-  assert.equal(record.review.status, "provisional");
-  return record;
-}
-
-await stopped(); // Refuse an existing session; never discard its output to preflight.
-const requestPath = `${root}examples/request.json`;
-const request = await json(requestPath);
-const path = `${root}.runtime/smoke-${randomUUID()}.json`;
-const evidence = { request, request_sha256: hash(await readFile(requestPath)), runs: [] };
-const save = () => writeFile(path, `${JSON.stringify(evidence, null, 2)}\n`);
-await save();
-console.error(`Smoke evidence: ${path}`);
+// Five real local variations and one explicitly paid ElevenLabs recreation. Reruns reuse saved requests.
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { root, hash } from './dist/config.js';
+import { ensureSetup } from './dist/setup.js';
+import { elevenKey } from './dist/elevenlabs.js';
+import { openJobs } from './workflow.mjs';
+import { inspectWav } from './dist/wav.js';
+import { verifyExport } from './export-lineage.mjs';
+elevenKey();
+const models = await (await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(10000) })).json();
+assert.ok(models.models.some(m => m.name === 'gemma4:latest'), 'gemma4:latest must be installed');
+await ensureSetup(true);
+const workspace = join(root, '.runtime/hybrid-smoke'); await mkdir(workspace, { recursive: true });
+const jobs = await openJobs({ root: workspace, token: randomBytes(32).toString('hex'), computePort: 0 });
+const stop = () => { void jobs.close(); }; process.once('SIGINT', stop); process.once('SIGTERM', stop);
+const interval = setInterval(() => { const j = jobs.list().at(-1); console.log(JSON.stringify({ provider: j?.provider, status: j?.status, progress: j?.progress, variant: (j?.variant_index ?? 0) + 1, attempts: j?.attempts?.length })); }, 15000);
 try {
-  for (const label of ["first", "second"]) {
-    const started = Date.now();
-    const result = await run(["make", requestPath]);
-    const entry = { label, result, wall_ms: Date.now() - started };
-    evidence.runs.push(entry);
-    await save();
-    // Retain before any assertion can fail or another session can clear this run.
-    entry.retained_audio = (await run(["retain", result.audio])).audio;
-    await save();
-    await stopped();
-    const record = bundle(entry.retained_audio);
-    assert.equal(record.generation.id, result.id);
-    assert.deepEqual(record.generation.request, request);
-    assert.equal(record.generation.settings.duration_padding_sec, 0);
-    assert.equal(record.generation.models.length, 3);
-    assert.ok(record.generation.models.some((m) => m.file.endsWith("same_s_decoder_f32.npz")));
-    assert.equal(result.qa.clap.status, "completed");
-    const report = await json(result.report);
-    assert.equal(report.status, "completed");
-    assert.equal(report.result.clap.status, "completed");
-    assert.ok(record.analyses.some((analysis) => analysis.id === report.id));
-    entry.audio_sha256 = record.generation.audio_sha256;
-    entry.cut_sha256 = record.cut.audio_sha256;
-    entry.elapsed_ms = record.generation.elapsed_ms;
-    if (label === "second") {
-      assert.ok(!existsSync(`${root}out/runs/${evidence.runs[0].result.id}`));
-      bundle(evidence.runs[0].retained_audio);
-    }
-    entry.verified = true;
-    await save();
-  }
-  evidence.status = "completed";
-  await save();
-  console.log(JSON.stringify({ evidence: path, ...evidence }));
-} catch (error) {
-  evidence.error = String(error);
-  await save();
-  throw error;
-}
+  const local = await jobs.submit('hybrid-smoke-local-v1', { request: { prompt: 'A cat hissing', duration_seconds: 5 } }); await jobs.wait();
+  assert.equal(local.status, 'completed', local.error); assert.equal(local.variants.length, 5);
+  const source = local.variants.find(v => v.status === 'completed')?.result.candidate_sha256;
+  assert.ok(source, 'No usable local take for recreation');
+  const paid = await jobs.recreate(source, 'hybrid-smoke-elevenlabs-v1'); await jobs.wait();
+  assert.equal(paid.status, 'completed', paid.error); assert.equal(paid.attempts.length, 1);
+  assert.equal(paid.input.request.prompt, jobs.store.loadCandidate(source).evidence.generation.request.prompt);
+  const results = [local, paid].flatMap(j => j.variants.map(v => {
+    const c = jobs.store.loadCandidate(v.result.candidate_sha256), audio = jobs.store.readAsset(c.candidate_sha256, c.evidence.cut ? 'audio' : 'source');
+    if (c.evidence.cut) { verifyExport(c.evidence, audio, () => jobs.store.readAsset(c.candidate_sha256, 'source')); assert.ok(Math.abs(inspectWav(audio).peak - 10 ** (-3 / 20)) < .0001); }
+    return { provider: j.provider, prompt: v.prompt, outcome: v.result.outcome, audio: v.result.audio, sha256: hash(audio), signal: c.evidence.cut?.result, listening: 'unreviewed' };
+  }));
+  await writeFile(join(workspace, 'verification.json'), JSON.stringify({ local_job: local.id, paid_job: paid.id, results }, null, 2));
+  console.log(JSON.stringify({ workspace, local_generations: local.attempts.length, paid_generations: paid.attempts.length, results: results.map(r => ({ provider: r.provider, audio: r.audio, outcome: r.outcome })) }));
+} finally { clearInterval(interval); process.off('SIGINT', stop); process.off('SIGTERM', stop); await jobs.close(); }

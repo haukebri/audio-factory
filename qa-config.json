@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "frame_ms": 20,
   "silence_db": -50,
   "minimum_gap_ms": 120,
@@ -15,8 +15,9 @@
   "rhythm_min_persistence": 0.65,
   "fade_ms": 5,
   "timeout_ms": 120000,
-  "clap_model": "laion/larger_clap_general",
-  "clap_revision": "ada0c23a36c4e8582805bb38fec3905903f18b41",
   "rhythm_min_wave_correlation": 0.38,
-  "export_peak_db": -3
+  "export_peak_db": -3,
+  "static_flatness": 0.95,
+  "static_rms_variation": 0.1,
+  "static_persistence": 0.9
 }

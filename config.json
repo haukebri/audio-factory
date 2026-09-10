@@ -39,8 +39,8 @@
   "steps": 8,
   "duration_padding_sec": 0,
   "peak_db": -3,
-  "default_duration_seconds": 3,
-  "max_duration_seconds": 30,
+  "default_duration_seconds": 5,
+  "max_duration_seconds": 60,
   "licenses": [
     {
       "name": "Stability AI Community License",

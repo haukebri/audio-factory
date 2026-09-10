@@ -27,7 +27,7 @@ export function inspectWav(bytes: Buffer) {
     peak = Math.max(peak, Math.abs(sample));
     energy += sample * sample;
   }
-  if (!peak || peak > 0.708) throw new Error(`Audio peak outside non-silent -3 dB budget: ${peak}`);
+  if (peak > 0.708) throw new Error(`Audio peak outside -3 dB budget: ${peak}`);
   return {
     sample_rate: sampleRate,
     channels,

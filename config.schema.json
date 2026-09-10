@@ -135,12 +135,12 @@
     "default_duration_seconds": {
       "type": "number",
       "minimum": 0.5,
-      "maximum": 30
+      "maximum": 60
     },
     "max_duration_seconds": {
       "type": "number",
       "minimum": 0.5,
-      "maximum": 30
+      "maximum": 60
     },
     "peak_db": {
       "type": "number",

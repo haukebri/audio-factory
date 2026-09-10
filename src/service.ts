@@ -6,6 +6,7 @@ import type { Backend } from "./backend.js";
 import { config, hash, type Request, validateRequest, validateRun } from "./config.js";
 import { QaError, qaOperation, qaRequest, qaRetrieve } from "./qa.js";
 import { inspectWav } from "./wav.js";
+import { elevenModel } from "./elevenlabs.js";
 
 async function atomicWrite(path: string, bytes: Buffer | string) {
   const file = await open(`${path}.tmp`, "w", 0o600);
@@ -35,8 +36,8 @@ type Run = {
   audio_sha256?: string;
   audio_path: string;
   models: typeof config.models;
-  runtime: { revision: string; backend: string; name?: string; ggml_revision?: string; encoding?: string };
-  settings: { steps: number; cfg_scale: number; duration_padding_sec: number; peak_db: number; sampler?: string; decoder?: string; text_encoder?: string; postprocess?: string };
+  runtime: { revision?: string; backend: string; name?: string; ggml_revision?: string; encoding?: string; model?: string };
+  settings: { steps?: number; cfg_scale?: number; duration_padding_sec?: number; peak_db: number; sampler?: string; decoder?: string; text_encoder?: string; postprocess?: string; prompt_influence?: number; loop?: boolean };
   licenses: typeof config.licenses;
   review: string;
 };
@@ -121,7 +122,7 @@ export async function createFactory(options: {
       await save(run);
       const bytes = await backend.generate(run.request, (progress) => {
         run.progress = progress;
-      });
+      }, { id: run.id });
       run.audio = inspectWav(bytes);
       if (Math.abs(run.audio.seconds - run.request.duration_seconds) > 1 / 44100)
         throw new Error("Backend audio duration does not match request");
@@ -184,9 +185,9 @@ export async function createFactory(options: {
                 : qaActive
                   ? "processing"
                   : "ready",
-          model: "medium",
-          encoding: "f16",
-          backend: "metal",
+          model: backend.provider ? elevenModel : "medium",
+          encoding: backend.provider ? "mp3_44100_128" : "f16",
+          backend: backend.provider ?? "metal",
           run_id: active?.id,
           progress: active ? runs.get(active.id)?.progress : undefined,
           error: unavailable,
@@ -305,6 +306,13 @@ export async function createFactory(options: {
         },
         licenses: config.licenses,
         review: "provisional: listening and semantic review not performed",
+        ...(backend.provider === "elevenlabs" ? {
+          models: [],
+          runtime: { backend: "elevenlabs", model: elevenModel },
+          settings: { peak_db: config.peak_db, prompt_influence: 0.3, loop: false,
+            postprocess: "MP3 decoded to stereo PCM16 44100 Hz; attenuation and peak ceiling; padded/trimmed to requested duration. Seed is local bookkeeping only." },
+          licenses: [{ name: "ElevenLabs Terms of Use", url: "https://elevenlabs.io/terms-of-use" }],
+        } : {}),
       };
       runs.set(id, run);
       active = { id, promise: generate(run) };

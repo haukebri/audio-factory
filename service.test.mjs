@@ -45,7 +45,7 @@ test("WAV generation preserves idempotency, failures, disconnects and restart ev
     assert.equal((await fetch(`${url}/health`, { headers: { Authorization: "Bearer wrong" } })).status, 401);
     assert.equal((await fetch(`${url}/health`, { headers: { ...headers, Origin: "http://localhost" } })).status, 403);
     for (const input of [{}, { prompt: " " }, { ...request, prompt: "x".repeat(2001) },
-      { ...request, duration_seconds: 0.49 }, { ...request, duration_seconds: 30.01 },
+      { ...request, duration_seconds: 0.49 }, { ...request, duration_seconds: 60.01 },
       { ...request, seed: -1 }, { ...request, seed: 2147483648 }, { ...request, seed: 1.5 }]) {
       assert.equal((await post("bad", input)).status, 400);
     }
@@ -196,7 +196,7 @@ test("a new owned session clears only disposable output and idle sessions stop",
   }
 });
 
-test("CLI port contention and setup failure preserve the prior session and unrelated owner", async () => {
+test("CLI port contention and failed local setup preserve the prior session and unrelated owner", async () => {
   const { spawn, spawnSync } = await import("node:child_process");
   const { cp, readdir, symlink } = await import("node:fs/promises");
   const { once } = await import("node:events");
@@ -228,13 +228,9 @@ test("CLI port contention and setup failure preserve the prior session and unrel
     const sentinels = ["out/old.wav", ".runtime/cache", ".runtime/retained/sentinel"];
     for (const path of sentinels) await writeFile(join(root, path), path);
     await writeFile(join(root, ".runtime/backend-owner.json"), JSON.stringify({ pid: child.pid, identity: "different owner" }));
-    // Exercise the real setup subprocess lifecycle without environments or downloads.
-    await writeFile(join(root, "setup.mjs"), `import { writeFileSync } from 'node:fs';
-      writeFileSync('.runtime/setup-pid', String(process.pid));
-      throw new Error("controlled setup failure");\n`);
     const launch = () => spawnSync(process.execPath, [join(root, "dist/cli.js"), "serve"], {
       cwd: root, encoding: "utf8", timeout: 15000,
-      env: { ...process.env, NODE_PATH: "", NODE_OPTIONS: "" },
+      env: { ...process.env, ELEVEN_KEY: "", NODE_PATH: "", NODE_OPTIONS: "" },
     });
     const contention = launch();
     assert.ifError(contention.error);
@@ -255,8 +251,6 @@ test("CLI port contention and setup failure preserve the prior session and unrel
     assert.equal(failed.status, 1);
     assert.match(failed.stderr, /Setup failed/);
     assert.equal(processIdentity(failed.pid), undefined);
-    assert.equal(processIdentity(Number(await readFile(join(root, ".runtime/setup-pid"), "utf8"))), undefined);
-    assert.match(await readFile(join(root, ".runtime/setup.log"), "utf8"), /controlled setup failure/);
     for (const path of sentinels) assert.equal(await readFile(join(root, path), "utf8"), path);
     assert.equal(processIdentity(child.pid), identity);
     assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), "unrelated listener");

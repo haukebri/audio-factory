@@ -19,10 +19,11 @@
     "rhythm_min_persistence",
     "fade_ms",
     "timeout_ms",
-    "clap_model",
-    "clap_revision",
     "rhythm_min_wave_correlation",
-    "export_peak_db"
+    "export_peak_db",
+    "static_flatness",
+    "static_rms_variation",
+    "static_persistence"
   ],
   "properties": {
     "version": {
@@ -126,6 +127,21 @@
       "type": "number",
       "minimum": -30,
       "maximum": -3
+    },
+    "static_flatness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "static_rms_variation": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "static_persistence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
     }
   }
 }

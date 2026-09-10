@@ -36,7 +36,7 @@ test("QA preserves source bytes and exports bounded, repeatable derivatives", as
     const analysis = await post(`${path}/analyses`, {});
     assert.equal(analysis.status, 200);
     const result = await analysis.json();
-    assert.equal(result.result.clap.status, "disabled");
+    assert.equal(result.result.clap, undefined);
     assert.equal(result.result.regions.length, 2);
     const defaultCut = await post(`${path}/cuts`, {});
     assert.equal(defaultCut.status, 200);
@@ -121,7 +121,7 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     })).stdout);
   try {
     for (const name of ["dist", "package.json", "config.json", "qa-config.json", "qa.py",
-      "bundle.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json", "qa-requirements.lock",
+      "bundle.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json",
       ...(await readdir(root)).filter((name) => name.endsWith(".schema.json"))]) {
       await cp(`${root}/${name}`, `${directory}/${name}`, { recursive: true });
     }
@@ -156,16 +156,10 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     assert.deepEqual(await cli("status"), { status: "stopped" });
     assert.equal((await cli("inspect", id)).request.seed, 42);
     const analysis = await cli("analyze", id);
-    assert.equal(analysis.clap.status, "disabled");
+    assert.equal(analysis.clap, undefined);
     assert.equal(analysis.regions.length, 2);
-    // Use the real offline operation with an absent CLAP interpreter, bypassing setup.
     const { qaOperation } = await import(`${directory}/dist/qa.js`);
-    const missing = await qaOperation(directory, id, "analyses", { clap: true, target: "A tone" });
-    assert.equal(missing.status, "completed");
-    assert.equal(missing.result.clap.status, "failed");
-    assert.match(missing.result.clap.error, /ENOENT/);
-    assert.equal(missing.result.regions.length, 2);
-    assert.equal(missing.advisory, true);
+    await assert.rejects(qaOperation(directory, id, "analyses", { clap: true, target: "A tone" }), /removed/);
     const cut = await cli("cut", id);
     assert.deepEqual(await cli("cut", id), cut);
     const retained = await cli("retain", cut.audio);
@@ -181,25 +175,12 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     assert.deepEqual(await readFile(join(destination, record.source_file)), bytes);
     assert.deepEqual(record.generation, JSON.parse(originalRun));
     assert.equal(record.review.status, "provisional");
-    assert.deepEqual(new Set(record.review.analysis_ids), new Set([missing.id, basename(dirname(analysis.report))]));
-    assert.equal(record.analyses.find((a) => a.id === missing.id).result.clap.status, "failed");
+    assert.deepEqual(new Set(record.review.analysis_ids), new Set([basename(dirname(analysis.report))]));
     assert.equal(record.cut.bounds.region, 1);
     assert.equal(inspectWav(prepared).sample_rate, 44100);
     assert.equal(inspectWav(prepared).channels, 2);
     assert.deepEqual(await readFile(`${runPath}/audio.wav`), bytes);
     assert.deepEqual(await readFile(`${runPath}/run.json`), originalRun);
-    // Model-free stand-in for a repaired CLAP interpreter; signal QA remains real.
-    await mkdir(`${directory}/.runtime/qa-venv/bin`, { recursive: true });
-    const repairedResult = { ...missing.result, clap: { status: "completed", scores: [] } };
-    await writeFile(`${directory}/.runtime/qa-venv/bin/python`,
-      `#!${process.execPath}\nconsole.log(${JSON.stringify(JSON.stringify(repairedResult))});\n`, { mode: 0o755 });
-    const retried = await qaOperation(directory, id, "analyses", { clap: true, target: "A tone" });
-    assert.equal(retried.result.clap.status, "completed");
-    const archived = (await readdir(`${runPath}/analyses`)).find(name => name.startsWith(`${missing.id}-attempt-`));
-    assert.ok(archived);
-    assert.equal(JSON.parse(await readFile(`${runPath}/analyses/${archived}/report.json`)).result.clap.status, "failed");
-    // The already delivered bundle still carries its original, honest QA evidence.
-    assert.equal(verify().review.status, "provisional");
     // Keep evidence until the destination has verified, then remove only this run.
     await rm(runPath, { recursive: true });
     assert.equal(verify().generation.id, id);

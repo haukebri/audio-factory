@@ -8,9 +8,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test:audio-factory": "node --test backend.test.mjs service.test.mjs standalone-core.test.mjs qa.test.mjs prompt-plan.test.mjs judge.test.mjs review-store.test.mjs studio.test.mjs studio-frontend.test.mjs studio-sound-grouping.test.mjs quality-loop.test.mjs evaluation.test.mjs && .runtime/signal-venv/bin/python qa_test.py",
+    "test:audio-factory": "node --test batches.test.mjs elevenlabs.test.mjs backend.test.mjs service.test.mjs standalone-core.test.mjs qa.test.mjs prompt-plan.test.mjs review-store.test.mjs studio.test.mjs studio-frontend.test.mjs studio-sound-grouping.test.mjs quality-loop.test.mjs && .runtime/signal-venv/bin/python qa_test.py",
     "audio:factory": "pnpm build && node dist/cli.js",
-    "audio:smoke": "pnpm build && node smoke.mjs"
+    "audio:smoke": "pnpm build && node smoke.mjs",
+    "audio:cases": "pnpm build && node sound-cases.mjs"
   },
   "dependencies": {
     "ajv": "8.18.0"

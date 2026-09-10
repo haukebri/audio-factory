@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+new vm.Script(readFileSync(new URL('./studio.js', import.meta.url), 'utf8'));
+
 import test from 'node:test';
 
 test('user actions wait for background work instead of disappearing', async () => {
@@ -28,9 +30,9 @@ test('generation feedback follows submission, running stages and terminal outcom
   render('submitting = true');
   assert.equal(elements.generate.disabled, true);
   assert.equal(elements['generation-stage'].textContent, 'Submitting request…');
-  render(`submitting = false; jobs = [{ id: 'a', status: 'running', progress: 'generating', started_at: new Date(Date.now() - 12000).toISOString(), attempt: 2, input: { request: { prompt: 'Tone' }, budget: { attempts: 3 } }, candidate_ids: [] }]`);
+  render(`submitting = false; jobs = [{ id: 'a', status: 'running', progress: 'generating', started_at: new Date(Date.now() - 12000).toISOString(), attempts: [{number: 2}], input: { request: { prompt: 'Tone' }, budget: { attempts: 3 } }, candidate_ids: [] }]`);
   assert.equal(elements['generation-stage'].textContent, 'Generating your sound…');
-  assert.match(elements['generation-detail'].textContent, /Attempt 2\/3 · 12s elapsed/);
+  assert.match(elements['generation-detail'].textContent, /Variant 1\/5 · attempt 2\/3 · 12s elapsed/);
   assert.equal(elements['generation-spinner'].hidden, false);
   render("jobs[0].progress = 'evaluating'");
   assert.equal(elements['generation-stage'].textContent, 'Checking the prepared clip…');

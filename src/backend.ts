@@ -1,11 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { config, type Request, root, sleep, validateRequest } from "./config.js";
 import { processIdentity, stopOwned } from "./ownership.js";
 
 export type Backend = {
-  generate(request: Request, progress: (value: unknown) => void): Promise<Buffer>;
+  provider?: "elevenlabs";
+  generate(request: Request, progress: (value: unknown) => void, context?: { id: string }): Promise<Buffer>;
   reset(): Promise<void>;
   unload(): Promise<void>;
 };
@@ -78,6 +79,7 @@ export class GgufBackend implements Backend {
   async generate(request: Request, progress: (value: unknown) => void): Promise<Buffer> {
     if (!validateRequest(request) || request.seed === undefined)
       throw new Error("Valid prompt, duration and resolved seed required");
+    await mkdir(`${root}/out/work`, { recursive: true });
     const directory = await mkdtemp(`${root}/out/work/gguf-job-`);
     await writeFile(`${directory}/request.json`, JSON.stringify(request));
     progress({ status: "generating", evidence: directory });

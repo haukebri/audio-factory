@@ -44,7 +44,7 @@ async function stop() {
     await sleep(100);
   }
 }
-async function launch(qa = false) {
+async function launch() {
   const backend = new GgufBackend();
   const setup = new AbortController();
   let ready = false;
@@ -70,7 +70,7 @@ async function launch(qa = false) {
       factory.server.once("error", reject);
       factory.server.listen(config.port, "127.0.0.1", resolve);
     });
-    await ensureSetup(qa, setup.signal);
+    await ensureSetup(true, setup.signal);
     setup.signal.throwIfAborted();
     await backend.start();
     setup.signal.throwIfAborted();
@@ -95,18 +95,14 @@ type Report = {
   result?: {
     regions?: unknown;
     rhythm?: { suspected: boolean };
-    clap?: { status: string; error?: string; scores?: { ranking: unknown }[] };
+    static?: { suspected: boolean };
   };
 };
 function summary(report: Report) {
   return {
     regions: report.result?.regions,
     rhythmic_warning: report.result?.rhythm?.suspected,
-    clap: {
-      status: report.result?.clap?.status,
-      error: report.result?.clap?.error,
-      ranking: report.result?.clap?.scores?.[0]?.ranking,
-    },
+    static_warning: report.result?.static?.suspected,
   };
 }
 const requestFile = async (path: string) => JSON.parse(await readFile(path, "utf8"));
@@ -115,13 +111,8 @@ if (command === "make" || command === "generate" || command === "workflow") {
   const workflow = command === "workflow" ? await requestFile(process.argv[3]) : null;
   const request = workflow ? workflow.request : await requestFile(process.argv[3]);
   if (!validateRequest(request)) throw new Error(JSON.stringify(validateRequest.errors));
-  const qa = workflow ? workflow.qa ?? { clap: true, target: String((request as { prompt: string }).prompt).slice(0, 200) } : process.argv[4]
-    ? await requestFile(process.argv[4])
-    : {
-        clap: true,
-        target: String((request as { prompt: string }).prompt).slice(0, 200),
-        alternatives: ["Radio static noise", "A helicopter flying", "Silence"],
-      };
+  const qa = workflow ? workflow.qa ?? { clap: workflow.mode === "automatic", ...(workflow.mode === "automatic" ? { target: String((request as { prompt: string }).prompt).slice(0, 200) } : {}) } : process.argv[4]
+    ? await requestFile(process.argv[4]) : { clap: false };
   qaRequest("analyses", qa);
   await stopped();
   const modulePath = `${root}/workflow.mjs`;
@@ -135,7 +126,7 @@ if (command === "make" || command === "generate" || command === "workflow") {
     await jobs.wait();
     if (workflow) console.log(JSON.stringify(job));
     if (job.status !== "completed" && !(workflow && job.status === "exhausted")) throw new Error(job.error ?? job.status);
-    if (!workflow) console.log(JSON.stringify(job.result));
+    if (!workflow) console.log(JSON.stringify({ id: job.id, outcome: job.outcome, variants: job.variants, attempts: job.attempts }));
   } finally {
     process.off("SIGTERM", interrupt);
     process.off("SIGINT", interrupt);
@@ -150,7 +141,7 @@ if (command === "make" || command === "generate" || command === "workflow") {
   process.once("SIGINT", interrupt);
   console.error("Audio Factory studio ready on http://127.0.0.1:8767; Ctrl-C stops owned work");
 } else if (command === "serve") {
-  await launch(true);
+  await launch();
   console.error(`Temporary factory ready on ${url}; stops after ${config.idle_ms / 1000}s idle`);
 } else if (command === "start") {
   const existing = await health();
@@ -189,7 +180,8 @@ if (command === "make" || command === "generate" || command === "workflow") {
       : process.argv[4]
         ? await requestFile(process.argv[4])
         : {};
-  await ensureSetup(input.clap === true);
+  qaRequest(command === "cut" ? "cuts" : "analyses", input);
+  await ensureSetup(false);
   const kind = command === "cut" ? "cuts" : "analyses";
   const report: Report = await qaOperation(root, id, kind, input);
   if (report.status !== "completed") throw new Error(JSON.stringify(report));
@@ -205,12 +197,16 @@ if (command === "make" || command === "generate" || command === "workflow") {
     ),
   );
 } else if (command === "setup-qa") {
+  throw new Error("Semantic QA was removed; setup prepares local generation and signal tools");
+} else if (command === "setup") {
   await stopped();
-  await ensureSetup(true, undefined, true);
-} else if (command === "retain" || command === "setup") {
+  await ensureSetup(true);
+  const backend = new GgufBackend();
+  await backend.start(); await backend.stop();
+  console.log(JSON.stringify({ provider: "local", status: "ready" }));
+} else if (command === "retain") {
   await stopped();
-  const file =
-    command === "retain" ? "retain.mjs" : "setup.mjs";
+  const file = "retain.mjs";
   const result = spawnSync(
     process.execPath,
     [`${root}/${file}`, ...process.argv.slice(3)],

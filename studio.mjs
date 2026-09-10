@@ -5,19 +5,19 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { openBatches } from "./batches.mjs";
 import { openJobs } from "./workflow.mjs";
-import { collect, coverage, exportDataset } from "./evaluation.mjs";
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
-async function body(req) {
+async function body(req, limit = 16384) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') fail(415, 'Expected application/json');
   const chunks = []; let size = 0;
-  for await (const chunk of req) { size += chunk.length; if (size > 16384) fail(413, 'Request exceeds 16 KiB'); chunks.push(chunk); }
+  for await (const chunk of req) { size += chunk.length; if (size > limit) fail(413, 'Request body too large'); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks)); } catch { fail(400, 'Malformed JSON'); }
 }
 export async function createStudio({ port = 8767, ...options }) {
   const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
-  let jobs;
+  let jobs, batches;
   let closing;
   const sessions = new Map();
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
@@ -35,7 +35,7 @@ export async function createStudio({ port = 8767, ...options }) {
       if (req.method === 'GET' && Object.hasOwn(assets, path)) {
         res.writeHead(200, { 'Content-Type': assets[path].type }); res.end(assets[path].bytes); return;
       }
-      if (!jobs) fail(503, 'Studio starting');
+      if (!jobs || !batches) fail(503, 'Studio starting');
       const cookie = req.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith('studio_session='))?.slice(15);
       let session = sessions.get(cookie);
       if (session?.expires < Date.now()) { sessions.delete(cookie); session = undefined; }
@@ -58,6 +58,20 @@ export async function createStudio({ port = 8767, ...options }) {
         if (!session) fail(401, 'Browser session required');
         if (req.method !== 'GET' && (req.headers.origin !== origin || req.headers['x-studio-csrf'] !== session.csrf)) fail(403, 'Same-origin mutation credentials required');
       }
+      if (path === '/studio/batches') {
+        if (req.method === 'GET') { json(res, 200, batches.list()); return; }
+        if (req.method === 'POST') { const batch = await batches.submit(req.headers['idempotency-key'], await body(req, 131072)); res.setHeader('Location', `/studio/batches/${batch.id}`); json(res, 202, batch); return; }
+      }
+      const batchMatch = /^\/studio\/batches\/([a-f0-9]{32})(?:\/(winners|pause|resume)|\/sounds\/([a-zA-Z0-9_-]{1,128})\/(regenerate|recreate))?$/.exec(path);
+      if (batchMatch) {
+        const [, id, action, assetKey, soundAction] = batchMatch;
+        if (req.method === 'GET' && !soundAction && (!action || action === 'winners')) { json(res, 200, action ? batches.winners(id) : batches.get(id)); return; }
+        if (req.method === 'POST') {
+          const input = await body(req);
+          if (['pause', 'resume'].includes(action)) { if (!input || Object.keys(input).length) fail(400, 'Expected empty object'); json(res, 200, await batches.pause(id, action === 'pause')); return; }
+          if (soundAction) { json(res, 202, soundAction === 'regenerate' ? await batches.revise(id, assetKey, req.headers['idempotency-key'], input) : await batches.recreate(id, assetKey, req.headers['idempotency-key'], input)); return; }
+        }
+      }
       if (req.method === 'POST' && ['/studio/qa/setup', '/studio/qa/cancel'].includes(path)) { await body(req); json(res, 202, await jobs.setupQa(path.endsWith('/cancel'))); return; }
       if (req.method === 'GET' && path === '/studio/readiness') { json(res, 200, jobs.readiness()); return; }
       if (req.method === 'GET' && path === '/studio/jobs') { json(res, 200, jobs.list()); return; }
@@ -76,17 +90,17 @@ export async function createStudio({ port = 8767, ...options }) {
           json(res, 202, action === 'recover' ? await jobs.recover(id) : action === 'continue' ? await jobs.continue(id, req.headers['idempotency-key'], input.budget) : action === 'acknowledge' ? await jobs.acknowledge(id) : action === 'cancel' ? await jobs.cancel(id) : action === 'retry' ? await jobs.retry(id, req.headers['idempotency-key']) : await jobs.resume(id, req.headers['idempotency-key'])); return;
         }
       }
-      if (req.method === 'GET' && path === '/studio/evaluation') { json(res, 200, coverage(collect(jobs.store))); return; }
-      if (req.method === 'GET' && path === '/studio/evaluation/export') {
-        res.setHeader('Content-Disposition', 'attachment; filename="audio-factory-evaluation.json"');
-        json(res, 200, exportDataset(jobs.store, jobs.list())); return;
-      }
+      if (path.startsWith('/studio/evaluation')) fail(410, 'Semantic evaluation tools were removed; historical evidence remains in candidate exports');
       if (req.method === 'GET' && path === '/studio/candidates') { json(res, 200, jobs.store.listCandidates()); return; }
-      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut))?$/.exec(path);
+      if (req.method === 'GET' && path === '/studio/selections') { json(res, 200, jobs.store.selections()); return; }
+      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut|select|recreate|selection-history))?$/.exec(path);
       if (candidateMatch) {
         const [, id, action] = candidateMatch;
         const candidate = jobs.store.loadCandidate(id);
         if (req.method === 'GET' && !action) { json(res, 200, candidate); return; }
+        if (req.method === 'GET' && action === 'selection-history') { json(res, 200, jobs.selectionHistory(id)); return; }
+        if (req.method === 'POST' && action === 'select') { json(res, 200, jobs.selectTake(id, await body(req))); return; }
+        if (req.method === 'POST' && action === 'recreate') { await body(req); json(res, 202, await jobs.recreate(id, req.headers['idempotency-key'])); return; }
         if (req.method === 'POST' && action === 'cut') { json(res, 200, await jobs.cut(id, await body(req))); return; }
         if (action === 'feedback') {
           if (req.method === 'GET') { json(res, 200, jobs.store.history(id)); return; }
@@ -111,12 +125,12 @@ export async function createStudio({ port = 8767, ...options }) {
           res.end(bytes.subarray(start, end + 1)); return;
         }
         if (req.method === 'GET' && action === 'export') {
-          if (!candidate.evidence.cut) fail(409, 'No delivered cut to export');
           const directory = await mkdtemp(join(tmpdir(), 'audio-studio-export-'));
           try {
             const record = candidate.evidence;
-            const names = [`${record.cut.id}.wav`, `${record.cut.id}.json`, record.source_file, 'candidate.json', 'feedback.json'];
-            const contents = [jobs.store.readAsset(id, 'audio'), JSON.stringify(record), jobs.store.readAsset(id, 'source'), JSON.stringify(candidate), JSON.stringify(jobs.store.history(id))];
+            const names = record.cut ? [`${record.cut.id}.wav`, `${record.cut.id}.json`, record.source_file, 'candidate.json', 'feedback.json'] : ['audio.wav', 'generation.json', 'candidate.json', 'feedback.json'];
+            const contents = record.cut ? [jobs.store.readAsset(id, 'audio'), JSON.stringify(record), jobs.store.readAsset(id, 'source'), JSON.stringify(candidate), JSON.stringify(jobs.store.history(id))] : [jobs.store.readAsset(id, 'source'), JSON.stringify(record.generation), JSON.stringify(candidate), JSON.stringify(jobs.store.history(id))];
+            names.push('selection-history.json'); contents.push(JSON.stringify(jobs.selectionHistory(id)));
             await Promise.all(names.map((name, i) => writeFile(join(directory, name), contents[i], { mode: 0o600 })));
             const { stdout } = await promisify(execFile)('tar', ['-cf', '-', '-C', directory, ...names], { encoding: 'buffer', timeout: 10000, maxBuffer: 32 * 1024 * 1024 });
             res.writeHead(200, { 'Content-Type': 'application/x-tar', 'Content-Disposition': `attachment; filename="${id}.tar"` }); res.end(stdout);
@@ -129,7 +143,7 @@ export async function createStudio({ port = 8767, ...options }) {
   });
   server.requestTimeout = 30000;
   const close = () => closing ??= (async () => {
-    try { await jobs?.close(); } finally {
+    try { try { await batches?.close(); } finally { await jobs?.close(); } } finally {
       server.closeAllConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));
     }
@@ -137,6 +151,7 @@ export async function createStudio({ port = 8767, ...options }) {
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
     jobs = await openJobs(options);
-    return { server, jobs, close };
+    batches = await openBatches(jobs, { root: options.root, origin: `http://127.0.0.1:${server.address().port}` });
+    return { server, jobs, batches, close };
   } catch (error) { await close(); throw error; }
 }

@@ -1,99 +1,77 @@
 # Audio Factory
 
-A local sound-effect tool for developers and coding agents: describe a sound, generate it on an Apple Silicon Mac, review it in a local browser studio with experimental automatic QA, and take away a WAV with its generation and processing history. No game workspace or assets are required.
-
-**Powered by Stability AI.** See [third-party notices and exact artifact terms](THIRD_PARTY_NOTICES.md).
-
-**Status: Medium GGUF F16 generation and studio integration verified; quality_not_established.** The [M2 migration evidence](docs/tasks/m02/08-medium-gguf-generation.md#evidence) covers exact models/build, real browser generation and delivered-audio judging, playback, mixed historical/new bundles, export, restart and process cleanup.
-
-**Historical standalone installation and two real MLX/CLAP jobs verified.** The [clean setup](docs/tasks/m01/07-fresh-installation.md#evidence) and [smoke evidence](docs/tasks/m01/08-real-job-smoke.md#evidence) cover setup, normalized export, retention, relocation and shutdown. Listening quality remains provisional. Third-party notices and the prospective source inventory are verified in tasks 10–11. Source-distribution readiness is marked complete following the owner’s confirmation of license availability in task 12; nothing has been published.
+Generate five local sound-effect variations, compare them in Studio, and save your preferred take. **Stable Audio 3 Medium GGUF / Apple Metal is the default.** ElevenLabs SFX v2 is an optional, explicit recreation of a selected take.
 
 ## Install and generate
 
-Use an existing source checkout and run commands from its root. Generation requires **Apple Silicon macOS with Metal**, Node >=22.11, pnpm 9.15.9, uv, Python 3, Git, curl and FFmpeg on PATH. Verified on an M4 MacBook Pro with 32 GB RAM, macOS 26.6.2/Metal 4, Node 22.22.3, pnpm 9.15.9, uv 0.10.11, Git 2.49.0, FFmpeg 9.0.1 and bootstrap Python 3.14.4. Setup uses Python **3.11.15** for build, signal and QA environments; the check reused an existing global interpreter. These are tested versions, not a tested minimum hardware specification.
-
-First use needs access to GitHub, Hugging Face, npm and Python package sources. Generation setup downloads **5,754,163,808 bytes** of pinned models and requires those missing bytes plus **5 GiB build/cache reserve**. Install Xcode (including its Metal compiler); setup uses `/Applications/Xcode.app/Contents/Developer` when available without changing the system developer selection. It installs pinned CMake 4.1.0 in a private build environment. Allow up to 60 minutes for downloads and 30 minutes for the build; progress and partial downloads are preserved. See [Medium verification](docs/tasks/m02/08-medium-gguf-generation.md#evidence) for measured resources and limitations.
+Local generation requires Apple Silicon macOS, Node >=22.11, pnpm 9.15.9, uv, Python 3, Git, curl, FFmpeg and the Xcode Metal compiler. First setup downloads the pinned runtime and five model files (about 5.8 GB plus build/cache space). Install Ollama with `gemma4:latest` running on localhost:11434 for prompt variations.
 
 ```sh
 ./run setup
-./run setup-qa
+./run studio
+# Or generate from the CLI:
 ./run make examples/request.json
-./run status
 ```
 
-The launcher installs missing Node dependencies using the frozen lockfile and builds locally. The first two commands explicitly prepare the pinned Stable Audio 3 Medium GGUF F16 and optional CPU CLAP components; `make` also prepares missing components automatically. This request asks for a five-second wood knock with seed 111. `generate` is an alias. For signal-only QA, pass `examples/qa-signal.json` as the second file; see the [examples](examples/readme.md).
+Open http://127.0.0.1:8767. Describe the sound, set its duration, and choose **Generate 5 local takes**. Variation 1 keeps your original prompt unchanged. One text-model call creates four slight variations using sound-library captions, concrete source/action/texture details and the `TrackType: SFX,` prefix, preserving the original events, order and constraints. The audio model runs them sequentially; each finished result appears immediately. A failed planner stops the batch before audio generation.
 
-`make` generates, analyzes, cuts region 1 with short fades and peak normalization to **-3 dBFS**, then shuts down. It prints JSON with `id`, prepared `audio`, advisory `qa` and detailed `report` path; `status` then reports `stopped`. Delivery remains stereo 44.1 kHz PCM16. Historical MLX timings do not describe the Medium backend.
+Both providers select the **first active region**, apply short fades, and peak-normalize to **−3 dBFS**, delivering stereo 44.1 kHz PCM16 WAVs. The complete original recording is preserved. Use **Open / trim / download** to choose different bounds or inspect other events in the original.
 
-Review before another job. The commands below are **illustrative templates**: replace `<run-id>` and `<audio-path>` with fields returned by `make`; do not type angle brackets literally.
+Only deterministic silence and suspected-static failures trigger retries: up to three attempts per local prompt, with the same wording and a new seed. Failed takes remain available. An exhausted variation does not stop the other variations. An operational error stops the batch and preserves finished work. Static detection is a conservative broadband-noise heuristic; passing it does not establish sound accuracy.
+
+## Listen and choose
+
+Play the cards to compare variations; starting another player pauses the previous one. **Use this take** saves one preferred exact version per sound, with an append-only history when you change your mind. Other takes remain available and are not rejected. Earlier signal-failed attempts can also be played and selected. Approval/rejection notes remain separate from preference.
+
+**Recreate with ElevenLabs** sends the selected take's actual generated prompt unchanged, with its original requested duration. It makes **one paid generation**, with no automatic paid retries or extra prompt planning. Copy [`.env-template`](.env-template) to this checkout's ignored `.env`, then set your ElevenLabs API key:
 
 ```sh
-./run inspect <run-id>
-./run retain <audio-path>
+cp .env-template .env  # First-time setup; keep an existing .env
 ```
 
-Read the report and listen where possible. Retention returns a new WAV path under `.runtime/retained/clip-*`. Copy that **entire directory** into your project: prepared WAV, original source WAV and JSON companion. Follow the [usage guide's review, cut and destination verification instructions](docs/usage.md#review-adjust-and-retain-before-retrying) before removing any source.
+```dotenv
+ELEVEN_KEY=your_elevenlabs_api_key
+```
 
-Historical M1 setup/smoke and current M2 Medium integration evidence are linked above. CLI and studio use the same generation/QA workflow. Template paths vary per job. The [usage guide](docs/usage.md) covers manual HTTP access, logs and repair; the [agent skill](.agents/skills/audio-factory/SKILL.md) covers bounded review and delivery from another project.
+An environment variable takes precedence. The provider is `eleven_text_to_sound_v2`, prompt influence 0.3, looping off. ElevenLabs does not support the local seed. Original MP3 responses and request receipts are retained in `.runtime/elevenlabs/`; uncertain submissions are never automatically repeated.
 
-## Review studio
+## Agent batches
 
-Run `./run setup` and `./run setup-qa`, then `./run studio`; open **http://127.0.0.1:8767**. Keep both 8766 and 8767 free. The studio retains candidates, supports original/prepared playback, blind review, explicit human feedback and complete bundle downloads. Automatic mode defaults to three attempts and 20 minutes after setup; scores below the 0.30 acceptance threshold trigger retries within that budget. Inconclusive margins or unavailable QA stop for review. Before generation, one local Ollama call (`gemma4:latest`) prepares three prompt variants and one fixed QA description. Retries rotate through those variants; your original intent stays saved. Prompt preparation has a two-minute deadline and falls back to the original wording if unavailable; no model is downloaded automatically. Ctrl-C closes the studio and owned work. Agents use the same durable workflow; see [studio/API instructions](docs/usage.md#local-studio-service) and [feedback evaluation](docs/evaluation.md).
+Treat sound creation as a standalone step before project work that depends on the assets. The [audio-factory skill](.agents/skills/audio-factory/SKILL.md) supports this workflow from another project:
 
-The redesigned studio uses **Create** and **Library**, with Settings and Evaluation tools under **More**. See the [studio guide](docs/studio.md) for fresh takes, exact versions, comparison, trimming and recovery, and the [UI verification record](docs/plans/studio-ui-verification.md) for browser and accessibility evidence.
+1. **Connect.** Check Studio at `http://127.0.0.1:8767`. Reuse an existing instance. If it is offline, the agent can start `<factory-root>/run studio` when the checkout location is known; otherwise it asks you to start Studio or provide the folder. API clients read the private token from `<factory-root>/.runtime/token` without displaying it.
+2. **Request sounds.** Submit named prompts to `POST /studio/batches` with a saved idempotency key. Studio queues five takes per sound and immediately returns one review link. Save the batch ID and consuming-project destination so the task can resume later.
+3. **Pause for human review.** The agent gives you the link and stops. Listen, choose a winner for every sound, and edit/regenerate or use ElevenLabs as needed. Tell the agent **done** when finished. Studio stays running; the agent does not choose winners or continue dependent work with unapproved sounds.
+4. **Collect and continue.** After your message, the agent verifies the saved selections and retrieves `/studio/batches/<id>/winners`. It downloads the exact WAVs, verifies their hashes, and places them in the consuming project's sound folder, typically `src/assets/sounds/`. The manifest and provenance bundles are retained separately. The rest of the project workflow can then continue.
+5. **Close when finished.** After verified downloads, the agent stops only a Studio instance it started, and only when no other generation or review needs it. Pre-existing or shared instances stay running.
 
-The selected Larger CLAP General checkpoint adds 779,810,876 cached artifact bytes; QA setup requires those bytes plus 10 GiB reserve. Its isolated Python 3.11.15 environment uses the pinned QA lock. Reuse existing caches and allow up to 45 minutes for initial QA setup; each delivered-clip judge has a 120-second deadline. Historical setup timings above used the older M1 CLAP checkpoint.
+See the [agent API](docs/agent-api.md) and [batch example](examples/batch.json) for request formats, review links, and recovery.
 
-## Lifetime and limitations
-
-- **Temporary output:** the next successfully initialized `make` or `start` clears `out/`, after setup and port acquisition. Retain every wanted candidate before retrying. Retained bundles, environments, caches and project copies survive. The shared `make`/studio workflow also preserves immutable candidates under `.runtime/studio/`; raw work logs in `out/` remain temporary.
-- **Local generation:** inference and QA use local weights without cloud inference. Initial setup/downloads need network; later jobs reuse verified local components. Explicit setup/repair can still contact remote sources. The backend is pinned sa3.cpp/Metal with Medium DiT F16, SAME-L F16, conditioner F32, T5Gemma F32 and its tokenizer. Eight steps and zero extra duration padding are explicit Medium settings; no quantized, MLX or CPU fallback is accepted.
-- **Advisory quality:** CLAP similarity and signal checks do not establish prompt accuracy or listening acceptance. Region 1 may contain multiple events. No listener evaluated the two standalone smoke candidates; both remain provisional. Default searches stop after **three generations per requested sound** unless another budget is specified.
-- **Platform:** generation is supported on Apple Silicon macOS only. Linux instructions below cover model-free fixtures; they are not Linux generation support or evidence of a Linux run. Intel Macs and Windows generation are unsupported. The review studio is a local browser UI.
-- **Recovery:** inspect `.runtime/setup.log` for automatic setup, `.runtime/service.log` for manual startup, and `out/work/gguf-job-*/inference.log`/`export.log` for jobs. Check `./run status`; use `./run stop` to drain an owned session. Repair with explicit `setup`/`setup-qa` while stopped, preserving and investigating mismatched artifacts. See [storage and recovery](docs/usage.md#storage-and-recovery).
-- **Rights:** third-party attribution and artifact terms are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the owner confirmed license availability and resolved the licensing blocker in [task 12](docs/tasks/m01/12-license-and-release-readiness.md). This status update adds no license text or new grant of rights. Model and generated-output rights are separate from the software license and quality review. Bundle license references alone do not grant rights. No weights are intended in the source distribution.
-
-## Project documents
-
-- [Incremental build tasks](docs/tasks/m01/00-overview.md): ordered, reviewable tasks for `scripts/run_codex_tasks.py`, with preview and execution instructions.
-
-- [Project overview](docs/project-overview.md): scope, current source behavior, extraction boundaries, and completion criteria.
-- [Milestone 1 — Standalone core](docs/milestone/01-standalone-core.md)
-- [Milestone 2 — Portable workflow](docs/milestone/02-portable-workflow.md)
-- [Milestone 3 — Standalone verification](docs/milestone/03-standalone-verification.md)
-- [Milestone 4 — Distribution readiness](docs/milestone/04-distribution-readiness.md)
-
-## Fixture checks
-
-The extracted service, QA and portable-bundle checks use deterministic audio and
-FFmpeg, without generation or CLAP model downloads. Prepare only the pinned signal
-packages in a separate checkout (Linux fixture instructions; only macOS execution
-is recorded). Have Node, pnpm, uv, FFmpeg and ripgrep (`rg`) available. Run from
-the tool root with Bash or Zsh:
+## Automation and recovery
 
 ```sh
-pnpm install --frozen-lockfile
-uv venv --python 3.11.15 .runtime/signal-venv
-uv pip sync --python .runtime/signal-venv/bin/python signal-requirements.lock
+./run workflow examples/workflow.json a-stable-request-key
+./run retain <returned-audio-path>
+```
+
+`make` prints all variants and attempts. `workflow` prints the complete durable job; reuse its exact input and idempotency key to reconnect without generating again. If Studio is already open, use its API instead of starting another workflow owner. [Usage](docs/usage.md) documents API, authentication and recovery.
+
+Jobs, candidates, original audio, feedback and preferred-take history live in `.runtime/studio/`, outside disposable `out/`. Studio downloads include verified audio/provenance, feedback and selection history. `retain` copies a candidate and its evidence into `.runtime/retained/` for transfer to another project. Preserve the whole bundle.
+
+Listening-model QA, CLAP execution, evaluation tools and semantic retry budgets have been removed. Old execution options return migration errors. Historical audio and QA metadata remain readable and exportable; no historical listening decisions are rewritten.
+
+## Checks
+
+```sh
 pnpm build
-pnpm test:audio-factory
+pnpm test:audio-factory       # Synthetic checks; no model calls or API credits
+pnpm audio:smoke             # Five real local takes + ONE paid ElevenLabs recreation
+pnpm audio:cases             # Inventory of 26 historical cases; no generation
+pnpm audio:cases --run       # Paid: one ElevenLabs output per case, reuse existing results
 ```
 
-The signal environment contains the same pinned packages used by generation setup;
-CLAP remains in its separate QA environment. Historical MLX environments are preserved.
-The suite removes its own temporary runs and retained/copied fixture bundles.
-Run it with no manual service active. The setup recipe and suite have supporting
-[fixture evidence](docs/tasks/m01/04-portable-export-checks.md#evidence); task 08
-also passed all seven Node and two Python checks on the full environment.
+The smoke uses durable keys under `.runtime/hybrid-smoke/`; reruns reuse saved outcomes. The case runner preserves the previous corpus in `.runtime/elevenlabs-sound-cases/`. Failed or uncertain operations stop for inspection; `--retry-failed` explicitly starts a new case attempt. Technical checks do not supply human listening acceptance.
 
-Optional supported-Mac regression command (two new real jobs):
+See [Studio](docs/studio.md), [examples](examples/readme.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Historical milestone documents record earlier behavior; this README and the current usage guide supersede their execution instructions.
 
-```sh
-pnpm audio:smoke
-```
-
-Historical M1 task 08 records the MLX version of this command; M2 task 08 uses
-a bounded real Medium studio journey. The command retains both candidates, verifies
-next-session cleanup and stopped processes, and records `.runtime/smoke-*.json`.
-Retain any existing wanted output first. Do not rerun smoke just to read or
-validate existing evidence; it clears temporary output and creates new candidates.
+Studio duration choices are 5, 10, 20, 30 and 60 seconds (default 5). The 60-second option is local only; ElevenLabs recreation supports at most 30 seconds.

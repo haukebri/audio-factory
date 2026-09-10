@@ -1,7 +1,6 @@
 import hashlib
 import json
 import pathlib
-import subprocess
 import sys
 import time
 
@@ -15,6 +14,30 @@ SETTINGS = json.loads((ROOT / 'qa-config.json').read_text())
 def spans(mask):
     edges = np.diff(np.concatenate(([False], mask, [False])).astype(int))
     return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
+
+
+def static_analysis(audio, rate, settings):
+    # Conservative steady broadband-noise flag, not semantic sound recognition.
+    width = rate
+    windows = []
+    for start in range(0, len(audio), max(1, width // 2)):
+        segment = audio[start:start + width]
+        if len(segment) < rate // 2:
+            continue
+        n = 2048
+        frames = np.lib.stride_tricks.sliding_window_view(segment, n, axis=0)[::n // 2]
+        spectrum = np.mean(np.abs(np.fft.rfft((frames - frames.mean(axis=-1, keepdims=True)) * np.hanning(n), axis=-1)) ** 2, axis=(0, 1))
+        frequencies = np.fft.rfftfreq(n, 1 / rate)
+        power = spectrum[(frequencies >= 100) & (frequencies <= min(16000, rate / 2))]
+        flatness = float(np.exp(np.mean(np.log(np.maximum(power, 1e-20)))) / max(np.mean(power), 1e-20))
+        hop = max(1, round(rate * .02))
+        rms = np.sqrt(np.mean(segment[:len(segment) // hop * hop].reshape(-1, hop, audio.shape[1]) ** 2, axis=(1, 2)))
+        variation = float(np.std(rms) / max(np.mean(rms), 1e-20))
+        audible = float(np.mean(rms)) >= 10 ** (settings['silence_db'] / 20)
+        windows.append({'start_seconds': start / rate, 'flatness': flatness, 'rms_variation': variation,
+                        'suspected': bool(audible and flatness >= settings['static_flatness'] and variation <= settings['static_rms_variation'])})
+    fraction = sum(w['suspected'] for w in windows) / max(1, len(windows))
+    return {'version': 1, 'suspected': bool(windows and fraction >= settings['static_persistence']), 'fraction': fraction, 'windows': windows}
 
 
 def signal_analysis(audio, rate, settings):
@@ -74,74 +97,19 @@ def signal_analysis(audio, rate, settings):
             'boundary_peak': float(np.max(np.abs(audio[[0, -1]]))),
             'silence': {'leading_seconds': leading, 'trailing_seconds': trailing,
                         'fraction': sum(g['end_seconds'] - g['start_seconds'] for g in gaps) / (count / rate), 'gaps': gaps},
-            'regions': regions, 'rhythm': {'suspected': bool(len(rhythm) >= 2 and persistence >= settings['rhythm_min_persistence']),
+            'regions': regions, 'static': static_analysis(audio, rate, settings), 'rhythm': {'suspected': bool(len(rhythm) >= 2 and persistence >= settings['rhythm_min_persistence']),
                                          'persistence': persistence, 'windows': rhythm}}
 
 
-class Clap:
-    def __init__(self):
-        import torch
-        from transformers import ClapModel, ClapProcessor
-        manifest = json.loads((ROOT / '.runtime/qa-model.json').read_text())
-        for file in manifest['files']:
-            if hashlib.sha256(pathlib.Path(file['path']).read_bytes()).hexdigest() != file['sha256']:
-                raise ValueError('CLAP model hash mismatch: ' + file['path'])
-        expected = json.loads((ROOT / 'qa-model.lock.json').read_text())
-        if manifest['revision'] != expected['revision'] or manifest['model'] != expected['model']:
-            raise ValueError('CLAP revision mismatch')
-        if {pathlib.Path(f['path']).name: f['sha256'] for f in manifest['files']} != {f['file']: f['sha256'] for f in expected['files']}:
-            raise ValueError('CLAP manifest differs from pinned hashes')
-        import importlib.metadata
-        for line in (ROOT / 'qa-requirements.lock').read_text().splitlines():
-            if '==' in line:
-                name, version = line.split('==')
-                if importlib.metadata.version(name) != version:
-                    raise ValueError('QA dependency mismatch: ' + name)
-        self.torch = torch
-        self.manifest = manifest
-        self.processor = ClapProcessor.from_pretrained(manifest['path'], local_files_only=True)
-        self.model = ClapModel.from_pretrained(manifest['path'], local_files_only=True).eval().to('cpu')
-
-    def score(self, path, regions, target, alternatives):
-        labels = list(dict.fromkeys([target] + alternatives))
-        raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(path), '-ac', '1', '-ar', '48000', '-f', 'f32le', '-'], timeout=30)
-        audio = np.frombuffer(raw, dtype='<f4')
-        duration = len(audio) / 48000
-        windows = [(start, min(start + 10, duration), 'window') for start in np.arange(0, duration, 5) if start == 0 or start + 5 < duration]
-        windows += [(float(start), min(float(start) + 10, r['end_seconds']), 'region') for r in regions[:32] for start in np.arange(r['start_seconds'], r['end_seconds'], 10)]
-        text = self.processor(text=labels, return_tensors='pt', padding=True, truncation=True)
-        with self.torch.inference_mode():
-            embeddings = self.model.get_text_features(**text)
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-            scores = []
-            for start, end, kind in windows:
-                samples = audio[round(start * 48000):round(end * 48000)]
-                inputs = self.processor(audio=samples, sampling_rate=48000, return_tensors='pt', padding='repeatpad')
-                features = self.model.get_audio_features(**inputs)
-                features = features / features.norm(dim=-1, keepdim=True)
-                values = (features @ embeddings.T)[0].tolist()
-                if not np.isfinite(values).all():
-                    raise ValueError('Nonfinite CLAP similarities')
-                ranked = sorted(zip(labels, values), key=lambda pair: -pair[1])
-                scores.append({'start_seconds': float(start), 'end_seconds': float(end), 'kind': kind,
-                               'ranking': [{'description': label, 'similarity': value} for label, value in ranked],
-                               'target_margin': values[0] - max(values[1:]) if len(values) > 1 else None})
-        return {'status': 'completed', 'model': self.manifest, 'scores': scores, 'decoded_pcm_sha256': hashlib.sha256(raw).hexdigest(), 'descriptions': labels, 'meaning': 'relative similarity; not correctness probability'}
-
-
-def analyze(path, request, clap=None):
+def analyze(path, request):
+    if request.get("clap") or request.get("target") or request.get("alternatives"):
+        raise ValueError("Semantic QA was removed; use deterministic signal checks")
     started = time.monotonic()
     audio, rate = sf.read(path, always_2d=True)
     if not len(audio) or not np.isfinite(audio).all():
         raise ValueError('Empty or nonfinite audio')
     result = signal_analysis(audio, rate, SETTINGS)
     result['audio_sha256'] = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
-    result['clap'] = {'status': 'disabled'}
-    if request.get('clap'):
-        try:
-            result['clap'] = (clap or Clap()).score(path, [] if request.get('delivered') else result['regions'], request['target'], request.get('alternatives', []))
-        except Exception as error:
-            result['clap'] = {'status': 'failed', 'error': str(error)}
     result['elapsed_ms'] = round((time.monotonic() - started) * 1000)
     return result
 

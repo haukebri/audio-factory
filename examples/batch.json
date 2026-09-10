@@ -1,0 +1,8 @@
+{
+  "name": "Village sound effects",
+  "sounds": [
+    { "key": "dog_bark", "prompt": "A dog barking", "duration_seconds": 5 },
+    { "key": "cat_hiss", "prompt": "A cat hissing", "duration_seconds": 5 },
+    { "key": "street_ambience", "prompt": "A quiet village street", "duration_seconds": 60 }
+  ]
+}

@@ -21,8 +21,8 @@ The source distribution is intended to contain project source, docs, schemas, ex
 `run` installs Node packages. `setup.mjs` builds the pinned Metal runtime below,
 installs CMake 4.1.0 and `signal-requirements.lock` into private environments, and
 `download_models.py` resumes and verifies five GGUF artifacts. `src/backend.ts`
-executes `sa3-generate` and system FFmpeg. Larger CLAP General and its separate
-`qa-requirements.lock` remain unchanged. No downloaded runtime, binary or weights
+executes `sa3-generate` and system FFmpeg. Larger CLAP General execution and its dependency lock have been retired;
+historical model pins and notices remain for saved provenance. No downloaded runtime, binary or weights
 are included in this source distribution.
 
 ### Current Medium GGUF runtime and artifacts
@@ -83,7 +83,7 @@ Task 11 corrected the historical MLX configuration so its companions reference t
 
 ### CLAP artifacts
 
-The current QA checkpoint is [LAION Larger CLAP General at ada0c23a36c4e8582805bb38fec3905903f18b41](https://huggingface.co/laion/larger_clap_general/blob/ada0c23a36c4e8582805bb38fec3905903f18b41/README.md), declared Apache-2.0 by that card, with the same paper/authors below. Its eight verified artifacts total 779,810,876 bytes; exact hashes are in [qa-model.lock.json](qa-model.lock.json). The tree has no separate LICENSE/NOTICE file. It is downloaded separately, never bundled. The following table preserves the historical M1 baseline, also retained in [its original lock](docs/tasks/m02/clap-m1-baseline.lock.json).
+The retired QA checkpoint was [LAION Larger CLAP General at ada0c23a36c4e8582805bb38fec3905903f18b41](https://huggingface.co/laion/larger_clap_general/blob/ada0c23a36c4e8582805bb38fec3905903f18b41/README.md), declared Apache-2.0 by that card, with the same paper/authors below. Its eight verified artifacts total 779,810,876 bytes; exact hashes are in [qa-model.lock.json](qa-model.lock.json). The tree has no separate LICENSE/NOTICE file. It was downloaded separately, never bundled. Semantic QA execution and setup have since been removed; these notices preserve historical provenance. The following table preserves the historical M1 baseline, also retained in [its original lock](docs/tasks/m02/clap-m1-baseline.lock.json).
 
 [laion/clap-htsat-unfused at 8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a](https://huggingface.co/laion/clap-htsat-unfused/tree/8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a) is declared Apache-2.0 by its exact [model card](https://huggingface.co/laion/clap-htsat-unfused/blob/8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a/README.md). The pinned tree has no separate LICENSE or NOTICE file. Authors credited by the card: Yusong Wu, Ke Chen, Tianyu Zhang, Yuchen Hui, Taylor Berg-Kirkpatrick and Shlomo Dubnov; paper: [Large-scale Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation](https://arxiv.org/abs/2211.06687). The paper citation's CC-BY-4.0 metadata is not the model license. CLAP evaluates audio; its license does not grant generation-model or audio-output rights. Apache-2.0 license text is linked at [Apache's authoritative source](https://www.apache.org/licenses/LICENSE-2.0); preserve the license and applicable notices/modification statements if redistributing CLAP.
 

@@ -1,3 +1,5 @@
+> Current workflow: five local variations, deterministic retries and optional ElevenLabs recreation. [README](../readme.md) supersedes the historical behavior below.
+
 # Audio Factory project overview
 
 ## Purpose and delivery approach

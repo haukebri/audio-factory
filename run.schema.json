@@ -18,69 +18,128 @@
   ],
   "properties": {
     "prompt_plan": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "version",
-        "status",
-        "intent",
-        "generation_prompts",
-        "qa_target",
-        "model",
-        "instructions_sha256",
-        "error"
-      ],
-      "properties": {
-        "version": {
-          "const": "prompt-plan-v1"
-        },
-        "status": {
-          "enum": [
-            "completed",
-            "fallback"
-          ]
-        },
-        "intent": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2000,
-          "pattern": "\\S"
-        },
-        "generation_prompts": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 3,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000,
-            "pattern": "\\S"
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "status",
+            "intent",
+            "generation_prompts",
+            "qa_target",
+            "model",
+            "instructions_sha256",
+            "error"
+          ],
+          "properties": {
+            "version": {
+              "const": "prompt-plan-v1"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "fallback"
+              ]
+            },
+            "intent": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "generation_prompts": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": "\\S"
+              }
+            },
+            "qa_target": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "instructions_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2000
+            }
           }
         },
-        "qa_target": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200,
-          "pattern": "\\S"
-        },
-        "model": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "instructions_sha256": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "error": {
-          "type": [
-            "string",
-            "null"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "status",
+            "intent",
+            "generation_prompts",
+            "model",
+            "instructions_sha256",
+            "error"
           ],
-          "maxLength": 2000
+          "properties": {
+            "version": {
+              "const": "prompt-plan-v2"
+            },
+            "status": {
+              "const": "completed"
+            },
+            "intent": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "\\S"
+            },
+            "generation_prompts": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "pattern": "\\S"
+              }
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "instructions_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 2000
+            }
+          }
         }
-      }
+      ]
     },
     "schema": {
       "const": "urban:audio-factory-run@1"
@@ -94,12 +153,21 @@
       "pattern": "^[a-f0-9]{64}$"
     },
     "status": {
-      "enum": ["generating", "completed", "failed", "interrupted"]
+      "enum": [
+        "generating",
+        "completed",
+        "failed",
+        "interrupted"
+      ]
     },
     "request": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["prompt", "duration_seconds", "seed"],
+      "required": [
+        "prompt",
+        "duration_seconds",
+        "seed"
+      ],
       "properties": {
         "prompt": {
           "type": "string",
@@ -110,7 +178,7 @@
         "duration_seconds": {
           "type": "number",
           "minimum": 0.5,
-          "maximum": 30
+          "maximum": 60
         },
         "seed": {
           "type": "integer",
@@ -136,7 +204,14 @@
     "audio": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sample_rate", "channels", "seconds", "peak", "rms", "bytes"],
+      "required": [
+        "sample_rate",
+        "channels",
+        "seconds",
+        "peak",
+        "rms",
+        "bytes"
+      ],
       "properties": {
         "sample_rate": {
           "const": 44100
@@ -147,16 +222,16 @@
         "seconds": {
           "type": "number",
           "minimum": 0.5,
-          "maximum": 30
+          "maximum": 60
         },
         "peak": {
           "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 0.708
+          "maximum": 0.708,
+          "minimum": 0
         },
         "rms": {
           "type": "number",
-          "exclusiveMinimum": 0
+          "minimum": 0
         },
         "bytes": {
           "type": "integer",
@@ -174,12 +249,17 @@
     },
     "models": {
       "type": "array",
-      "minItems": 3,
+      "minItems": 0,
       "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["file", "url", "sha256", "bytes"],
+        "required": [
+          "file",
+          "url",
+          "sha256",
+          "bytes"
+        ],
         "properties": {
           "file": {
             "type": "string",
@@ -202,11 +282,14 @@
     },
     "licenses": {
       "type": "array",
-      "minItems": 2,
+      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "url"],
+        "required": [
+          "name",
+          "url"
+        ],
         "properties": {
           "name": {
             "type": "string"
@@ -219,66 +302,131 @@
       }
     },
     "runtime": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["revision", "backend"],
-      "properties": {
-        "revision": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "backend"
+          ],
+          "properties": {
+            "revision": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "backend": {
+              "enum": [
+                "metal",
+                "mlx"
+              ]
+            },
+            "name": {
+              "const": "sa3.cpp"
+            },
+            "ggml_revision": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "encoding": {
+              "const": "F16"
+            }
+          }
         },
-        "backend": {
-          "enum": ["metal", "mlx"]
-        },
-        "name": {
-          "const": "sa3.cpp"
-        },
-        "ggml_revision": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{40}$"
-        },
-        "encoding": {
-          "const": "F16"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backend",
+            "model"
+          ],
+          "properties": {
+            "backend": {
+              "const": "elevenlabs"
+            },
+            "model": {
+              "const": "eleven_text_to_sound_v2"
+            }
+          }
         }
-      }
+      ]
     },
     "settings": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["steps", "cfg_scale", "duration_padding_sec", "peak_db"],
-      "properties": {
-        "steps": {
-          "type": "integer",
-          "minimum": 1
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "steps",
+            "cfg_scale",
+            "duration_padding_sec",
+            "peak_db"
+          ],
+          "properties": {
+            "steps": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cfg_scale": {
+              "const": 1
+            },
+            "duration_padding_sec": {
+              "enum": [
+                0,
+                6
+              ]
+            },
+            "peak_db": {
+              "type": "number",
+              "minimum": -20,
+              "maximum": -3
+            },
+            "sampler": {
+              "type": "string",
+              "minLength": 1
+            },
+            "decoder": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text_encoder": {
+              "type": "string",
+              "minLength": 1
+            },
+            "postprocess": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         },
-        "cfg_scale": {
-          "const": 1
-        },
-        "duration_padding_sec": {
-          "enum": [0, 6]
-        },
-        "peak_db": {
-          "type": "number",
-          "minimum": -20,
-          "maximum": -3
-        },
-        "sampler": {
-          "type": "string",
-          "minLength": 1
-        },
-        "decoder": {
-          "type": "string",
-          "minLength": 1
-        },
-        "text_encoder": {
-          "type": "string",
-          "minLength": 1
-        },
-        "postprocess": {
-          "type": "string",
-          "minLength": 1
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "peak_db",
+            "prompt_influence",
+            "loop",
+            "postprocess"
+          ],
+          "properties": {
+            "peak_db": {
+              "type": "number",
+              "minimum": -20,
+              "maximum": -3
+            },
+            "prompt_influence": {
+              "const": 0.3
+            },
+            "loop": {
+              "const": false
+            },
+            "postprocess": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
-      }
+      ]
     },
     "review": {
       "type": "string",
@@ -295,7 +443,12 @@
         }
       },
       "then": {
-        "required": ["audio", "audio_sha256", "finished_at", "elapsed_ms"],
+        "required": [
+          "audio",
+          "audio_sha256",
+          "finished_at",
+          "elapsed_ms"
+        ],
         "properties": {
           "audio": true,
           "audio_sha256": true,
@@ -308,7 +461,9 @@
       "if": {
         "properties": {
           "runtime": {
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "properties": {
               "name": {
                 "const": "sa3.cpp"
@@ -321,7 +476,10 @@
       "then": {
         "properties": {
           "runtime": {
-            "required": ["ggml_revision", "encoding"],
+            "required": [
+              "ggml_revision",
+              "encoding"
+            ],
             "type": "object",
             "properties": {
               "ggml_revision": {
@@ -339,9 +497,124 @@
             "type": "array"
           },
           "settings": {
-            "required": ["sampler", "decoder", "text_encoder", "postprocess"],
+            "required": [
+              "sampler",
+              "decoder",
+              "text_encoder",
+              "postprocess"
+            ],
             "type": "object",
             "properties": {
+              "sampler": {
+                "type": "string",
+                "minLength": 1
+              },
+              "decoder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text_encoder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "postprocess": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "runtime": {
+            "type": "object",
+            "required": [
+              "backend"
+            ],
+            "properties": {
+              "backend": {
+                "const": "elevenlabs"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "models": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "peak_db",
+              "prompt_influence",
+              "loop",
+              "postprocess"
+            ],
+            "properties": {
+              "peak_db": {
+                "type": "number",
+                "minimum": -20,
+                "maximum": -3
+              },
+              "prompt_influence": {
+                "const": 0.3
+              },
+              "loop": {
+                "const": false
+              },
+              "postprocess": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "models": {
+            "type": "array",
+            "minItems": 3
+          },
+          "licenses": {
+            "type": "array",
+            "minItems": 2
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "steps",
+              "cfg_scale",
+              "duration_padding_sec",
+              "peak_db"
+            ],
+            "properties": {
+              "steps": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "cfg_scale": {
+                "const": 1
+              },
+              "duration_padding_sec": {
+                "enum": [
+                  0,
+                  6
+                ]
+              },
+              "peak_db": {
+                "type": "number",
+                "minimum": -20,
+                "maximum": -3
+              },
               "sampler": {
                 "type": "string",
                 "minLength": 1
