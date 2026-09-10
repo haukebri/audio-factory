@@ -22,7 +22,7 @@ Review complete: 2026-09-10. Source revision: `c5ad0b28871a7a9c0b55433f2b0b334bb
 | 12 | P2 | [x] | [Remove six obsolete scenarios from the browser acceptance script](12-test-obsolete-browser-scenarios.md) |
 | 13 | P2 | [x] | [Add a current synthetic browser check for the primary review workflow](13-test-current-browser-workflow.md) |
 | 14 | P2 | [x] | [Remove the dry-run test whose oracle permits losing tracked edits](14-test-dry-run-oracle.md) |
-| 15 | P3 | [ ] | [Remove the obsolete live CLAP smoke script](15-test-obsolete-judge-smoke.md) |
+| 15 | P3 | [x] | [Remove the obsolete live CLAP smoke script](15-test-obsolete-judge-smoke.md) |
 | 16 | P3 | [ ] | [Remove assertions that pin editable progress and tool-output prose](16-test-editable-copy-assertions.md) |
 | 17 | P3 | [ ] | [Delete the absent-budget equality left in sound grouping coverage](17-test-absent-budget-assertion.md) |
 | 18 | P3 | [ ] | [Remove the duplicate happy-path fake-Codex smoke entry](18-test-duplicate-runner-smoke.md) |
