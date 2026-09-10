@@ -77,7 +77,7 @@ function navigate(next, push = true) {
   $('more-menu').open = false;
   if (view === 'compare' && selected && !$('comparison-a').childElementCount) { comparisonCard(candidates.find(c => c.candidate_sha256 === selected), $('comparison-a'), 'A'); $('compare-scope').value = recall('compare-scope', 'sound'); comparisonId = recall('comparison', null); comparisonChoices(); }
   if (view !== 'compare') document.querySelectorAll('#compare-view audio').forEach(p => p.pause());
-  if (!['listen', 'create'].includes(view)) document.querySelectorAll('#candidate audio').forEach(p => p.pause());
+  if (!$('workspace').getClientRects().length) $('workspace').querySelectorAll('audio').forEach(p => p.pause());
   remember('view', view);
   if (push) { $('main').focus({ preventScroll: true }); scrollTo(0, 0); }
 }
