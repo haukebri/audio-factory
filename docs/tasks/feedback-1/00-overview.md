@@ -19,7 +19,7 @@ Review complete: 2026-09-10. Source revision: `c5ad0b28871a7a9c0b55433f2b0b334bb
 | 09 | P2 | [x] | [Refresh human decisions independently of candidate audio](09-ux-review-state-refresh.md) |
 | 10 | P2 | [x] | [Pause variation-card playback when leaving the listening view](10-ux-hidden-variation-playback.md) |
 | 11 | P2 | [x] | [Use live operation evidence before restarting quiet task work](11-code-runner-silence-deadline.md) |
-| 12 | P2 | [ ] | [Remove six obsolete scenarios from the browser acceptance script](12-test-obsolete-browser-scenarios.md) |
+| 12 | P2 | [x] | [Remove six obsolete scenarios from the browser acceptance script](12-test-obsolete-browser-scenarios.md) |
 | 13 | P2 | [ ] | [Add a current synthetic browser check for the primary review workflow](13-test-current-browser-workflow.md) |
 | 14 | P2 | [ ] | [Remove the dry-run test whose oracle permits losing tracked edits](14-test-dry-run-oracle.md) |
 | 15 | P3 | [ ] | [Remove the obsolete live CLAP smoke script](15-test-obsolete-judge-smoke.md) |

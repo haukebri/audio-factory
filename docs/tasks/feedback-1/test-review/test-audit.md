@@ -1,6 +1,19 @@
-# Test-suite audit (review only)
+# Test-suite audit (original review and task 12 cleanup)
 
 Reviewed 2026-09-10, source revision `c5ad0b28871a7a9c0b55433f2b0b334bb7a66bef`, initially clean worktree. [Production-first model](project-model.md) was saved before test sources/baseline. No production or test edits were made. Recommendations below are proposals, not an approved cleanup. Findings each have a numbered `*-test-*.md` task in the parent directory.
+
+
+## Task 12 cleanup — 2026-09-10
+
+The owner's request to implement task 12 authorized its exact six-scenario removal plan before edits. Applied and verified: `browser/source`, `browser/injected-states`, `browser/semantic-setup`, `browser/pending-request`, `browser/cancel-request`, and `browser/evaluation`, including their local setup/waits and now-unused `runId`. The terminal success message now lists only retained checks. No replacement assertions or product changes were made. The original inventory and counts below remain the historical review baseline: 21 browser groups reconcile to 6 removed and 15 retained, with no new groups.
+
+All 15 retained groups reached their unchanged assertions in `node scripts/studio-ui-browser-check.mjs` (exit 0): fixture-preflight, identity, polling, single-player, shared-drafts, comparison-reload, history-back, review-export, rejection, trim, disconnect, library, invalid-submission, background-complete and completion-reload. The persisted results contain the 14 named behavior records; fixture root/readiness assertions passed before them. The owned `scripts/studio-ui-fixture.mjs` supplied synthetic PCM and prompt preparation; no model or provider calls occurred.
+
+Verification: `pnpm build` passed. The first `pnpm test:audio-factory` run passed 33/34 Node checks; `elevenlabs.test.mjs:58` failed with `Local compute/backend already owned by a live process` (`failed` versus expected `completed`). Python did not run after that failure. An unchanged full-command rerun after browser fixture shutdown passed all 34 Node checks (including frontend, sound grouping and Studio controlled smoke) and both Python signal checks, with no skips. The initial ownership refusal is preserved, not bypassed; the exact competing owner was not captured, so no definitive contention source is claimed. No test or product changes were made to obtain the rerun pass.
+
+Evidence is preserved under `.test-artifacts/feedback-1-task-12/`: `mutation.txt` and `browser-before.mjs` record the applied batch and pre/post fingerprints; `browser.log`, `studio-ui-browser-results.json`, `fixture.log`, `node-python.log`, `node-python-repeat.log` and `cleanup.txt` record execution. Browser session `af-acceptance` closed, fixture PID 43170 exited, port 63085 closed, owned root `.runtime/studio-ui-8vhCnB` was removed, and pre-existing shared manifests were restored. `git diff --check` passed.
+
+For B9, the retained browser groups now have demonstrated execution rather than inspection-only evidence. This does not fill the B3 lost-response or B4 cancellation browser gaps: their old setup never reached those central operations. Removed partial protection includes source-only presentation and synthetic historical state/setup rendering. Current source-only download, primary five-take winner selection, batch deep links, supported duration/paid-limit UI, and current pending/cancel flows remain outside this passing script; task 13 remains open. Semantic evaluation is intentionally removed, not missing supported coverage. No real-generation/paid smoke or human listening acceptance ran or was required by task 12. Other cleanup proposals and historical findings below are unchanged.
 
 ## Readiness and execution
 
