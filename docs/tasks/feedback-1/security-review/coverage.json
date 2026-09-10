@@ -1,0 +1,64 @@
+{
+  "completeness": "complete",
+  "deferred": [],
+  "documentType": "codex-security.coverage",
+  "excludePaths": [],
+  "explicitExclusions": [
+    {
+      "pattern": ".runtime/, node_modules/, dist/, out/",
+      "reason": "Ignored external/generated runtime and user data; first-party source and dependency declarations reviewed."
+    }
+  ],
+  "includePaths": [
+    "."
+  ],
+  "inventoryStrategy": "repository",
+  "mode": "repository",
+  "openQuestions": [],
+  "scanId": "cf311957-1805-4bd3-9262-23521318a1a6",
+  "schemaVersion": "1.0",
+  "surfaces": [
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_local-http-identity-browser-origin-and-dom-rendering",
+      "label": "Local HTTP identity, browser origin and DOM rendering",
+      "notes": "Studio exact Host/Origin/Sec-Fetch-Site, bootstrap custom header, strict session/CSRF and CSP inspected; compute bearer gate and Origin refusal universal. Dynamic UI uses textContent. Source: studio.mjs:26-58,152; src/service.ts:174-177; studio.js:28-32. Existing security tests independently inspected (studio.test.mjs, service.test.mjs).",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_artifact-paths-lineage-human-feedback-and-exports",
+      "label": "Artifact paths, lineage, human feedback and exports",
+      "notes": "Constrained identifiers/source filenames, schema/hash verification, NOFOLLOW final-file reads, append-only conflict checks; no caller-selected arbitrary HTTP filesystem root. Sources: review-store.mjs; export-lineage.mjs; retain.mjs; bundle.mjs; export.schema.json; run.schema.json; qa-report.schema.json. Local filesystem edits by same account are not a new attacker boundary.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_generation-prompt-parsing-qa-and-setup-process-execution",
+      "label": "Generation, prompt parsing, QA and setup process execution",
+      "notes": "Reviewed all src/*.ts, workflow.mjs, batches.mjs, prompt-plan.mjs, qa.py, setup.mjs, download_models.py and run. User/model text remains bounded data; subprocesses use argv; pinned model/binary checks and process identity checks present. Backend work paths use installed factory root even when workflow root is isolated; this is correctness/concurrency behavior, not established hostile authority gain.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_paid-provider-key-and-uncertain-submission-recovery",
+      "label": "Paid provider key and uncertain submission recovery",
+      "notes": "ELEVEN_KEY reference only, env precedence and fixed HTTPS endpoint; 0600 exclusive submitting receipt precedes paid POST; response receipt gates restart reuse; no automatic second POST. Sources: src/elevenlabs.ts:11-25,53-65; workflow.mjs; elevenlabs.test.mjs. Empty committed env templates inspected without exposing values.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_developer-runner-tests-fixtures-release-and-dependencies",
+      "label": "Developer runner, tests, fixtures, release and dependencies",
+      "notes": "scripts/run_codex_tasks.py executes operator-selected tasks with explicitly broad Codex privileges; no source-established untrusted remote task intake. Tests/fixture scripts independently read by test reviewer: all 12 root *.test.mjs, qa_test.py, scripts/test_run_codex_tasks.py, scripts/studio-ui-browser-check.mjs, scripts/studio-ui-fixture.mjs; coordinator reviewed smoke.mjs, judge-smoke.mjs, sound-cases.mjs, wav-fixture.mjs, schemas, lockfiles and startup declarations. Historical plans/docs consulted as context, not executable entrypoints. No network CVE lookup or downloaded dependency/native implementation audit claimed.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_independent-local-boundary-baseline",
+      "label": "Independent local boundary baseline",
+      "notes": "Independent parent reviewed product core; no confirmed vulnerabilities. Exact Host/Origin/CSRF, bearer compute API, schema and hash constrained artifact paths, argv subprocesses, exclusive paid request receipts. Remaining source audit ongoing.",
+      "receiptRefs": []
+    }
+  ]
+}

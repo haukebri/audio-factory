@@ -1,0 +1,26 @@
+control: exit 0
+Would checkpoint dirty worktree:
+  tracked.txt
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.266s
+
+OK
+
+fault: exit 0
+Would checkpoint dirty worktree:
+  tracked.txt
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.304s
+
+OK
+
+restored: exit 0
+Would checkpoint dirty worktree:
+  tracked.txt
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.276s
+
+OK

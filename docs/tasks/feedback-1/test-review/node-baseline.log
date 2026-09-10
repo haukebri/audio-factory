@@ -1,0 +1,189 @@
+TAP version 13
+# Subtest: Medium subprocess uses exact components/settings, rejects fallback, and reaps cancellation/timeout
+ok 1 - Medium subprocess uses exact components/settings, rejects fallback, and reaps cancellation/timeout
+  ---
+  duration_ms: 3369.596792
+  type: 'test'
+  ...
+# Subtest: pinned downloads resume partials, reuse complete bytes and preserve mismatches
+ok 2 - pinned downloads resume partials, reuse complete bytes and preserve mismatches
+  ---
+  duration_ms: 2195.922375
+  type: 'test'
+  ...
+# Subtest: agent submits once, reviews exact winners, edits and recreates in the same sound, then collects immutable files
+ok 3 - agent submits once, reviews exact winners, edits and recreates in the same sound, then collects immutable files
+  ---
+  duration_ms: 47756.251625
+  type: 'test'
+  ...
+# Subtest: hard restart blocks uncertain work without replay; acknowledgement releases remaining queue
+ok 4 - hard restart blocks uncertain work without replay; acknowledgement releases remaining queue
+  ---
+  duration_ms: 1370.035584
+  type: 'test'
+  ...
+# Subtest: ElevenLabs preserves prompts, returns compatible audio and never repeats uncertain paid requests
+ok 5 - ElevenLabs preserves prompts, returns compatible audio and never repeats uncertain paid requests
+  ---
+  duration_ms: 832.139166
+  type: 'test'
+  ...
+# Subtest: studio delivers an normalized ElevenLabs take, exports provenance and reattaches without generation
+ok 6 - studio delivers an normalized ElevenLabs take, exports provenance and reattaches without generation
+  ---
+  duration_ms: 8434.776958
+  type: 'test'
+  ...
+# Subtest: one local request yields validated prompts; invalid, unavailable and canceled requests are bounded
+ok 7 - one local request yields validated prompts; invalid, unavailable and canceled requests are bounded
+  ---
+  duration_ms: 140.596125
+  type: 'test'
+  ...
+# Subtest: interrupted preparation is saved before calling the model and never replayed on recovery
+ok 8 - interrupted preparation is saved before calling the model and never replayed on recovery
+  ---
+  duration_ms: 346.995542
+  type: 'test'
+  ...
+# Subtest: local duration supports 60 seconds while cloud rejects before submission
+ok 9 - local duration supports 60 seconds while cloud rejects before submission
+  ---
+  duration_ms: 10.459333
+  type: 'test'
+  ...
+# QA fixture: /Users/haukebrinkmann/Projects/audio-factory//.runtime/qa-test-1l4KsB
+# Removed QA fixture: /Users/haukebrinkmann/Projects/audio-factory//.runtime/qa-test-1l4KsB
+# Subtest: QA preserves source bytes and exports bounded, repeatable derivatives
+ok 10 - QA preserves source bytes and exports bounded, repeatable derivatives
+  ---
+  duration_ms: 15583.960375
+  type: 'test'
+  ...
+# Offline fixture: /Users/haukebrinkmann/Projects/audio-factory//.runtime/offline-test-CUQILY
+# Verified relocated bundle: /Users/haukebrinkmann/Projects/audio-factory/.runtime/offline-test-CUQILY/other-project/63ac4705326a482ce2ae5b950f52f129.wav; source=394ad80a8e61c338977acf4cd6d5cb0c3790592a6bdc3c578f6218b6683eb063; prepared=56748d88353a7da699de793ad4ee18cf4412fcab53996cd3f6bf34dd377712a4
+# Removed offline fixture: /Users/haukebrinkmann/Projects/audio-factory//.runtime/offline-test-CUQILY
+# Subtest: offline CLI retains a verifiable bundle after the temporary run is removed
+ok 11 - offline CLI retains a verifiable bundle after the temporary run is removed
+  ---
+  duration_ms: 12227.256459
+  type: 'test'
+  ...
+# Subtest: QA retries preserve evidence, refresh bundles and renew the idle deadline
+ok 12 - QA retries preserve evidence, refresh bundles and renew the idle deadline
+  ---
+  duration_ms: 5818.305333
+  type: 'test'
+  ...
+# Subtest: five variations retain failures, cap retries, export exact selections, and recreate once with the selected prompt
+ok 13 - five variations retain failures, cap retries, export exact selections, and recreate once with the selected prompt
+  ---
+  duration_ms: 27692.1935
+  type: 'test'
+  ...
+# Subtest: only signal failures retry; operational errors and cancellation stop remaining work
+ok 14 - only signal failures retry; operational errors and cancellation stop remaining work
+  ---
+  duration_ms: 419.745667
+  type: 'test'
+  ...
+# Subtest: hard restart reuses published source and cut without replaying generation or planning
+ok 15 - hard restart reuses published source and cut without replaying generation or planning
+  ---
+  duration_ms: 16286.180291
+  type: 'test'
+  ...
+# Created owned fixture: /Users/haukebrinkmann/Projects/audio-factory/.runtime/review-store-test-2NGogT
+# Verified hashes: source=f5af57e6de9a850a1a8e46feace23bed6dcb67e4255931e9124298a1a220a719 audio=7c9a62d127d08b21ac595be0b461a70a2e76cdbd1bed61ba098f455b95fe401d candidate=ea610374179c0f7cd63d202133dff49720d4d69832d5fafe712edde202ad3446 original_bundle=d282938ba2635a07e3bf12271c074744a565a423b79bbee597730a9b16fcb574
+# Deleted only owned fixture out: /Users/haukebrinkmann/Projects/audio-factory/.runtime/review-store-test-2NGogT/out; relocated store: /Users/haukebrinkmann/Projects/audio-factory/.runtime/review-store-test-2NGogT/relocated
+# Removed owned fixture and child processes exited: /Users/haukebrinkmann/Projects/audio-factory/.runtime/review-store-test-2NGogT
+# Subtest: durable candidate and immutable human review lifecycle (model-free smoke)
+ok 16 - durable candidate and immutable human review lifecycle (model-free smoke)
+  ---
+  duration_ms: 7995.787792
+  type: 'test'
+  ...
+# Service fixture: /var/folders/0s/9gw5k0fx0fj6r_dnq7wnttj00000gn/T/audio-factory-lFZNWI
+# Removed fixture: /var/folders/0s/9gw5k0fx0fj6r_dnq7wnttj00000gn/T/audio-factory-lFZNWI
+# Subtest: WAV generation preserves idempotency, failures, disconnects and restart evidence
+ok 17 - WAV generation preserves idempotency, failures, disconnects and restart evidence
+  ---
+  duration_ms: 1747.660458
+  type: 'test'
+  ...
+# Subtest: orphan recovery verifies process identity before sending any signal
+ok 18 - orphan recovery verifies process identity before sending any signal
+  ---
+  duration_ms: 476.352625
+  type: 'test'
+  ...
+# Removed fixture: /var/folders/0s/9gw5k0fx0fj6r_dnq7wnttj00000gn/T/audio-factory-session-9LAgf0
+# Subtest: a new owned session clears only disposable output and idle sessions stop
+ok 19 - a new owned session clears only disposable output and idle sessions stop
+  ---
+  duration_ms: 1189.301417
+  type: 'test'
+  ...
+# Startup fixture: /var/folders/0s/9gw5k0fx0fj6r_dnq7wnttj00000gn/T/audio-factory-startup-yXSW1X
+# Removed startup fixture: /var/folders/0s/9gw5k0fx0fj6r_dnq7wnttj00000gn/T/audio-factory-startup-yXSW1X
+# Subtest: CLI port contention and failed local setup preserve the prior session and unrelated owner
+ok 20 - CLI port contention and failed local setup preserve the prior session and unrelated owner
+  ---
+  duration_ms: 4543.71525
+  type: 'test'
+  ...
+# Subtest: user actions wait for background work instead of disappearing
+ok 21 - user actions wait for background work instead of disappearing
+  ---
+  duration_ms: 49.750959
+  type: 'test'
+  ...
+# Subtest: generation feedback follows submission, running stages and terminal outcomes
+ok 22 - generation feedback follows submission, running stages and terminal outcomes
+  ---
+  duration_ms: 5.062125
+  type: 'test'
+  ...
+# Subtest: presentation groups snapshots and trims by generation, uses durable lineage and exact preferred versions
+ok 23 - presentation groups snapshots and trims by generation, uses durable lineage and exact preferred versions
+  ---
+  duration_ms: 54.256584
+  type: 'test'
+  ...
+# Subtest: fresh takes persist sound membership and independent batches while retries remain idempotent
+ok 24 - fresh takes persist sound membership and independent batches while retries remain idempotent
+  ---
+  duration_ms: 449.633416
+  type: 'test'
+  ...
+# Subtest: resume conflicts preserve interruption and retries attach to one replacement
+ok 25 - resume conflicts preserve interruption and retries attach to one replacement
+  ---
+  duration_ms: 344.124292
+  type: 'test'
+  ...
+# Created isolated studio root /Users/haukebrinkmann/Projects/audio-factory/.runtime/studio-test-2NKu3Z
+# Owned synthetic generation 1: pid=57029, seed=42, source=f5af57e6de9a850a1a8e46feace23bed6dcb67e4255931e9124298a1a220a719
+# Verified exported candidate 3ac4a0b2e81ea28f3feb525b3027120d89e0965ae466c70f179c218df98b16fa; tar SHA-256=5758f0c71aa57693c90c2ad84b3d803b73e50952d6195626227985ddee4b9d4a
+# Owned synthetic generation 2: pid=57383, seed=42, source=f5af57e6de9a850a1a8e46feace23bed6dcb67e4255931e9124298a1a220a719
+# Owned synthetic generation 3: pid=57415, seed=42, source=f5af57e6de9a850a1a8e46feace23bed6dcb67e4255931e9124298a1a220a719
+# Owned synthetic generation 4: pid=57703, seed=42, source=f5af57e6de9a850a1a8e46feace23bed6dcb67e4255931e9124298a1a220a719
+# Preparing local audio factory; progress: .runtime/setup.log
+# Bounded setup SIGTERM→SIGKILL cleanup verified: pid=57766
+# Removed owned studio root and all controlled children: /Users/haukebrinkmann/Projects/audio-factory/.runtime/studio-test-2NKu3Z
+# Subtest: studio shared workflow, auth, playback/export, cancellation and durable recovery (controlled smoke)
+ok 26 - studio shared workflow, auth, playback/export, cancellation and durable recovery (controlled smoke)
+  ---
+  duration_ms: 20137.133416
+  type: 'test'
+  ...
+1..26
+# tests 26
+# suites 0
+# pass 26
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53131.583709

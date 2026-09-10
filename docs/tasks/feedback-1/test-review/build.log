@@ -1,0 +1,4 @@
+
+> audio-factory@ build /Users/haukebrinkmann/Projects/audio-factory
+> tsc -p tsconfig.json
+

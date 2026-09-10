@@ -1,0 +1,702 @@
+[
+  {
+    "id": "backend/medium",
+    "location": "backend.test.mjs:11",
+    "behavior": "B1,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real child invocation records independent required flags/env; CPU fallback rejected; cancel, timeout and spawn failure exercised; actual PID disappearance asserted. This uniquely protects subprocess adapter wiring, not model quality.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "backend/download",
+    "location": "backend.test.mjs:75",
+    "behavior": "B1",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real downloader with stub curl verifies continuation offset, exact bytes, one download across rerun, final and partial mismatches preserved. No real network.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "batches/winners",
+    "location": "batches.test.mjs:20",
+    "behavior": "B8,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real HTTP/persistence/QA with generated WAV fixture verifies duplicate requests, pause across restart, selected hashes, revisions, paid operation membership and immutable old URLs. Unique multi-sound orchestration coverage.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "batches/crash",
+    "location": "batches.test.mjs:70",
+    "behavior": "B8,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Independent process exits 23 after accepted work; restart call counter stays zero until acknowledge; remaining queue proceeds. Tests queue control, not backend semantics.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "elevenlabs/adapter",
+    "location": "elevenlabs.test.mjs:11",
+    "behavior": "B5",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Injected HTTP checks literal prompt, request args and credential header; real FFmpeg; exact reattached bytes and one POST; uncertain failure remains one POST after reset; receipt excludes key. Does not verify live provider behavior or endpoint host beyond current URL query.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "elevenlabs/studio",
+    "location": "elevenlabs.test.mjs:47",
+    "behavior": "B5,B6,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual provider adapter/FFmpeg/workflow with fake HTTP yields normalized WAV, provenance export, retained bytes and reopened job without a second POST. Distinct integration beyond adapter-only check.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "prompt/validation",
+    "location": "prompt-plan.test.mjs:8",
+    "behavior": "B3",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real parser and request constructor; independent four-prompt fixture plus preserved original, invalid output/schema/prefix, HTTP error, real bounded abort signals. Fenced output tests parser acceptance; does not establish semantic fidelity of model rewrites.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "prompt/interrupted",
+    "location": "prompt-plan.test.mjs:41",
+    "behavior": "B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Reads actual pre-model checkpoint, restores it as a crash would, reopens jobs and confirms no planner/generator replay plus specific error. Distinct planning boundary.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "prompt/durations",
+    "location": "prompt-plan.test.mjs:73",
+    "behavior": "B2,B5",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real workflow validation accepts local 60, rejects cloud 60 and local 61 before execution; direct provider rejection separately covers bypassing this caller.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "qa/derivatives",
+    "location": "qa.test.mjs:11",
+    "behavior": "B6",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "HTTP plus real Python/FFmpeg checks known synthetic active intervals, peak targets, exact frame bounds and boundary PCM fade samples, repeat bytes, unchanged source and authentication. Independent numeric outcomes.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "qa/offline",
+    "location": "qa.test.mjs:104",
+    "behavior": "B6,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real CLI subprocess and relocated bundle: original bytes preserved, mutations/missing source and lineage rejected, source silence fails explicitly, live-service offline mutations blocked. Distinct portable/offline boundary.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "qa/recovery",
+    "location": "qa.test.mjs:223",
+    "behavior": "B4,B6",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Controlled FFmpeg absence leaves failed evidence; retry archives exact failed bytes/partial output; analysis refresh preserves old bundle; interrupted attempt archived; simulated clock checks idle renewal. Failure injection reaches actual QA subject.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "quality/five-takes",
+    "location": "quality-loop.test.mjs:29",
+    "behavior": "B3,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Known silence then tone produces exact [3,2,1,1,1] attempts and outgoing prompts, unique seeds; saved exact trim selection/stale predecessor/export history; recreation keeps actual prompt once. Fake backend does not claim paid provider correctness.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "quality/stop",
+    "location": "quality-loop.test.mjs:70",
+    "behavior": "B3,B4,B5",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Four explicit risk partitions: local static retries 15, paid static once, operational error once, canceled attempt once; real scheduler and abort with expected terminal outcomes.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "quality/recover",
+    "location": "quality-loop.test.mjs:88",
+    "behavior": "B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Hard exits at published source and cut, reopens real store, fails if planner replays and verifies only remaining four generations. Two distinct crash checkpoints share same oracle.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "review-store/lifecycle",
+    "location": "review-store.test.mjs:15",
+    "behavior": "B7,B11",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Independent WAV/evidence fixtures exercise immutable retries/conflicts, concurrent writers (one succeeds), invalid trust inputs, publication crash retaining partials, byte corruption/symlink rejection, relocation/history. Legacy review/evaluation metadata checks protect compatibility; evaluationData eligibility has old explicit API contract, current external usage is absent (do not infer obsolete permission from that alone).",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "service/lifecycle",
+    "location": "service.test.mjs:9",
+    "behavior": "B2,B3,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Controlled generator release validates actual auth/body/range contracts, contention/conflict, saved bytes, lost-response replay count, drain on close and interrupted restart. Distinct manual service lifecycle beneath Studio.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "service/owner",
+    "location": "service.test.mjs:129",
+    "behavior": "B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real child stays alive for wrong identity, is stopped for matching identity; actual process identity absent afterward. Protects unrelated processes.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "service/session",
+    "location": "service.test.mjs:151",
+    "behavior": "B1,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real disposable output removed only once listening; retained/cache sentinels survive; idle callback closes server. Purposeful 1.1s timer observation is not evidence of historical flakiness.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "service/startup",
+    "location": "service.test.mjs:199",
+    "behavior": "B1,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Isolated CLI fails at occupied port and missing setup while old output/cache/retained bytes and unrelated live listener survive; real PID and response checks.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "studio/resume",
+    "location": "studio.test.mjs:78",
+    "behavior": "B3,B4",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual job storage checks occupied replacement conflict does not mark resume, new work blocked, reopen replacement same ID, duplicate replacement denied and exact execution count.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "studio/integration",
+    "location": "studio.test.mjs:107",
+    "behavior": "B2,B4,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real Studio/session/CSRF/traversal/range/export, controlled generation children, cancel and orphan rescue, hard crash/reopen after relocation and stubborn setup-process reap. Export lineage and preserved feedback checked. No browser DOM XSS assertion; HTTP success is not a UI test.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "frontend/action",
+    "location": "studio-frontend.test.mjs:8",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Executes actual action helper extracted into VM: queued user callback runs after held background action. Unique queue behavior; source slicing couples helper boundaries but no observed repeated brittleness.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "frontend/progress",
+    "location": "studio-frontend.test.mjs:22",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "mixed",
+    "action": "remove assertions",
+    "evidence": "Real renderer over minimal DOM records correctly disables/re-enables generation, progress and spinner visibility. Seven exact prose/elapsed-format assertions at lines 32,34,35,38,41,45,47 pin editable wording/punctuation; delete those assertions, preserve state checks. Stage-message coverage becomes explicitly absent.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "frontend/grouping",
+    "location": "studio-frontend.test.mjs:53",
+    "behavior": "B9,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real groupTakes with independent source/analysis/trim/independent-run fixtures verifies versions, exact preferred candidate, durable sound membership and orphan fallback. Distinct presentation transformation.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "sound-grouping/persistence",
+    "location": "studio-sound-grouping.test.mjs:8",
+    "behavior": "B3,B7",
+    "scope": "core",
+    "quality": "mixed",
+    "action": "remove assertions",
+    "evidence": "Actual persisted jobs/reopen verify linked membership, stable keys/conflicts and explicit seeds. Line 28 compares absent budget to absent budget after budgets were removed; delete this assertion (and obsolete fixture-only budget_started_at assignment at 16). Surviving membership persistence is distinct from UI grouping.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "standalone/install",
+    "location": "standalone-core.test.mjs:21",
+    "behavior": "B1",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Isolated copied project installs/builds and checks self-contained runtime paths/unchanged lockfile. Legit packaging boundary, not a constant echo. Inspected; not executed because skill forbids dependency installation during analysis.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "standalone/imports",
+    "location": "standalone-core.test.mjs:42",
+    "behavior": "B1,B2",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Permission-restricted imports and real schema loader validate independent valid/invalid inputs with no runtime side effect. Imported symbol assertions accompany useful isolation checks.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "standalone/bootstrap",
+    "location": "standalone-core.test.mjs:59",
+    "behavior": "B1",
+    "scope": "core",
+    "quality": "mixed",
+    "action": "remove assertions",
+    "evidence": "First-use launcher from another cwd creates local build/token only and retains lockfile. Remove exact pnpm prose match at 64; actual build/status/local-files checks earn retention.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "standalone/invalid-request",
+    "location": "standalone-core.test.mjs:71",
+    "behavior": "B1,B2",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Both missing-file and schema-invalid make paths must fail before setup/session output mutation; sentinel byte checks independent.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "standalone/invalid-command",
+    "location": "standalone-core.test.mjs:86",
+    "behavior": "B1",
+    "scope": "core",
+    "quality": "mixed",
+    "action": "remove assertions",
+    "evidence": "Invalid and removed commands fail with no output setup or permission error. Remove exact usage lead-in at 90; preserve status, rejected import and no-side-effect checks.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/fixture-preflight",
+    "location": "scripts/studio-ui-browser-check.mjs:6",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Fixture-root guard and readiness fixture value protect execution against an unintended live workspace; setup boundary, not a product test.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/identity",
+    "location": "scripts/studio-ui-browser-check.mjs:15",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real loaded candidates distinguish separate generation/seed identities even for identical audio. Different from pure VM grouping.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/polling",
+    "location": "scripts/studio-ui-browser-check.mjs:18",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual DOM player identity, note focus and draft trim preserved after refresh/blind change.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/single-player",
+    "location": "scripts/studio-ui-browser-check.mjs:20",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real media elements: starting B pauses A; unique browser media integration.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/shared-drafts",
+    "location": "scripts/studio-ui-browser-check.mjs:23",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual note/blind inputs survive navigation between listen/compare.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/comparison-reload",
+    "location": "scripts/studio-ui-browser-check.mjs:25",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Reload restores exact comparison candidate; A/B labels identify comparison slots.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/history-back",
+    "location": "scripts/studio-ui-browser-check.mjs:28",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Browser back restores candidate, scroll and note; exact numbers are saved-state contract.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/review-export",
+    "location": "scripts/studio-ui-browser-check.mjs:30",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual approval action updates human state and serves export; archive correctness separately covered HTTP tests, this protects UI wiring.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/rejection",
+    "location": "scripts/studio-ui-browser-check.mjs:32",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual reject action persists human state without increasing jobs; prevents accidental regeneration.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/trim",
+    "location": "scripts/studio-ui-browser-check.mjs:34",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual trim form preserves generation count/membership and starts new version unreviewed.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/source",
+    "location": "scripts/studio-ui-browser-check.mjs:36",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Lines 36\u201337 require no Download for source-only candidate and Original only wording; studio.js:128 now always provides Download. Obsolete source-only product expectation.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/injected-states",
+    "location": "scripts/studio-ui-browser-check.mjs:38",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Lines 38\u201339 manufacture old budget/exhausted top-level state and demand 20 minutes recovery; semantic budgets removed, current exhausted outcome is completed. Current renderer state checks retained in frontend test.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/semantic-setup",
+    "location": "scripts/studio-ui-browser-check.mjs:40",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Lines 40\u201341 inject removed judge readiness and dereference removed local-setup/cancel-local DOM IDs. Not a supported readiness path.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/disconnect",
+    "location": "scripts/studio-ui-browser-check.mjs:42",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Temporary fetch failure exercises actual refresh/action/reconnect without replacing player. Fault injection models a real network boundary.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/library",
+    "location": "scripts/studio-ui-browser-check.mjs:44",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real filter rendering and 30-long-caption overflow/empty cases; DOM injected data intentionally tests rendering, not API persistence.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/invalid-submission",
+    "location": "scripts/studio-ui-browser-check.mjs:46",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real invalid submit rejects, displays error and clears locally persisted pending key; not a vacuous negative.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/pending-request",
+    "location": "scripts/studio-ui-browser-check.mjs:47",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Lines 47\u201352 assign duration=1 to select that only offers 5/10/20/30/60, so submission never reaches expected lost-response pending state. Remove obsolete scenario; lost-response browser recovery remains a gap.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/cancel-request",
+    "location": "scripts/studio-ui-browser-check.mjs:54",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Lines 54\u201355 submit removed budget field; workflowInput rejects before accepted cancellation exists. Remove obsolete scenario; browser cancellation wiring remains a gap.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "browser/background-complete",
+    "location": "scripts/studio-ui-browser-check.mjs:57",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual background completion preserves library/search focus and signals new candidate; backend fake still exercises browser integration.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/completion-reload",
+    "location": "scripts/studio-ui-browser-check.mjs:60",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Reload preserves unobtrusive ready notification and view; distinct persisted browser state.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "browser/evaluation",
+    "location": "scripts/studio-ui-browser-check.mjs:62",
+    "behavior": "B9",
+    "scope": "core",
+    "quality": "bad",
+    "action": "remove scenario",
+    "evidence": "Line 62 requires semantic evaluation export HTTP 200; studio.mjs explicitly returns 410 and README removes evaluation tools. Obsolete central outcome.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "smoke/preflight",
+    "location": "smoke.mjs:13",
+    "behavior": "B1",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real required key/model readiness before expensive smoke; operational safety gate, no claim of sound correctness. Inspected only; expensive generation/paid submission not run.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "smoke/local-paid",
+    "location": "smoke.mjs:21",
+    "behavior": "B3,B5",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real five local variants and single explicit recreation with selected actual prompt; independent expected count and successful job states, durable keys reuse results. Inspected only; expensive generation/paid submission not run.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "smoke/delivery",
+    "location": "smoke.mjs:27",
+    "behavior": "B6,B7",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Loads actual candidate assets, verifies lineage and expected -3dB peak, records unreviewed listening status; distinct real-backend boundary beyond synthetic tests. Inspected only; expensive generation/paid submission not run.",
+    "confidence": "moderate (inspected, unrun)"
+  },
+  {
+    "id": "judge-smoke",
+    "location": "judge-smoke.mjs:1",
+    "behavior": "B11",
+    "scope": "incidental",
+    "quality": "bad",
+    "action": "remove test",
+    "evidence": "Whole obsolete real-CLAP script requires candidate.evaluation.model/evidence at 25\u201332; current runWorkflow returns evaluation:null and CLAP execution is explicitly removed. It can invoke local planner before failing. Remove script; legacy stored metadata compatibility remains covered by review-store/lifecycle, not new CLAP execution.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/DiscoveryTests.test_discovers_numeric_order_and_skips_completed",
+    "location": "scripts/test_run_codex_tasks.py:197",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Independent files prove actual numeric discovery and authoritative completed flags; stable task format.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/DiscoveryTests.test_task_status_is_authoritative_when_overview_is_stale",
+    "location": "scripts/test_run_codex_tasks.py:207",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Conflicting overview/task fixture proves parser uses task authority. Does not cover active implementation-before-review checkpoint; root reproduction demonstrates that separate missing gate.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/ResultAndRenderingTests.test_reviewer_can_edit_and_run_local_checks",
+    "location": "scripts/test_run_codex_tasks.py:216",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real review command constructor passed to captured subprocess boundary; explicit review permission flag is the contract, not mocked-subject success.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/ResultAndRenderingTests.test_extracts_only_complete_structured_status_messages",
+    "location": "scripts/test_run_codex_tasks.py:234",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real event parser independently distinguishes complete structured result and ordinary message; supports runner activity reporting without mistaking prose for completion.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/ResultAndRenderingTests.test_rejects_unexpected_structured_status",
+    "location": "scripts/test_run_codex_tasks.py:245",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real result file with disallowed status raises specific RunnerError type. Minimal file isolates validation path; no competing missing-file or parse failure.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/GitRecoveryTests.test_dry_run_reports_but_does_not_commit_dirty_tree",
+    "location": "scripts/test_run_codex_tasks.py:254",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "bad",
+    "action": "remove test",
+    "evidence": "Central no-mutation dry-run expectation uses only dirty-tree and commit-count surrogates. Isolated fault overwrote tracked.txt with DATA LOST and test still passed; control/fault/restored all exit 0. Remove test and record dry-run byte-preservation gap (partial no-commit detection is lost).",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/FailureTests.test_reviewer_can_fix_critical_findings_before_approval",
+    "location": "scripts/test_run_codex_tasks.py:268",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Fake implementation/review writes actual temporary repo; real run_task commits reviewer change and accepts approved result containing fixed findings. File bytes and final commit checked; distinct runner orchestration, not model correctness.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/EndToEndFakeCodexTests.test_reviewed_task_is_committed_and_runner_advances",
+    "location": "scripts/test_run_codex_tasks.py:304",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Separate fake executable, real runner/stream/schema/Git commit; process exit, observed review result and final commit/clean state. Keep as least-cost canonical survivor of duplicate smoke() flow.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/smoke()",
+    "location": "scripts/test_run_codex_tasks.py:98",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "bad",
+    "action": "remove test",
+    "evidence": "Duplicates EndToEndFakeCodexTests with same one-task fake subprocess/repo. Extra count/status checks overlap commit_task enforced task-status and Git change checks; remove standalone --smoke function/dispatch. Loses direct total-commit count assertion, not distinct workflow.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/recovery_smoke()",
+    "location": "scripts/test_run_codex_tasks.py:126",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Real fake-Codex subprocess fails first review; expected ordered recovery+task commits and complete/clean state demonstrate retry path distinct from happy flow. Does not prove partial bytes survive.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "runner/resume_smoke()",
+    "location": "scripts/test_run_codex_tasks.py:157",
+    "behavior": "B10",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Preexisting checkpoint commit and partial file; real process must preserve ancestry, use attempt-2 review log and clear active state. Distinct restart entry; fake reviewer does not inspect recovered patch contents.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "signal/regions-rhythm",
+    "location": "qa_test.py:10",
+    "behavior": "B6",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Independent anti-phase stereo event and silence plus periodic/steady tone counterexamples exercise actual signal analysis; protects channel cancellation and rhythmic warning discrimination.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "signal/static",
+    "location": "qa_test.py:30",
+    "behavior": "B6",
+    "scope": "core",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Seeded broadband, silence, colored and modulated noise test positive and false-positive partitions for actual static heuristic. Does not prove semantic sound quality.",
+    "confidence": "high (source or execution evidence)"
+  },
+  {
+    "id": "signal/removed-clap",
+    "location": "qa_test.py:41",
+    "behavior": "B11",
+    "scope": "supporting",
+    "quality": "good",
+    "action": "keep",
+    "evidence": "Actual WAV/analyze rejects removed semantic request while same valid input remains signal-readable; distinct Python entry from TS migration validation.",
+    "confidence": "high (source or execution evidence)"
+  }
+]
