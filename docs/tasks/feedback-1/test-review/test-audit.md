@@ -31,6 +31,12 @@ Build passed; frontend and standalone bootstrap passed. Two canonical concurrent
 
 [Task 16](../16-test-editable-copy-assertions.md) records full limits and evidence under `.test-artifacts/feedback-1-task-16/`. Logged fixture roots and temporary diagnostic copies were removed; diff whitespace check passed. No browser/visual, live model, paid or human listening acceptance claimed or required.
 
+## Task 17 cleanup — 2026-09-10
+
+The owner's task 17 request approved its two exact deletions in `studio-sound-grouping.test.mjs`: absent-budget equality and unused `budget_started_at` fixture assignment. The single persistence case and all other lines survive unchanged; no meaningful protection is lost, and budget rejection remains in quality-loop migration coverage. Historical inventory counts remain unchanged.
+
+Targeted Node check passed (1/1), build passed, and isolated fixture cleanup and exact deletion were verified. Canonical concurrent execution passed 33/34 Node cases, failing the unchanged `qa.test.mjs:40` trim check (500 versus 400), as already recorded for task 16; its Python step did not run. The complete Node list passed serially (34/34), and both Python signal cases passed separately. Concurrent failure cause remains unconfirmed. Evidence: `.test-artifacts/feedback-1-task-17/`; full details in [task 17](../17-test-absent-budget-assertion.md). No browser, live/paid smoke or owner listening acceptance was required or run. Other proposals remain outside scope.
+
 ## Readiness and execution
 
 Existing Node/pnpm/TypeScript, Python signal environment, FFmpeg, Git, ps and lsof were available. Controlled subprocesses and temporary repos only; no model inference, Ollama request, paid API generation, dependency installation or real Codex task-runner session.

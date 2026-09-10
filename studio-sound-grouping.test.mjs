@@ -13,7 +13,6 @@ test('fresh takes persist sound membership and independent batches while retries
     const saved = JSON.parse(await readFile(join(root, '.runtime/studio/jobs', job.id + '.json'), 'utf8'));
     assert.equal(saved.input.request.seed, job.input.request.seed);
     assert.equal(saved.sound_id, job.sound_id);
-    job.budget_started_at ??= new Date().toISOString();
     return { outcome: 'needs_review' };
   } };
   let jobs = await openJobs(options);
@@ -25,7 +24,6 @@ test('fresh takes persist sound membership and independent batches while retries
     assert.equal(second.sound_id, first.id);
     assert.equal(second.parent_id, undefined);
     assert.equal(second.attempt, 1);
-    assert.deepEqual(second.input.budget, input.budget);
     assert.notEqual(second.input.request.seed, first.input.request.seed);
     assert.equal((await jobs.submit('second', linked)).id, second.id);
     assert.equal(calls, 2);
