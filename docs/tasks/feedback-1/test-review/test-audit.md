@@ -37,6 +37,14 @@ The owner's task 17 request approved its two exact deletions in `studio-sound-gr
 
 Targeted Node check passed (1/1), build passed, and isolated fixture cleanup and exact deletion were verified. Canonical concurrent execution passed 33/34 Node cases, failing the unchanged `qa.test.mjs:40` trim check (500 versus 400), as already recorded for task 16; its Python step did not run. The complete Node list passed serially (34/34), and both Python signal cases passed separately. Concurrent failure cause remains unconfirmed. Evidence: `.test-artifacts/feedback-1-task-17/`; full details in [task 17](../17-test-absent-budget-assertion.md). No browser, live/paid smoke or owner listening acceptance was required or run. Other proposals remain outside scope.
 
+## Task 18 cleanup — 2026-09-10
+
+The owner's task 18 request approved removal of `smoke()` and only its `--smoke` dispatch. Removed those 27 lines; every other line of the test module and the production runner is unchanged. The current 10 unittest cases remain discoverable: eight original cases minus the task-14 deletion, plus two task-04 recovery cases and one task-11 deadline case. Standalone fake smokes decrease from three to two. Historical inventories and execution records below remain unchanged.
+
+The canonical happy-path command is `python3 -B -m unittest scripts.test_run_codex_tasks.EndToEndFakeCodexTests.test_reviewed_task_is_committed_and_runner_advances`; it is also included in `python3 -B -m unittest scripts.test_run_codex_tasks`. B10 retains process completion, observed review output, final task commit and clean-tree checks. The direct happy-path total-commit-count assertion is lost; completed task status remains enforced by `commit_task`. No replacement assertions were added.
+
+Verification: the full runner unittest command passed all 10 cases (6.287s), including the canonical happy path. `python3 -B scripts/test_run_codex_tasks.py --recovery-smoke` and `--resume-smoke` both passed with fake Codex only; the intentional first-review exit 2 recovered successfully. Exact deletion, fixture cleanup and `git diff --check` passed. Each check left its isolated temporary parent empty, and the parent was removed. Evidence and original source: `.test-artifacts/feedback-1-task-18/`. No current documentation prescribed the removed command; remaining mentions are historical evidence or this removal record. No browser, Node/audio suite, build, live model, paid smoke or real Codex task session ran or was required for this runner-only deletion. No owner acceptance gate is required.
+
 ## Readiness and execution
 
 Existing Node/pnpm/TypeScript, Python signal environment, FFmpeg, Git, ps and lsof were available. Controlled subprocesses and temporary repos only; no model inference, Ollama request, paid API generation, dependency installation or real Codex task-runner session.

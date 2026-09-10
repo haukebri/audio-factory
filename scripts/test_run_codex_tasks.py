@@ -98,31 +98,6 @@ def fake_command() -> str:
     return shlex.join([sys.executable, "-B", str(Path(__file__).resolve()), "--fake-codex"])
 
 
-def smoke() -> int:
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        folder = make_fake_repo(root)
-        environment = {**os.environ, "CODEX_BIN": fake_command()}
-        result = subprocess.run(
-            [sys.executable, str(Path(runner.__file__).resolve()), str(folder)],
-            cwd=root,
-            env=environment,
-            text=True,
-            capture_output=True,
-        )
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        if result.returncode != 0:
-            return result.returncode
-        commits = git(root, "rev-list", "--count", "HEAD")
-        status = git(root, "status", "--porcelain")
-        if commits != "2" or status or "Status: [x]" not in (folder / "01-task-1.md").read_text():
-            print("Fake smoke assertions failed", file=sys.stderr)
-            return 1
-        print("Fake-Codex smoke passed; no real Codex session was started.")
-        return 0
-
-
 def recovery_smoke() -> int:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -449,8 +424,6 @@ class EndToEndFakeCodexTests(unittest.TestCase):
 if __name__ == "__main__":
     if "--fake-codex" in sys.argv:
         raise SystemExit(fake_codex_main(sys.argv[1:]))
-    if "--smoke" in sys.argv:
-        raise SystemExit(smoke())
     if "--recovery-smoke" in sys.argv:
         raise SystemExit(recovery_smoke())
     if "--resume-smoke" in sys.argv:

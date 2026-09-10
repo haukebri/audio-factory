@@ -25,7 +25,7 @@ Review complete: 2026-09-10. Source revision: `c5ad0b28871a7a9c0b55433f2b0b334bb
 | 15 | P3 | [x] | [Remove the obsolete live CLAP smoke script](15-test-obsolete-judge-smoke.md) |
 | 16 | P3 | [x] | [Remove assertions that pin editable progress and tool-output prose](16-test-editable-copy-assertions.md) |
 | 17 | P3 | [x] | [Delete the absent-budget equality left in sound grouping coverage](17-test-absent-budget-assertion.md) |
-| 18 | P3 | [ ] | [Remove the duplicate happy-path fake-Codex smoke entry](18-test-duplicate-runner-smoke.md) |
+| 18 | P3 | [x] | [Remove the duplicate happy-path fake-Codex smoke entry](18-test-duplicate-runner-smoke.md) |
 
 ## Review evidence
 
