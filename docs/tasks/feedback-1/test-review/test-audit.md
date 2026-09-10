@@ -1,4 +1,4 @@
-# Test-suite audit (original review and task 12 cleanup)
+# Test-suite audit (original review and tasks 12/14 cleanup)
 
 Reviewed 2026-09-10, source revision `c5ad0b28871a7a9c0b55433f2b0b334bb7a66bef`, initially clean worktree. [Production-first model](project-model.md) was saved before test sources/baseline. No production or test edits were made. Recommendations below are proposals, not an approved cleanup. Findings each have a numbered `*-test-*.md` task in the parent directory.
 
@@ -14,6 +14,14 @@ Verification: `pnpm build` passed. The first `pnpm test:audio-factory` run passe
 Evidence is preserved under `.test-artifacts/feedback-1-task-12/`: `mutation.txt` and `browser-before.mjs` record the applied batch and pre/post fingerprints; `browser.log`, `studio-ui-browser-results.json`, `fixture.log`, `node-python.log`, `node-python-repeat.log` and `cleanup.txt` record execution. Browser session `af-acceptance` closed, fixture PID 43170 exited, port 63085 closed, owned root `.runtime/studio-ui-8vhCnB` was removed, and pre-existing shared manifests were restored. `git diff --check` passed.
 
 For B9, the retained browser groups now have demonstrated execution rather than inspection-only evidence. This does not fill the B3 lost-response or B4 cancellation browser gaps: their old setup never reached those central operations. Removed partial protection includes source-only presentation and synthetic historical state/setup rendering. Current source-only download, primary five-take winner selection, batch deep links, supported duration/paid-limit UI, and current pending/cancel flows remain outside this passing script; task 13 remains open. Semantic evaluation is intentionally removed, not missing supported coverage. No real-generation/paid smoke or human listening acceptance ran or was required by task 12. Other cleanup proposals and historical findings below are unchanged.
+
+## Task 14 cleanup — 2026-09-10
+
+The owner's request to implement task 14 authorized its exact listed removal before edits. At revision `70a5c7126cf3b66f8bfb1b50f704a75002ba60e7` with a clean worktree, removed only `GitRecoveryTests.test_dry_run_reports_but_does_not_commit_dirty_tree`. No narrower replacement, new assertions, helper removal or production changes. Current runner cases reconcile from 11 to 10; original review counts below remain historical. Other cleanup proposals, including task 18's duplicate smoke, remain outside this task.
+
+B10 dry-run protection is now absent: deletion loses the partial check that dry-run adds no commit (and the dirty-status surrogate). Working-tree and index byte preservation were already unprotected. Passing remaining checks does **not** establish dry-run no-mutation. A focused byte/index-preservation regression remains separate opt-in work.
+
+Verification: `python3 -B -m unittest scripts.test_run_codex_tasks` passed all 10 cases; `python3 -B scripts/test_run_codex_tasks.py` with each of `--smoke`, `--recovery-smoke` and `--resume-smoke` passed. Recovery deliberately failed its first fake review with exit 2, checkpointed and retried successfully. Checks used isolated temporary Git repositories and fake Codex only; all temporary roots and their parent were removed. `git diff --check` passed. Logs, original source, approved scope, mutation fingerprints and cleanup evidence are under `.test-artifacts/feedback-1-task-14/`. No browser, Node/audio suite, build, model/paid smoke or real Codex session ran; task 14 requires only runner checks and prohibits real Codex validation. No owner acceptance gate is required after implementation.
 
 ## Readiness and execution
 

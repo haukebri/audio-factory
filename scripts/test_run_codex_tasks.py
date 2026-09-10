@@ -390,18 +390,6 @@ class GitRecoveryTests(unittest.TestCase):
             self.assertFalse(restarted.state_path.exists())
             self.assertFalse(runner.parse_task(folder / "02-task-2.md").complete)
 
-    def test_dry_run_reports_but_does_not_commit_dirty_tree(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            initialize_repo(root)
-            (root / "tracked.txt").write_text("before\n")
-            git(root, "add", "-A")
-            git(root, "commit", "-qm", "Initial")
-            (root / "tracked.txt").write_text("after\n")
-            runner.checkpoint_dirty_tree(root, dry_run=True)
-            self.assertNotEqual(git(root, "status", "--porcelain"), "")
-            self.assertEqual(git(root, "rev-list", "--count", "HEAD"), "1")
-
 
 class FailureTests(unittest.TestCase):
     def test_reviewer_can_fix_critical_findings_before_approval(self) -> None:
