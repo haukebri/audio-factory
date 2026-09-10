@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ]
+Status: [x]
 Priority: P1
 Area: code / reliability
 
@@ -25,3 +25,17 @@ Acquire one checkout-wide compute/backend ownership claim for every real local e
 Use isolated fake processes: a live Studio backend survives a concurrent smoke/custom-root start, which reports contention without signaling it. A genuinely abandoned owned child remains recoverable, and unrelated PIDs are never signaled.
 
 No implementation change is included in this review.
+
+## Implementation and verification
+
+Completed 2026-09-10. Read the task, queue, project specification/current README, supplied working agreements and backend/setup/CLI/workflow ownership paths. No on-disk repository or ancestor AGENTS.md was present. No commit.
+
+Checkout-wide immutable compute claims now cover local workflows regardless of storage root or compute port, direct backend execution, automatic setup and standalone setup. Setup subprocesses hold their own claim while explicitly inheriting their parent's reservation. Cancellation retains ownership until setup and backend cleanup finish. Backend records include the owning session's process identity; recovery checks that session is inactive before signaling the identity-matched child. A live legacy child without session evidence is refused rather than guessed abandoned.
+
+- Before implementation, the isolated review reproduction confirmed a live session's synthetic child received SIGTERM.
+- `pnpm build` passed on the final implementation.
+- `pnpm test:audio-factory` passed all 32 Node cases and 2 Python tests, including isolated bootstrap, controlled Studio smoke, cancellation and process cleanup.
+- Final `node --test backend.test.mjs` passed all 3 cases. The new regression verifies custom-root/port-zero contention before setup, standalone and automatic setup contention, inherited setup claims, live/unknown-session refusal, an exited owner's abandoned-child recovery, unrelated PID identity protection, and ownership held through setup cancellation.
+- `git diff --check` passed. Synthetic children were awaited through exit, temporary fixture roots removed, and checkout `.runtime/compute-owners` was empty after checks.
+
+No browser, real model, paid smoke or listening check ran; this task requires isolated fake-process acceptance, not those checks. No owner acceptance gate is specified.

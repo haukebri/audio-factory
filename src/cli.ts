@@ -47,11 +47,13 @@ async function stop() {
 async function launch() {
   const backend = new GgufBackend();
   const setup = new AbortController();
+  let preparing: Promise<void> | undefined;
   let ready = false;
   let closing: Promise<void> | undefined;
   const shutdown = () =>
     (closing ??= (async () => {
       setup.abort();
+      await preparing?.catch(() => {});
       await factory.close();
       await backend.stop();
     })());
@@ -70,7 +72,7 @@ async function launch() {
       factory.server.once("error", reject);
       factory.server.listen(config.port, "127.0.0.1", resolve);
     });
-    await ensureSetup(true, setup.signal);
+    await (preparing = ensureSetup(true, setup.signal, backend.reserve()));
     setup.signal.throwIfAborted();
     await backend.start();
     setup.signal.throwIfAborted();
@@ -200,9 +202,11 @@ if (command === "make" || command === "generate" || command === "workflow") {
   throw new Error("Semantic QA was removed; setup prepares local generation and signal tools");
 } else if (command === "setup") {
   await stopped();
-  await ensureSetup(true);
   const backend = new GgufBackend();
-  await backend.start(); await backend.stop();
+  try {
+    await ensureSetup(true, undefined, backend.reserve());
+    await backend.start();
+  } finally { await backend.stop(); }
   console.log(JSON.stringify({ provider: "local", status: "ready" }));
 } else if (command === "retain") {
   await stopped();

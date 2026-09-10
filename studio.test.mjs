@@ -242,7 +242,7 @@ if (process.argv.includes('--browser-fixture')) {
       const setupRoot = root + '/setup-fixture';
       await mkdir(setupRoot + '/dist', { recursive: true });
       await mkdir(setupRoot + '/.runtime');
-      for (const file of ['dist/setup.js', 'dist/config.js', 'config.json', 'config.schema.json', 'request.schema.json', 'run.schema.json'])
+      for (const file of ['dist/setup.js', 'dist/ownership.js', 'dist/config.js', 'config.json', 'config.schema.json', 'request.schema.json', 'run.schema.json'])
         await cp(resolve(file), setupRoot + '/' + file);
       await writeFile(setupRoot + '/package.json', '{"type":"module"}');
       await symlink(resolve('node_modules'), setupRoot + '/node_modules', 'dir');

@@ -10,7 +10,7 @@ Review complete: 2026-09-10. Source revision: `c5ad0b28871a7a9c0b55433f2b0b334bb
 | --- | --- | --- | --- |
 | 01 | P1 | [x] | [Coalesce repeated clicks on paid batch recreation](01-ux-batch-recreation-double-submit.md) |
 | 02 | P1 | [x] | [Preserve new user intent when recovering pending Studio mutations](02-ux-selection-recovery-intent.md) |
-| 03 | P1 | [ ] | [Serialize access to the checkout-wide local backend across workflow roots](03-code-shared-backend-ownership.md) |
+| 03 | P1 | [x] | [Serialize access to the checkout-wide local backend across workflow roots](03-code-shared-backend-ownership.md) |
 | 04 | P1 | [ ] | [Recover unfinished runner transactions before trusting task checkboxes](04-code-runner-review-recovery.md) |
 | 05 | P2 | [ ] | [Allow manual trimming across the full supported 60-second source](05-code-sixty-second-trim.md) |
 | 06 | P2 | [ ] | [Keep retained audio and candidate lineage consistent](06-code-retain-source-lineage.md) |

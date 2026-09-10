@@ -37,7 +37,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
   signal.addEventListener('abort', cancel);
   if (signal.aborted) cancel();
   const operationSignal = controller.signal;
-  const abort = () => { void backend.stop?.(); };
+  const abort = () => { void (backend.cancel ? backend.cancel() : backend.stop?.()); };
   operationSignal.addEventListener('abort', abort);
   let ready = false;
   const factory = await createFactory({ root, token, backend, fresh: true, ready: () => ready, computeBusy: () => job.progress !== 'generating' });
@@ -58,6 +58,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
     return candidate;
   };
   try {
+    const computeClaim = backend.reserve?.();
     await new Promise((resolve, reject) => { factory.server.once('error', reject); factory.server.listen(computePort, '127.0.0.1', resolve); });
     // Candidate publication may have completed just before the job checkpoint write.
     const saved = store.listCandidates().filter(c => c.attempt_id === attempt.id);
@@ -82,7 +83,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
     if (!candidate) {
       await stage('setup');
       if (!job.setup_completed) {
-        await setup(job.provider === 'local', operationSignal);
+        await setup(job.provider === 'local', operationSignal, computeClaim);
         job.setup_completed = true;
       }
       attempt.inflight = null;

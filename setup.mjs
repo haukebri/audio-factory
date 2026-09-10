@@ -85,4 +85,8 @@ async function setup() {
   console.log(devices);
   console.log("Verified Medium F16 generation setup; local inference checks the selected Metal backend.");
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) await setup();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { acquireCompute, recoverBackend } = await import('./dist/ownership.js');
+  const claim = acquireCompute(process.env.AUDIO_FACTORY_COMPUTE_CLAIM);
+  try { await recoverBackend(); await setup(); } finally { claim.release(); }
+}

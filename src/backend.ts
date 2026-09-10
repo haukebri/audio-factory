@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { config, type Request, root, sleep, validateRequest } from "./config.js";
-import { processIdentity, stopOwned } from "./ownership.js";
+import { acquireCompute, processIdentity, recoverBackend } from "./ownership.js";
 
 export type Backend = {
   provider?: "elevenlabs";
@@ -15,14 +15,14 @@ export class GgufBackend implements Backend {
   child?: ChildProcess;
   private canceled = false;
   private source = `${root}/.runtime/sa3-gguf`;
+  private claim?: ReturnType<typeof acquireCompute>;
+  reserve() {
+    return (this.claim ??= acquireCompute()).name;
+  }
   async start() {
+    this.reserve();
     this.canceled = false;
-    try {
-      const owner = JSON.parse(await readFile(`${root}/.runtime/backend-owner.json`, "utf8"));
-      await stopOwned(owner);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    await recoverBackend();
     const setupPath = `${root}/setup.mjs`;
     const { verifyGeneration } = await import(setupPath);
     await verifyGeneration();
@@ -58,7 +58,7 @@ export class GgufBackend implements Backend {
         if (!identity) throw new Error("Cannot establish audio process ownership");
         await writeFile(
           `${root}/.runtime/backend-owner.json`,
-          JSON.stringify({ pid: child.pid, identity }),
+          JSON.stringify({ pid: child.pid, identity, session: this.claim!.owner }),
           { mode: 0o600 },
         );
       }
@@ -79,6 +79,9 @@ export class GgufBackend implements Backend {
   async generate(request: Request, progress: (value: unknown) => void): Promise<Buffer> {
     if (!validateRequest(request) || request.seed === undefined)
       throw new Error("Valid prompt, duration and resolved seed required");
+    if (this.canceled) throw new Error("Audio operation canceled");
+    this.reserve();
+    await recoverBackend();
     await mkdir(`${root}/out/work`, { recursive: true });
     const directory = await mkdtemp(`${root}/out/work/gguf-job-`);
     await writeFile(`${directory}/request.json`, JSON.stringify(request));
@@ -121,9 +124,14 @@ export class GgufBackend implements Backend {
     return readFile(`${directory}/audio.wav`);
   }
   async unload() {}
-  async stop() {
+  async cancel() {
     this.canceled = true;
     await this.reap();
+  }
+  async stop() {
+    await this.cancel();
+    this.claim?.release();
+    this.claim = undefined;
   }
   private async reap() {
     const child = this.child;

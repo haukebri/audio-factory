@@ -7,6 +7,108 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { wavFixture } from './wav-fixture.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
+import { runWorkflow } from './workflow.mjs';
+
+test('checkout compute ownership protects custom-root workflows and setup, and recovers only abandoned children', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'audio-ownership-')));
+  let backend, child, claim;
+  try {
+    for (const file of ['dist', 'setup.mjs', 'config.json', 'config.schema.json', 'request.schema.json', 'run.schema.json', 'package.json'])
+      await cp(resolve(file), join(root, file), { recursive: true });
+    await symlink(resolve('node_modules'), join(root, 'node_modules'));
+    await mkdir(join(root, '.runtime/sa3-gguf/build-metal/bin'), { recursive: true });
+    const { GgufBackend } = await import(pathToFileURL(join(root, 'dist/backend.js')));
+    const { acquireCompute, processIdentity } = await import(pathToFileURL(join(root, 'dist/ownership.js')));
+    const { ensureSetup } = await import(pathToFileURL(join(root, 'dist/setup.js')));
+    claim = acquireCompute();
+    child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await once(child, 'spawn');
+    const owner = { pid: child.pid, identity: processIdentity(child.pid), session: claim.owner };
+    const ownerPath = join(root, '.runtime/backend-owner.json');
+    await writeFile(ownerPath, JSON.stringify(owner));
+    backend = new GgufBackend();
+    await assert.rejects(backend.start(), /already owned/);
+    await assert.rejects(runWorkflow({ id: 'custom', input: { request: {} } }, {
+      root: join(root, 'custom-smoke'), token: 'fixture', backend, computePort: 0,
+      signal: new AbortController().signal, setup: () => assert.fail('contender reached setup'),
+    }), /already owned/);
+    await assert.rejects(ensureSetup(true), /already owned/);
+    const setup = spawnSync(process.execPath, ['setup.mjs'], { cwd: root, encoding: 'utf8', timeout: 10000 });
+    assert.notEqual(setup.status, 0);
+    assert.match(setup.stderr, /already owned/);
+    assert.equal(processIdentity(child.pid), owner.identity);
+    assert.equal(child.signalCode, null);
+    assert.deepEqual(JSON.parse(await readFile(ownerPath)), owner);
+
+    // Setup's child holds its own claim while borrowing only its parent's claim.
+    const inherited = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { acquireCompute } from './dist/ownership.js';
+      const claim = acquireCompute(process.env.AUDIO_FACTORY_COMPUTE_CLAIM);
+      claim.release();
+    `], { cwd: root, env: { ...process.env, AUDIO_FACTORY_COMPUTE_CLAIM: claim.name }, encoding: 'utf8', timeout: 10000 });
+    assert.equal(inherited.status, 0, inherited.stderr);
+    claim.release(); claim = undefined;
+
+    // Even a missing lease cannot authorize killing a child with a live/unknown session.
+    backend = new GgufBackend();
+    await assert.rejects(backend.start(), /live or unknown/);
+    await backend.stop();
+    await assert.rejects(ensureSetup(true), /live or unknown/);
+    await writeFile(ownerPath, JSON.stringify({ pid: owner.pid, identity: owner.identity }));
+    await assert.rejects(backend.start(), /live or unknown/);
+    await backend.stop();
+    assert.equal(processIdentity(child.pid), owner.identity);
+
+    await writeFile(join(root, 'setup.mjs'), 'export async function verifyGeneration() {}');
+    await writeFile(join(root, '.runtime/sa3-gguf/build-metal/bin/sa3-smoke'), '#!/bin/sh\necho "GPU MTL0 Apple"\nsleep 0.1\n', { mode: 0o700 });
+    const crashed = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { acquireCompute } from './dist/ownership.js';
+      const { name, owner } = acquireCompute();
+      console.log(JSON.stringify({ name, owner }));
+      process.exit(0); // Simulate a session exiting without releasing its claim.
+    `], { cwd: root, encoding: 'utf8', timeout: 10000 });
+    assert.equal(crashed.status, 0, crashed.stderr);
+    const { name: staleClaim, owner: abandoned } = JSON.parse(crashed.stdout);
+    assert.equal(processIdentity(abandoned.pid), undefined);
+    await writeFile(ownerPath, JSON.stringify({ ...owner, identity: 'unrelated PID identity', session: abandoned }));
+    await backend.start();
+    assert.equal(processIdentity(child.pid), owner.identity);
+    await backend.stop();
+    await writeFile(ownerPath, JSON.stringify({ ...owner, session: abandoned }));
+    const exited = once(child, 'exit');
+    await backend.start();
+    await exited;
+    assert.equal(child.signalCode, 'SIGTERM');
+    assert.equal(processIdentity(owner.pid), undefined);
+    await backend.stop();
+
+    // Cancellation must not release the checkout while setup is still draining.
+    const controller = new AbortController();
+    let finishSetup, setupStarted;
+    const started = new Promise(resolve => { setupStarted = resolve; });
+    const preparing = runWorkflow({ id: 'setup', input: { request: {} }, candidate_ids: [], provider: 'local' }, {
+      root: join(root, 'custom-smoke'), token: 'fixture', backend: new GgufBackend(), computePort: 0,
+      signal: controller.signal, store: { listCandidates: () => [] }, save: async () => {},
+      setup: () => new Promise((_, reject) => { finishSetup = () => reject(new Error('canceled setup')); setupStarted(); }),
+    });
+    preparing.catch(() => {});
+    await started;
+    try {
+      controller.abort();
+      await assert.rejects(backend.start(), /already owned/);
+    } finally { finishSetup(); }
+    await assert.rejects(preparing, /canceled setup/);
+    await backend.start();
+    await backend.stop();
+    assert.deepEqual(await readdir(join(root, '.runtime/compute-owners')), [staleClaim]);
+  } finally {
+    await backend?.stop(); claim?.release();
+    if (child?.exitCode === null && child?.signalCode === null) { const exited = once(child, 'exit'); child.kill(); await exited; }
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('Medium subprocess uses exact components/settings, rejects fallback, and reaps cancellation/timeout', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'audio-gguf-')));
@@ -49,9 +151,11 @@ else { copyFileSync('../../fixture.wav',args[args.indexOf('--out')+1]); console.
     await assert.rejects(backend.generate({...request,seed:-1},()=>{}), /resolved seed/);
     await assert.rejects(backend.generate({...request,prompt:'cpu'},()=>{}), /did not use Apple Metal/);
     // Cancel in the inference/export gap: no subsequent process may launch.
+    await backend.stop();
     backend = new GgufBackend();
     await assert.rejects(backend.generate(request, p => { if(p.status==='exporting') void backend.stop(); }), /canceled/);
     for (const mode of ['cancel', 'timeout']) {
+      await backend.stop();
       backend = new GgufBackend();
       config.timeout_ms = mode === 'timeout' ? 100 : 10000;
       const generation = backend.generate({...request,prompt:'hang'},()=>{});
@@ -66,6 +170,7 @@ else { copyFileSync('../../fixture.wav',args[args.indexOf('--out')+1]); console.
       assert.equal(processIdentity(pid), undefined);
       if (mode === 'cancel') { await backend.reset(); assert.equal(processIdentity(pid), undefined); }
     }
+    await backend.stop();
     backend = new GgufBackend();
     await rm(join(root, '.runtime/sa3-gguf/build-metal/bin/sa3-generate'));
     await assert.rejects(backend.generate(request,()=>{}), /ENOENT/);
