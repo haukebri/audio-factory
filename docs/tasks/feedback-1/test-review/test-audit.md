@@ -23,6 +23,14 @@ B10 dry-run protection is now absent: deletion loses the partial check that dry-
 
 Verification: `python3 -B -m unittest scripts.test_run_codex_tasks` passed all 10 cases; `python3 -B scripts/test_run_codex_tasks.py` with each of `--smoke`, `--recovery-smoke` and `--resume-smoke` passed. Recovery deliberately failed its first fake review with exit 2, checkpointed and retried successfully. Checks used isolated temporary Git repositories and fake Codex only; all temporary roots and their parent were removed. `git diff --check` passed. Logs, original source, approved scope, mutation fingerprints and cleanup evidence are under `.test-artifacts/feedback-1-task-14/`. No browser, Node/audio suite, build, model/paid smoke or real Codex session ran; task 14 requires only runner checks and prohibits real Codex validation. No owner acceptance gate is required after implementation.
 
+## Task 16 cleanup — 2026-09-10
+
+The owner's request approved the exact nine deletions: seven frontend progress/elapsed-copy assertions and two bootstrap pnpm/usage-copy assertions. All three mixed groups survive with their original behavioral assertions and preconditions; no executable case was removed or added. Stage-message content and elapsed formatting are now explicitly unprotected. Historical inventory/counts below remain the original review baseline; other proposals are unchanged.
+
+Build passed; frontend and standalone bootstrap passed. Two canonical concurrent runs each passed 33/34 Node cases and failed the unchanged trim assertion at `qa.test.mjs:40` (500 versus 400), preventing their Python step. QA alone passed 4/4; all 34 canonical Node cases passed with file concurrency set to 1; both Python signal cases passed separately. Default concurrent execution remains a known limitation, consistent with shared-resource contention but without a captured definitive cause. A scoped temporary progress-copy mutation passed all 7 frontend cases; the initial overbroad mutation also touched an unrelated acknowledgement and correctly failed its retained assertion. No repository production edits or replacement tests.
+
+[Task 16](../16-test-editable-copy-assertions.md) records full limits and evidence under `.test-artifacts/feedback-1-task-16/`. Logged fixture roots and temporary diagnostic copies were removed; diff whitespace check passed. No browser/visual, live model, paid or human listening acceptance claimed or required.
+
 ## Readiness and execution
 
 Existing Node/pnpm/TypeScript, Python signal environment, FFmpeg, Git, ps and lsof were available. Controlled subprocesses and temporary repos only; no model inference, Ollama request, paid API generation, dependency installation or real Codex task-runner session.

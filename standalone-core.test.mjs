@@ -61,7 +61,6 @@ try {
   rmSync(join(isolated, "dist"), { recursive: true });
   const status = run(join(isolated, "run"), ["status"], tmpdir());
   assert.equal(status.status, 0, status.stdout + status.stderr);
-  assert.match(status.stdout, /Lockfile is up to date, resolution step is skipped/);
   assert.match(status.stdout, /"status":"stopped"/);
   assert.ok(existsSync(join(isolated, "dist/cli.js")));
   assert.equal(readFileSync(join(isolated, "pnpm-lock.yaml"), "utf8"), readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
@@ -87,7 +86,6 @@ try {
   for (const command of ["invalid-command", "import"]) {
     const usage = run(process.execPath, [...permissions, `--allow-fs-write=${isolated}`, "dist/cli.js", command]);
     assert.equal(usage.status, 1, usage.stdout + usage.stderr);
-    assert.match(usage.stderr, /Usage: audio:factory make/);
     assert.doesNotMatch(usage.stderr, /\|import |ERR_ACCESS_DENIED/);
     assert.deepEqual(readdirSync(join(isolated, ".runtime")), ["token"]);
     assert.ok(!existsSync(join(isolated, "out")));

@@ -2,7 +2,7 @@
 
 Overview: [Review queue](00-overview.md)
 
-Status: [ ] Not started
+Status: [x] Complete
 Priority: P3
 
 ## Finding
@@ -24,3 +24,13 @@ After approval, delete precisely these nine assertions (seven frontend, two boot
 Exact deletion plan approved. Existing frontend tests and the standalone bootstrap check pass with their original behavioral coverage. Freely editing the removed progress/usage prose no longer breaks the test. Stage-message content itself becomes an explicit unprotected assertion boundary; do not claim visual acceptance from VM state checks.
 
 Evidence: [test audit](test-review/test-audit.md), frontend/progress and standalone/bootstrap/invalid-command.
+
+## Implementation evidence — 2026-09-10
+
+The owner's implementation request approved the exact nine-assertion plan. Deleted seven progress-copy assertions and two bootstrap/tool-output assertions only; all existing state, build/status, lockfile, unsupported-import, permission and output-preservation checks remain. No replacement tests or production changes. Stage-message content and elapsed formatting are now explicitly unprotected; no visual acceptance is claimed.
+
+`pnpm build` passed. Frontend (7 cases) and standalone bootstrap passed in both canonical suite runs. Each `pnpm test:audio-factory` run passed 33/34 Node cases, with the same unrelated `qa.test.mjs:40` trim response failure (500 versus 400); Python was not reached by those commands. The unchanged QA file passed all 4 cases alone. The complete canonical Node file list with `--test-concurrency=1` passed 34/34 without skips, and `.runtime/signal-venv/bin/python qa_test.py` passed both cases separately. This is consistent with shared-resource contention, not proof of its exact cause; the default concurrent command is not claimed passing.
+
+A temporary copy with all six targeted renderer stage strings and elapsed formatting changed passed all 7 frontend cases. An initial overbroad diagnostic also changed an unrelated batch acknowledgement and failed its retained `/Submitting/` assertion; narrowing the diagnostic to `renderGeneration` passed without changing repository source. The removed usage/pnpm matches are absent by diff inspection; no tool-output mutation diagnostic ran.
+
+Logs, original test bytes, mutation fingerprints and cleanup evidence are in `.test-artifacts/feedback-1-task-16/`. Logged fixture roots and diagnostic copies were removed; `git diff --check` passed. No browser, paid/model smoke or human listening check ran or is required for this assertion-only task. No owner acceptance gate; no commit made.
