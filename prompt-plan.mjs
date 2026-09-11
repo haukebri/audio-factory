@@ -40,6 +40,7 @@ const format = { ...outputSchema, properties: {
 
 export async function preparePromptPlan(intent, { signal, timeout = 120000, request = fetch } = {}) {
   const bounded = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(timeout)]);
+  let reply;
   try {
     const response = await request('http://127.0.0.1:11434/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: bounded,
@@ -48,16 +49,22 @@ export async function preparePromptPlan(intent, { signal, timeout = 120000, requ
         messages: [{ role: 'system', content: instructions }, { role: 'user', content: intent }] }),
     });
     if (!response.ok) throw new Error(`Local prompt model HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
-    const reply = await response.json();
+    reply = await response.json();
     if (!reply.done || reply.done_reason === 'length') throw new Error('Incomplete prompt plan');
     const output = JSON.parse(reply.message.content.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/, '$1'));
-    if (!valid(output) || output.generation_prompts.includes(intent) ||
-        output.generation_prompts.some(prompt => !prompt.startsWith('TrackType: SFX,'))) throw new Error('Invalid prompt plan');
+    // Some model replies include a fifth variation despite the requested count.
+    if (Array.isArray(output?.generation_prompts)) output.generation_prompts = output.generation_prompts.slice(0, 4)
+      .map(prompt => typeof prompt === 'string' ? prompt.replace(/^TrackType: SFX\./, 'TrackType: SFX,') : prompt);
+    if (!valid(output)) throw new Error(`Invalid prompt plan: ${JSON.stringify(valid.errors)}`);
+    if (output.generation_prompts.includes(intent)) throw new Error('Invalid prompt plan: generation_prompts repeats the original intent');
+    const missingPrefix = output.generation_prompts.findIndex(prompt => !prompt.startsWith('TrackType: SFX,'));
+    if (missingPrefix !== -1) throw new Error(`Invalid prompt plan: generation_prompts/${missingPrefix} must start with "TrackType: SFX,"`);
     // Preserve the original in code, rather than trusting the model to copy it exactly.
     output.generation_prompts.unshift(intent);
     return { version: 'prompt-plan-v2', intent, ...output, model, instructions_sha256: hash(instructions), status: 'completed', error: null };
   } catch (error) {
     signal?.throwIfAborted();
-    throw new Error(`Prompt planning failed: ${String(error)}`);
+    // The workflow persists this error in the job record and exposes it in Studio.
+    throw new Error(`Prompt planning failed: ${String(error)}${reply === undefined ? '' : `; model=${model}; response=${JSON.stringify(reply)}`}`);
   }
 }

@@ -107,7 +107,7 @@ function automated(c, box) {
   const plan = c.evidence.generation.prompt_plan;
   if (plan) {
     node('p', `Generation prompt: ${c.evidence.generation.request.prompt}`, details);
-    if (plan.error) node('p', `Prompt preparation unavailable; used original wording. ${plan.error}`, details);
+    if (plan.error) node('p', 'Prompt preparation unavailable; used original wording.', details);
   }
   const evidence = node('details', undefined, details); node('summary', 'Details · scores and provenance', evidence); node('pre', JSON.stringify(c, null, 2), evidence);
 }
@@ -232,7 +232,7 @@ function renderGeneration() {
   const shown = active ?? job;
   const elapsed = shown ? Math.max(0, Math.floor(((shown.finished_at ? Date.parse(shown.finished_at) : Date.now()) - Date.parse(shown.started_at)) / 1000)) : 0;
   $('generation-detail').textContent = submitting ? 'Saving your request. Please wait.' : shown ? `Variant ${(shown.variant_index ?? 0) + 1}/${shown.provider === "elevenlabs" ? 1 : 5} · attempt ${shown.attempts?.at(-1)?.number ?? 1}/${shown.provider === "elevenlabs" ? 1 : 3} · ${elapsed}s elapsed` : '';
-  $('generation-prompt').textContent = shown?.input.request.prompt ?? ''; $('generation-error').textContent = shown?.error ?? (shown?.status === 'failed' ? 'The request failed. Any saved audio remains available below.' : '');
+  $('generation-prompt').textContent = shown?.input.request.prompt ?? ''; $('generation-error').textContent = shown?.error || shown?.status === 'failed' ? 'Generation did not complete. Any saved audio remains available below.' : '';
   $('active-link').hidden = !active || view === 'listen'; $('cancel-generation').hidden = !active; $('cancel-generation').disabled = active?.status === 'canceling';
   $('cancel-generation').onclick = () => action(async () => { await api(`jobs/${active.id}/cancel`, {}); await refresh(); });
   const signature = `${shown?.id}:${shown?.status}`;
@@ -376,7 +376,7 @@ function renderReviewBatch() {
   if (box.dataset.id !== reviewBatchId) { box.dataset.id = reviewBatchId; reviewSoundKey = recall('batch-sound-' + reviewBatchId, null); }
   const sound = batch.sounds.find(s => s.key === reviewSoundKey) ?? batch.sounds[0]; reviewSoundKey = sound.key;
   $('batch-progress').textContent = `${batch.progress.selected} of ${batch.progress.total} sounds selected · ${batch.status}`;
-  $('batch-error').textContent = batch.queue_error ?? sound.operations.at(-1)?.error ?? '';
+  $('batch-error').textContent = batch.queue_error ? 'The queue needs attention. Check generation recovery controls.' : sound.operations.at(-1)?.error ? 'Generation failed. Try regenerating this sound.' : '';
   const choices = $('batch-sound'), choicesSignature = JSON.stringify(batch.sounds.map(s => [s.key,s.status,Boolean(s.selection)]));
   if (choices.dataset.signature !== choicesSignature) { choices.dataset.signature = choicesSignature; choices.replaceChildren(); for (const s of batch.sounds) node('option', `${s.key} · ${s.selection ? 'winner selected' : s.status}`, choices, { value: s.key }); }
   choices.value = sound.key;

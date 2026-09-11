@@ -5,6 +5,46 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { workflowInput, openJobs } from './workflow.mjs';
 
+test('surplus model variations keep the original plus four validated prompts', async () => {
+  const intent = 'One short rat squeak followed by silence.';
+  const prompts = ['Gentle', 'Soft', 'High-pitched', 'Brief', 'Quiet'].map(p => `TrackType: SFX, ${p} rat squeak followed by silence.`);
+  const request = async () => Response.json({ done: true, message: { content: '```json\n' + JSON.stringify({ generation_prompts: prompts }) + '\n```' } });
+  const plan = await preparePromptPlan(intent, { request });
+  assert.deepEqual(plan.generation_prompts, [intent, ...prompts.slice(0, 4)]);
+  prompts[1] = prompts[0];
+  await assert.rejects(preparePromptPlan(intent, { request }), /uniqueItems/);
+  prompts[1] = 'Missing prefix';
+  await assert.rejects(preparePromptPlan(intent, { request }), /must start with/);
+});
+
+test('model prefix punctuation is normalized while the original stays exact', async () => {
+  const intent = 'TrackType: SFX. Rain on pavement.';
+  const prompts = ['Steady', 'Soft', 'Dense', 'Gentle'].map(p => `TrackType: SFX. ${p} rain on pavement.`);
+  const plan = await preparePromptPlan(intent, { request: async () => Response.json({ done: true, message: { content: JSON.stringify({ generation_prompts: prompts }) } }) });
+  assert.equal(plan.generation_prompts[0], intent);
+  assert.deepEqual(plan.generation_prompts.slice(1), prompts.map(p => p.replace('SFX.', 'SFX,')));
+});
+
+test('rejected plans retain the model response and specific validation failure', async () => {
+  const prompts = ['one', 'two', 'three', 'four'].map(p => `TrackType: SFX, ${p}`);
+  for (const [content, reason, done_reason = 'stop'] of [
+    [JSON.stringify({ generation_prompts: Array(4).fill(prompts[0]) }), /uniqueItems/],
+    [JSON.stringify({ generation_prompts: prompts.slice(1) }), /minItems/],
+    [JSON.stringify({ generation_prompts: ['original', ...prompts.slice(1)] }), /repeats the original intent/],
+    [JSON.stringify({ generation_prompts: ['No prefix', ...prompts.slice(1)] }), /generation_prompts\/0.*TrackType: SFX,/],
+    ['not JSON', /SyntaxError/],
+    ['{"generation_prompts":', /Incomplete prompt plan/, 'length'],
+  ]) {
+    const reply = { done: true, done_reason, message: { content } };
+    await assert.rejects(preparePromptPlan('original', { request: async () => Response.json(reply) }), error => {
+      assert.match(error.message, reason);
+      assert.ok(error.message.includes(JSON.stringify(reply)), 'rejected response is preserved');
+      assert.match(error.message, /gemma4:latest/);
+      return true;
+    });
+  }
+});
+
 test('one local request yields validated prompts; invalid, unavailable and canceled requests are bounded', async () => {
   const intent = '  A cat hissing\nConstraints: no music  ';
   const output = { generation_prompts: ['A breathy hiss from a cat.', 'A cat makes a raspy hiss.', 'A dry feline hiss.', 'A cat breathes out a hiss.'].map(p => 'TrackType: SFX, ' + p) };
