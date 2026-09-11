@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID().replaceAll('-', '');
 let pendingAction = Promise.resolve();
-let csrf, candidates = [], jobs = [], takes = [], selected, busy = false, submitting = false, currentJob;
+let csrf, candidates = [], jobs = [], takes = [], selected, busy = false, submitting = false, currentJob, submissionPrompt = '', submissionError = '';
 let batchReviews = [], reviewBatchId = /^#batch\/([a-f0-9]{32})$/.exec(location.hash)?.[1] ?? null, reviewSoundKey;
 let view = 'create', feedback = new Map(), selections = [], readiness = {}, editorId, composeParent;
 const say = message => { if ($('status').textContent !== message) $('status').textContent = message; };
@@ -86,13 +86,14 @@ const identity = c => { const take = takeFor(c.candidate_sha256); return `${soun
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
 const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
-let loopContext, loopNode, loopPreviewEpoch = 0;
+let loopContext, loopNode, loopPreviewEpoch = 0, loopStopped;
 function stopLoopPreview() {
   loopPreviewEpoch++;
+  loopStopped?.(); loopStopped = undefined;
   if (loopNode) { loopNode.stop(); loopNode.disconnect(); loopNode = undefined; }
   if (loopContext) { void loopContext.close(); loopContext = undefined; }
 }
-function closeEditor() { stopLoopPreview(); if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
+function closeEditor() { stopLoopPreview(); if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.dispose?.(); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
 function audio(c, parent, label, source = false) {
   const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${c.candidate_sha256}/${source || !c.evidence.cut ? 'source' : 'audio'}` });
   player.addEventListener('play', () => { stopLoopPreview(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
@@ -109,6 +110,8 @@ function navigate(next, push = true) {
   if (batchMatch) next = 'listen';
   renderReviewBatch();
   view = ['create', 'listen', 'library', 'settings'].includes(next) ? next : 'create';
+  if (batchMatch) submissionError = '';
+  if (view === 'create' && !composeParent && !submitting) { const active = jobs.find(j => ['running', 'canceling'].includes(j.status)); selected = undefined; currentJob = active?.id; submissionError = ''; remember('selected', null); remember('current-job', currentJob ?? null); if (active) { view = 'listen'; history.replaceState(history.state, '', '#listen'); } renderBatch(); renderGeneration(); }
   document.body.dataset.view = view;
   for (const id of ['create', 'library', 'settings']) $(id + '-view').hidden = id === 'create' ? !['create', 'listen'].includes(view) : view !== id;
   for (const link of document.querySelectorAll('nav a')) { if (link.hash === '#' + view || view === 'listen' && link.hash === '#create') link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }
@@ -146,12 +149,129 @@ async function download(c) {
   const response = await fetch(`/studio/candidates/${id}/export`); if (!response.ok) throw new Error((await response.json()).error);
   const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: `take-${takeFor(id).number}-${id.slice(0, 8)}.tar` }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Downloaded prepared audio, original, provenance and exact-version feedback.');
 }
+function waveformTrim(c, editor, form, preview, draft, changed) {
+  const seconds = c.evidence.generation.audio.seconds, gap = Math.min(0.01, seconds);
+  const frame = node('div', undefined, form, { class: 'trim-waveform' });
+  const timeline = node('div', undefined, frame, { class: 'trim-timeline' });
+  const canvas = node('canvas', undefined, timeline, { 'aria-hidden': 'true' });
+  const selection = node('div', undefined, timeline, { class: 'trim-selection', 'aria-hidden': 'true' });
+  const cursor = node('div', undefined, timeline, { class: 'trim-playhead', 'aria-hidden': 'true' });
+  const handles = {};
+  const readout = node('p', '', form, { class: 'trim-times' });
+  const actions = node('div', undefined, form, { class: 'actions' });
+  const play = node('button', '▶ Play', actions, { type: 'button' }); play.disabled = true;
+  const status = node('p', '', form, { class: 'hint', role: 'status' });
+  const retry = node('button', 'Retry audio', form, { type: 'button' }); retry.hidden = true;
+  let source, sourcePromise, loading, disposed = false, animation, drag, playEpoch = 0;
+  const controller = new AbortController();
+  const position = () => { cursor.style.left = `${100 * Math.max(draft.start, Math.min(draft.end, preview.currentTime)) / seconds}%`; };
+  const pause = () => { playEpoch++; preview.pause(); cancelAnimationFrame(animation); play.textContent = '▶ Play'; position(); };
+  const fail = message => { pause(); status.textContent = message; retry.hidden = false; play.disabled = true; };
+  const sync = () => {
+    if (disposed) return;
+    if (preview.currentTime >= draft.end) { pause(); preview.currentTime = draft.end; }
+    position();
+    if (!preview.paused) animation = requestAnimationFrame(sync);
+  };
+  const draw = () => {
+    if (!source || disposed) return;
+    const width = Math.max(1, Math.round(timeline.clientWidth)), height = 96, ratio = devicePixelRatio || 1;
+    canvas.width = width * ratio; canvas.height = height * ratio;
+    const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio);
+    ctx.strokeStyle = getComputedStyle(editor).getPropertyValue('--primary'); ctx.lineWidth = 1;
+    const frames = source.samples.length / source.channels;
+    ctx.beginPath();
+    for (let x = 0; x < width; x++) {
+      let low = 0, high = 0;
+      for (let i = Math.floor(x * frames / width); i < Math.min(frames, Math.ceil((x + 1) * frames / width)); i++) {
+        for (let channel = 0; channel < source.channels; channel++) {
+          const value = source.samples[i * source.channels + channel]; low = Math.min(low, value); high = Math.max(high, value);
+        }
+      }
+      ctx.moveTo(x + 0.5, 48 - high * 46); ctx.lineTo(x + 0.5, 48 - low * 46);
+    }
+    ctx.stroke();
+  };
+  const update = () => {
+    for (const name of ['start', 'end']) {
+      const handle = handles[name]; handle.style.left = `${100 * draft[name] / seconds}%`;
+      handle.setAttribute('aria-valuenow', draft[name]); handle.setAttribute('aria-valuetext', `${draft[name].toFixed(2)} seconds`);
+      handle.setAttribute('aria-valuemin', name === 'start' ? 0 : draft.start + gap);
+      handle.setAttribute('aria-valuemax', name === 'start' ? draft.end - gap : seconds);
+    }
+    selection.style.left = `${100 * draft.start / seconds}%`; selection.style.right = `${100 * (seconds - draft.end) / seconds}%`;
+    timeline.style.setProperty('--start', `${100 * draft.start / seconds}%`); timeline.style.setProperty('--end', `${100 * draft.end / seconds}%`);
+    readout.textContent = `Start ${draft.start.toFixed(2)} s · End ${draft.end.toFixed(2)} s · Selected ${(draft.end - draft.start).toFixed(2)} s`;
+    position();
+  };
+  const adjust = (name, value) => {
+    pause(); stopLoopPreview();
+    draft[name] = name === 'start' ? Math.max(0, Math.min(draft.end - gap, value)) : Math.min(seconds, Math.max(draft.start + gap, value));
+    draft.preserveNative = false; changed(); preview.currentTime = draft.start; update();
+  };
+  const timeAt = event => { const rect = timeline.getBoundingClientRect(); return (event.clientX - rect.left) / rect.width * seconds; };
+  for (const name of ['start', 'end']) {
+    const handle = node('div', name === 'start' ? '‹' : '›', timeline, { id: `cut-${name}`, class: `trim-handle trim-${name}`, role: 'slider', tabindex: '0', 'aria-label': name === 'start' ? 'Start' : 'End', 'aria-orientation': 'horizontal' });
+    handles[name] = handle;
+    handle.onkeydown = event => {
+      const delta = { ArrowLeft: -0.01, ArrowDown: -0.01, ArrowRight: 0.01, ArrowUp: 0.01 }[event.key];
+      if (delta === undefined && !['Home', 'End'].includes(event.key)) return;
+      event.preventDefault(); adjust(name, event.key === 'Home' ? 0 : event.key === 'End' ? seconds : Number((draft[name] + delta).toFixed(10)));
+    };
+    handle.onpointerdown = event => {
+      if (drag || event.button !== 0) return;
+      event.preventDefault(); event.stopPropagation(); handle.focus(); handle.setPointerCapture(event.pointerId);
+      drag = { id: event.pointerId, offset: draft[name] - timeAt(event) }; adjust(name, draft[name]);
+    };
+    handle.onpointermove = event => { if (drag?.id === event.pointerId) adjust(name, Math.round((timeAt(event) + drag.offset) * 100) / 100); };
+    handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = event => { if (drag?.id === event.pointerId) drag = undefined; };
+  }
+  timeline.onpointerdown = event => {
+    if (event.target.closest('.trim-handle') || drag || event.button !== 0 || preview.readyState === 0) return;
+    preview.currentTime = Math.max(draft.start, Math.min(draft.end, timeAt(event))); position();
+  };
+  preview.addEventListener('play', () => { if (disposed) return pause(); play.textContent = 'Ⅱ Pause'; cancelAnimationFrame(animation); sync(); });
+  preview.addEventListener('pause', () => { if (!preview.paused) return; playEpoch++; cancelAnimationFrame(animation); play.textContent = '▶ Play'; position(); });
+  preview.addEventListener('timeupdate', () => { if (preview.currentTime >= draft.end && !preview.paused) { pause(); preview.currentTime = draft.end; } position(); });
+  preview.addEventListener('seeked', position);
+  preview.addEventListener('ended', () => { if (!preview.ended) return; pause(); preview.currentTime = draft.end; position(); });
+  preview.addEventListener('error', () => fail('Original audio could not load. Retry audio to continue.'));
+  play.onclick = async () => {
+    if (!preview.paused) return pause();
+    stopLoopPreview(); const epoch = ++playEpoch;
+    if (preview.currentTime < draft.start || preview.currentTime >= draft.end) preview.currentTime = draft.start;
+    try { await preview.play(); if (disposed) preview.pause(); }
+    catch (error) { if (!disposed && epoch === playEpoch) { pause(); status.textContent = `Playback failed: ${error.message}. Press Play to retry.`; } }
+  };
+  const getSource = () => sourcePromise ??= (async () => {
+    const { decodeLoopWav } = await import('/loop-audio.mjs');
+    const response = await fetch(preview.src, { signal: controller.signal });
+    if (!response.ok) throw new Error('Original audio could not load.');
+    return decodeLoopWav(await response.arrayBuffer());
+  })().catch(error => { sourcePromise = undefined; throw error; });
+  const ready = () => { if (!disposed && source && preview.readyState > 0 && !preview.error) { play.disabled = false; status.textContent = ''; retry.hidden = true; editor.querySelector('.playback-error')?.remove(); preview.currentTime = draft.start; position(); } };
+  preview.addEventListener('loadedmetadata', ready);
+  const load = async () => {
+    if (loading || disposed) return;
+    loading = true; pause(); play.disabled = true; retry.hidden = true; status.textContent = 'Loading waveform…';
+    try { source = await getSource(); if (!disposed) { draw(); ready(); } }
+    catch (error) { if (!disposed) fail(`${error.message} Retry audio to load the waveform.`); }
+    finally { loading = false; }
+  };
+  retry.onclick = () => { preview.load(); void load(); };
+  const resize = new ResizeObserver(draw); resize.observe(timeline);
+  editor.dispose = () => { disposed = true; pause(); controller.abort(); resize.disconnect(); };
+  update(); void load();
+  return { update, pause, getSource };
+}
+
 function trim(c, box) {
   if (editorId === c.candidate_sha256) { closeEditor(); return; } closeEditor(); editorId = c.candidate_sha256;
   const id = c.candidate_sha256, seconds = c.evidence.generation.audio.seconds, bounds = c.evidence.cut?.bounds;
   const draft = recall('trim-' + id, { loop: c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false, crossfade: c.evidence.cut?.loop?.overlap_frames ? c.evidence.cut.loop.overlap_frames / bounds.sample_rate : 0.5, preserveNative: c.evidence.cut?.loop?.processing_version === 'native-gain-v1', start: bounds ? bounds.start_sample / bounds.sample_rate : 0, end: bounds ? bounds.end_sample / bounds.sample_rate : seconds });
   draft.loop ??= c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false; draft.crossfade ??= 0.5; draft.curve ??= c.evidence.cut?.loop?.curve ?? 'equal-power';
-  draft.start = Math.max(0, Math.min(seconds, Number(draft.start))); draft.end = Math.max(0, Math.min(seconds, Number(draft.end)));
+  draft.start = Math.max(0, Math.min(seconds, Number(draft.start) || 0)); draft.end = Math.max(0, Math.min(seconds, Number(draft.end) || seconds));
+  if (draft.end <= draft.start) { draft.start = 0; draft.end = seconds; }
   const editor = node('section', undefined, box, { class: 'trim-editor', 'data-editor': id }); node('h5', `Trim · ${identity(c)}`, editor);
   const form = node('form', undefined, editor), duration = node('p', '', form, { class: 'trim-duration', role: 'status' });
   const preview = audio(c, editor, `Trim preview · ${identity(c)}`, true); preview.controls = false;
@@ -159,13 +279,8 @@ function trim(c, box) {
   const valid = () => draft.start < draft.end && (!draft.loop || draft.crossfade >= 0.05 && draft.crossfade <= 2 && draft.end - draft.start >= 0.2);
   const cutInput = () => draft.loop && draft.preserveNative ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) };
   let save;
-  const update = () => { remember('trim-' + id, draft); duration.textContent = `Selection: ${Math.max(0, draft.end - draft.start).toFixed(2)} seconds`; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid(); if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save trim'; } preview.pause(); stopLoopPreview(); };
-  for (const name of ['start', 'end']) {
-    const label = node('label', `${name === 'start' ? 'Start' : 'End'} (seconds in original)`, form, { for: `cut-${name}` });
-    const output = node('output', Number(draft[name]).toFixed(2), label);
-    const range = node('input', undefined, form, { id: `cut-${name}`, type: 'range', min: '0', max: seconds, step: '0.01', value: draft[name] });
-    range.oninput = () => { draft[name] = Math.max(0, Math.min(seconds, Number(range.value))); output.textContent = draft[name].toFixed(2); draft.preserveNative = false; update(); };
-  }
+  const update = () => { remember('trim-' + id, draft); duration.textContent = ''; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid(); if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save trim'; } preview.pause(); stopLoopPreview(); };
+  const waveform = waveformTrim(c, editor, form, preview, draft, update);
   const loopLabel = node('label', undefined, form, { class: 'loop-choice' });
   const loop = node('input', undefined, loopLabel, { type: 'checkbox', id: 'cut-loop' }); loop.checked = draft.loop;
   loopLabel.append(document.createTextNode(' Loop'));
@@ -181,24 +296,22 @@ function trim(c, box) {
   node('option', 'Equal gain · correlated sound', curve, { value: 'equal-gain' }); curve.value = draft.curve;
   curve.onchange = () => { draft.curve = curve.value; draft.preserveNative = false; update(); };
   if (draft.preserveNative) node('p', 'Native loop retained. Changing bounds, curve or crossfade creates a repair.', details, { class: 'hint' });
-  let stopFrame;
-  const stop = () => { cancelAnimationFrame(stopFrame); preview.pause(); stopLoopPreview(); };
-  const checkEnd = () => { if (preview.currentTime >= draft.end) { stop(); preview.currentTime = draft.end; } else if (!preview.paused) stopFrame = requestAnimationFrame(checkEnd); };
-  preview.addEventListener('pause', () => cancelAnimationFrame(stopFrame));
-  preview.addEventListener('timeupdate', () => { if (preview.currentTime >= draft.end) { stop(); preview.currentTime = draft.end; } });
+  const stop = () => { waveform.pause(); stopLoopPreview(); };
   const actions = node('div', undefined, form, { class: 'actions' });
-  button('Replay selection', actions, async () => { if (!valid()) throw new Error('Start must be before End.'); stop(); preview.currentTime = draft.start; await preview.play().catch(error => { if (error.name !== 'AbortError' || !preview.paused) throw error; }); checkEnd(); }, local);
-  button('Preview loop', actions, async () => {
-    if (!draft.loop || !valid()) throw new Error('Enable Loop and choose valid bounds and crossfade.');
+  const loopPlay = node('button', 'Preview loop', actions, { type: 'button' });
+  loopPlay.onclick = async () => {
+    if (loopContext) { stop(); return; }
+    if (!draft.loop || !valid()) { duration.textContent = 'Enable Loop and choose valid bounds and crossfade.'; return; }
     stop(); document.querySelectorAll('audio').forEach(player => player.pause());
     const epoch = loopPreviewEpoch, input = cutInput();
-    const context = new AudioContext({ sampleRate: 44100 }); loopContext = context;
+    loopPlay.textContent = 'Stop loop';
+    duration.textContent = 'Loading processed loop preview…';
+    loopStopped = () => { loopPlay.textContent = 'Preview loop'; duration.textContent = ''; };
     try {
+      const context = new AudioContext({ sampleRate: 44100 }); loopContext = context;
       await context.resume();
-      const { decodeLoopWav, renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
-      const response = await fetch(`/studio/candidates/${id}/source`);
-      if (!response.ok) throw new Error('Original audio could not load.');
-      const source = decodeLoopWav(await response.arrayBuffer());
+      const { renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
+      const source = await waveform.getSource();
       if (epoch !== loopPreviewEpoch || !editor.isConnected) return;
       const rendered = renderLoop(source.samples, source.sampleRate, source.channels, { ...input,
         native_provider_loop: c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true });
@@ -210,11 +323,10 @@ function trim(c, box) {
       }
       loopNode = context.createBufferSource(); loopNode.buffer = buffer; loopNode.loop = true;
       loopNode.connect(context.destination); loopNode.start();
-      duration.textContent = `Loop: ${(buffer.length / buffer.sampleRate).toFixed(2)} seconds · repeating until paused`;
-    } catch (error) { if (epoch === loopPreviewEpoch) stopLoopPreview(); throw error; }
-  }, local);
-  button('Pause', actions, () => { stop(); duration.textContent = 'Preview paused.'; }, local);
-  node('p', 'Replay selection plays the original. Preview loop plays the proposed blend continuously; listen for at least three cycles. Save creates a version. Download uses that saved version.', form, { class: 'hint' });
+      duration.textContent = `Processed loop preview · repeating · ${(buffer.length / buffer.sampleRate).toFixed(2)} seconds`;
+    } catch (error) { if (epoch === loopPreviewEpoch) { stopLoopPreview(); duration.textContent = error.message; } }
+  };
+  node('p', 'Play auditions the original interval. Save trim adds fades and normalization. Preview loop repeats the proposed processed blend; listen for at least three cycles. Saving creates a version without choosing a winner. Download uses that saved version.', form, { class: 'hint' });
   save = node('button', 'Save trim', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
   save.onclick = () => {
     if (!valid()) return;
@@ -234,8 +346,8 @@ function trim(c, box) {
 async function select(id) {
   const c = candidates.find(c => c.candidate_sha256 === id); if (!c) return;
   if (takeFor(selected)?.sound !== takeFor(id)?.sound) { closeEditor(); document.querySelectorAll('audio').forEach(p => p.pause()); }
-  selected = id; remember('selected', id); remember('version-' + takeFor(id).id, id);
-  currentJob = takeFor(id).job?.id; $('empty').hidden = true; renderBatch(); renderGeneration(); renderLibrary();
+  selected = id; submissionError = ''; remember('selected', id); remember('version-' + takeFor(id).id, id);
+  currentJob = takeFor(id).job?.id; remember('current-job', currentJob ?? null); $('empty').hidden = true; renderBatch(); renderGeneration(); renderLibrary();
 }
 function updateSelected() {
   for (const row of document.querySelectorAll('[data-clip]')) {
@@ -292,20 +404,21 @@ function renderLibrary() {
 }
 $('search').oninput = renderLibrary; $('human-filter').onchange = renderLibrary;
 function renderGeneration() {
-  const sound = reviewBatchId ? batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey)?.sound_id : takeFor(selected)?.sound;
-  const active = jobs.find(job => ['running', 'canceling'].includes(job.status) && (!sound || (job.sound_id ?? job.id) === sound));
-  const job = jobs.find(j => j.id === currentJob) ?? active ?? (!sound ? [...jobs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] : undefined);
+  const current = jobs.find(j => j.id === currentJob);
+  const sound = reviewBatchId ? batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey)?.sound_id : (current?.sound_id ?? current?.id ?? takeFor(selected)?.sound);
+  const active = !submitting && (!submissionError || current) && jobs.find(job => ['running', 'canceling'].includes(job.status) && (job.sound_id ?? job.id) === sound);
+  const job = active ?? current;
   const working = submitting || Boolean(active);
-  $('generate').disabled = working; $('generate').textContent = submitting ? 'Submitting…' : active ? 'Generation in progress…' : 'Generate 5 local takes';
-  $('generation-progress').hidden = !submitting && (!job || !active && job.status === 'completed'); $('generation-spinner').hidden = !working;
+  $('generate').disabled = submitting || jobs.some(j => ['running', 'canceling'].includes(j.status)); $('generate').textContent = submitting ? 'Submitting…' : active ? 'Generation in progress…' : 'Generate 5 local takes';
+  $('generation-progress').hidden = !submitting && !submissionError && !job; $('generation-spinner').hidden = !working;
   const stages = { queued: 'Starting your request…', planning: 'Preparing prompt variations…', setup: 'Preparing generation…', generating: 'Generating your sound…', analyzing: 'Checking audio…', cutting: 'Preparing your clip…', evaluating: 'Checking the prepared clip…', retry_pending: 'Preparing another attempt…' };
   const outcomes = { completed: job?.candidate_ids?.length ? 'Generation finished — listen to your take' : 'Generation finished — no audio available', failed: 'Generation failed', canceled: 'Generation canceled', interrupted: 'Generation interrupted — review required', exhausted: 'Budget reached — review saved takes' };
-  const stage = submitting ? 'Submitting request…' : active ? active.status === 'canceling' ? 'Stopping generation…' : stages[active.progress] ?? 'Working on your sound…' : outcomes[job?.status] ?? '';
+  const stage = submitting ? 'Submitting request…' : submissionError && !job ? 'Request needs attention' : active ? active.status === 'canceling' ? 'Stopping generation…' : stages[active.progress] ?? 'Working on your sound…' : outcomes[job?.status] ?? (job ? 'Request queued…' : '');
   if ($('generation-stage').textContent !== stage) $('generation-stage').textContent = stage;
-  const shown = active ?? job;
+  const shown = submitting || submissionError && !job ? undefined : job;
   const elapsed = shown ? Math.max(0, Math.floor(((shown.finished_at ? Date.parse(shown.finished_at) : Date.now()) - Date.parse(shown.started_at)) / 1000)) : 0;
-  $('generation-detail').textContent = submitting ? 'Saving your request. Please wait.' : shown ? `Variant ${(shown.variant_index ?? 0) + 1}/${shown.provider === "elevenlabs" ? 1 : 5} · attempt ${shown.attempts?.at(-1)?.number ?? 1}/${shown.provider === "elevenlabs" ? 1 : 3} · ${elapsed}s elapsed` : '';
-  $('generation-prompt').textContent = shown?.input.request.prompt ?? ''; $('generation-error').textContent = shown?.error || shown?.status === 'failed' ? 'Generation did not complete. Any saved audio remains available below.' : '';
+  $('generation-detail').textContent = submitting ? 'Saving your request. Please wait.' : shown ? `Take ${(shown.variant_index ?? 0) + 1}/${shown.provider === "elevenlabs" ? 1 : 5} · attempt ${shown.attempts?.at(-1)?.number ?? 1}/${shown.provider === "elevenlabs" ? 1 : 3} · ${elapsed}s elapsed` : '';
+  $('generation-prompt').textContent = submitting || submissionError && !job ? submissionPrompt : shown?.input.request.prompt ?? ''; $('generation-error').textContent = submissionError || (shown?.error || shown?.status === 'failed' ? 'Generation did not complete. Any saved audio remains available below. See Settings diagnostics for details.' : '');
   $('active-link').hidden = !active || view === 'listen'; $('cancel-generation').hidden = !active; $('cancel-generation').disabled = active?.status === 'canceling';
   $('cancel-generation').onclick = () => runButton($('cancel-generation'), async () => { await api(`jobs/${active.id}/cancel`, {}); await refresh(); });
   const signature = `${shown?.id}:${shown?.status}`;
@@ -325,6 +438,7 @@ async function refreshQa() {
 }
 async function refresh() {
   const [nextJobs, nextCandidates, nextSelections, nextBatches] = await Promise.all([api('jobs'), api('candidates'), api('selections'), api('batches'), refreshQa()]);
+  if (currentJob) submissionError = '';
   batchReviews = nextBatches;
   selections = nextSelections;
   const changed = JSON.stringify(candidates) !== JSON.stringify(nextCandidates); jobs = nextJobs; candidates = nextCandidates; takes = groupTakes(candidates, jobs);
@@ -382,13 +496,15 @@ async function useTake(c) {
 }
 function renderBatch() {
   const item = batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey);
-  const sound = item?.sound_id ?? takeFor(selected)?.sound ?? jobs.find(j => j.id === currentJob)?.sound_id;
-  const box = $('batch-results'); if (!sound) return;
+  const current = jobs.find(j => j.id === currentJob);
+  const sound = submitting || submissionError && !current ? undefined : item?.sound_id ?? current?.sound_id ?? current?.id ?? takeFor(selected)?.sound;
+  const box = $('batch-results');
+  if (!sound) { closeEditor(); box.querySelectorAll('audio').forEach(p => p.pause()); box.replaceChildren(); delete box.dataset.sound; $('sound-title').textContent = ''; $('sound-actions').replaceChildren(); delete $('sound-actions').dataset.sound; $('empty').hidden = submitting || Boolean(submissionError); return; }
   if (box.dataset.sound !== sound) { closeEditor(); box.querySelectorAll('audio').forEach(p => p.pause()); box.replaceChildren(); box.dataset.sound = sound; }
-  $('empty').hidden = true; $('sound-title').textContent = soundName(sound);
+  $('empty').hidden = true; $('sound-title').textContent = item ? soundName(sound) : jobs.find(j => (j.sound_id ?? j.id) === sound)?.input.request.prompt.split('\n')[0] ?? soundName(sound);
   if ($('sound-actions').dataset.sound !== sound) {
-    const actions = $('sound-actions'); actions.dataset.sound = sound; actions.replaceChildren();
-    if (!item) { const take = takes.find(t => t.sound === sound); if (take) button('Generate more', actions, () => anotherTake(take)); button('Edit prompt', actions, () => { const c = takes.find(t => t.sound === sound)?.records[0]; if (c) { $('prompt').value = c.evidence.generation.request.prompt; $('duration').value = c.evidence.generation.request.duration_seconds; $('loop').checked = [...jobs].filter(j => j.sound_id === sound || j.id === sound).sort((a,b) => a.started_at.localeCompare(b.started_at)).at(-1)?.input.request.loop === true; remember('loop', $('loop').checked); } composeParent = takes.find(t => t.sound === sound)?.job?.id; navigate('create'); $('prompt').focus(); }, local); }
+    const actions = $('sound-actions'); actions.dataset.sound = item || takes.some(t => t.sound === sound) ? sound : ''; actions.replaceChildren();
+    if (!item) { const take = takes.find(t => t.sound === sound); if (take) { button('Generate more', actions, () => anotherTake(take)); button('Edit prompt', actions, () => { const c = takes.find(t => t.sound === sound)?.records[0]; if (c) { $('prompt').value = c.evidence.generation.request.prompt; $('duration').value = c.evidence.generation.request.duration_seconds; $('loop').checked = [...jobs].filter(j => j.sound_id === sound || j.id === sound).sort((a,b) => a.started_at.localeCompare(b.started_at)).at(-1)?.input.request.loop === true; remember('loop', $('loop').checked); } composeParent = takes.find(t => t.sound === sound)?.job?.id; navigate('create'); $('prompt').focus(); }, local); } }
   }
   const winner = selections.find(s => s.sound_id === sound)?.candidate_sha256;
   let best = box.querySelector('[data-best]'); if (!best) best = node('section', undefined, box, { 'data-best': '', class: 'selected-winner' });
@@ -485,22 +601,32 @@ const generateMore = b => {
 };
 $('batch-edit').onsubmit = event => { event.preventDefault(); generateMore($('batch-regenerate')); };
 $('batch-generate-more').onclick = () => generateMore($('batch-generate-more'));
+function showSubmission(input) {
+  submitting = true; submissionError = ''; submissionPrompt = (recall('submission', null)?.input ?? input).request.prompt;
+  selected = undefined; currentJob = undefined; remember('selected', null); remember('current-job', null);
+  $('compose-error').textContent = '';
+  if (view === 'create') navigate('listen');
+  renderBatch(); renderGeneration();
+}
 async function submitInput(input, intent) {
-  if (submitting) return; const requestedView = view; submitting = true; $('compose-error').textContent = ''; renderGeneration();
+  if (submitting) return; const requestedView = view; showSubmission(input);
   const previous = recall('submission', null); const pending = previous ?? { key: uid(), input, intent }; remember('submission', pending);
-  try { const job = await api('jobs', pending.input, pending.key); localStorage.removeItem('studio-submission'); currentJob = job.id; remember('current-job', job.id); jobs = [job, ...jobs.filter(j => j.id !== job.id)]; submitting = false; if (view === requestedView && ['create', 'listen'].includes(view)) navigate('listen'); await refresh(); if (!['running', 'canceling'].includes(job.status) && job.result?.candidate_sha256) await select(job.result.candidate_sha256); say('Request saved. Refresh safely to reconnect.'); }
-  catch (error) { if ([400, 403, 409, 415, 422, 429].includes(error.status)) localStorage.removeItem('studio-submission'); $('compose-error').textContent = error.message; $('generation-error').textContent = error.message; throw error; } finally { submitting = false; renderGeneration(); }
+  try { const job = await api('jobs', pending.input, pending.key); localStorage.removeItem('studio-submission'); currentJob = job.id; remember('current-job', job.id); jobs = [job, ...jobs.filter(j => j.id !== job.id)]; submitting = false; renderBatch(); renderGeneration(); if (view === requestedView && ['create', 'listen'].includes(view) && view !== 'listen') navigate('listen'); await refresh(); if (!['running', 'canceling'].includes(job.status) && job.result?.candidate_sha256) await select(job.result.candidate_sha256); say('Request saved. Refresh safely to reconnect.'); }
+  catch (error) { if ([400, 403, 409, 415, 422, 429].includes(error.status)) localStorage.removeItem('studio-submission'); submissionError = currentJob ? `Request saved, but progress could not refresh. Reconnect to continue. ${error.message}` : error.message; $('compose-error').textContent = submissionError; throw error; } finally { submitting = false; renderGeneration(); renderBatch(); }
 }
 $('compose').onsubmit = event => { event.preventDefault(); if ($('generate').disabled) return;
   const prompt = [$('prompt').value, $('events').value ? `Intended event count: ${$('events').value}.` : '', $('constraints').value.trim() ? `Constraints: ${$('constraints').value.trim()}` : ''].filter(Boolean).join('\n');
   const input = { provider: 'local', ...(composeParent ? { sound_parent_id: composeParent } : {}), request: { prompt, duration_seconds: Number($('duration').value), loop: $('loop').checked, ...($('seed').value ? { seed: Number($('seed').value) } : {}) } };
-  submitting = true; renderGeneration(); action(async () => { submitting = false; await submitInput(input, 'compose'); });
+  showSubmission(input); action(async () => { submitting = false; await submitInput(input, 'compose'); });
 };
 async function connect() {
   const response = await fetch('/studio/session', { headers: { 'X-Studio-Bootstrap': '1' } }); if (!response.ok) throw new Error('Local session unavailable'); csrf = (await response.json()).csrf;
-  currentJob = recall('current-job', null); await refresh(); await loadFeedback(); renderLibrary();
-  const id = recall('selected', null); if (!reviewBatchId && candidates.some(c => c.candidate_sha256 === id)) await select(id);
-  const next = location.hash.slice(1) || recall('view', 'create'); navigate(next, false); if (reviewBatchId) await openReviewSound($('batch-sound').value); $('reconnect').hidden = true; say('Connected · saved locally');
+  const next = location.hash.slice(1) || 'create';
+  currentJob = next === 'listen' ? recall('current-job', null) : undefined; await refresh(); await loadFeedback(); renderLibrary();
+  const active = jobs.find(j => ['running', 'canceling'].includes(j.status));
+  if (!reviewBatchId && active) { currentJob = active.id; selected = undefined; remember('current-job', active.id); remember('selected', null); }
+  const id = recall('selected', null); if (!reviewBatchId && !active && next === 'listen' && !currentJob && candidates.some(c => c.candidate_sha256 === id)) await select(id);
+  navigate(next, false); renderGeneration(); renderBatch(); if (reviewBatchId) await openReviewSound($('batch-sound').value); $('reconnect').hidden = true; say('Connected · saved locally');
   const batchPending = recall('batch-submission', null); if (batchPending) await batchMutation(batchPending);
   const pending = recall('submission', null); if (pending) await submitInput(pending.input, pending.intent);
   else { const job = jobs.find(j => j.id === currentJob); if (!selected && view === 'listen' && job?.result?.candidate_sha256) await select(job.result.candidate_sha256); }

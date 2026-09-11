@@ -8,7 +8,12 @@ if (!root.startsWith(resolve('.runtime/studio-ui-'))) throw new Error('Owned fix
 // This injected backend handles every provider; the dummy key only enables the UI.
 process.env.ELEVEN_KEY = 'isolated-fixture-not-a-real-key';
 await mkdir('.test-artifacts', { recursive: true });
-const backend = { async start() {}, async stop() {}, async reset() {}, async unload() {}, async generate(request) { await new Promise(r => setTimeout(r, 3000)); const one = wavFixture(); const frames = Math.round(request.duration_seconds * 44100); const bytes = Buffer.alloc(44 + frames * 4); one.copy(bytes, 0, 0, 44); for (let i = 0; i < frames * 4; i++) bytes[44 + i] = one[44 + i % (one.length - 44)]; bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(frames * 4, 40); return bytes; } };
+const backend = { async start() {}, async stop() {}, async reset() {}, async unload() {}, async generate(request) { await new Promise(r => setTimeout(r, 3000)); const one = wavFixture(); const frames = Math.round(request.duration_seconds * 44100); const bytes = Buffer.alloc(44 + frames * 4); one.copy(bytes, 0, 0, 44); for (let i = 0; i < frames * 4; i++) bytes[44 + i] = one[44 + i % (one.length - 44)]; if (process.argv.includes('--waveform')) {
+  for (let i = 0; i < frames; i++) {
+    const t = i / 44100, amplitude = t < 0.3 ? 0 : t < 1 || t > 2 ? 0.025 : 0.4;
+    for (let channel = 0; channel < 2; channel++) bytes.writeInt16LE(Math.round(32767 * (i === 22050 + channel * 11025 ? (channel ? -0.69 : 0.69) : amplitude * Math.sin(2 * Math.PI * (440 + channel * 110) * t))), 44 + i * 4 + channel * 2);
+  }
+} bytes.writeUInt32LE(bytes.length - 8, 4); bytes.writeUInt32LE(frames * 4, 40); return bytes; } };
 const studio = await createStudio({ root, token: 'isolated-ui-fixture', port: Number(process.argv[3] ?? 0), computePort: 0, fixture: true, backend, setup: async () => {}, preparePrompts: async intent => ({ version: 'prompt-plan-v2', intent, status: 'completed', error: null, model: 'synthetic-test', instructions_sha256: 'a'.repeat(64), generation_prompts: Array.from({length: 5}, (_, i) => `Synthetic tone variation ${i + 1}`) }) });
 if (!studio.jobs.list().length) {
   const input = { request: { prompt: 'Synthetic studio review tone', duration_seconds: 3 } };

@@ -42,7 +42,7 @@ test('generation feedback follows submission, running stages and terminal outcom
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
   const elements = Object.fromEntries(['generation-progress', 'generation-stage', 'generation-detail', 'generation-spinner', 'generate', 'generation-prompt', 'generation-error', 'active-link', 'cancel-generation', 'recovery'].map(id => [id, { dataset: {}, replaceChildren() {}, setAttribute(key, value) { this[key] = value; } }]));
   const context = vm.createContext({ $: id => elements[id], Date, node() {}, button() {} });
-  vm.runInContext(`let jobs = [], submitting = false, currentJob, view = 'create', reviewBatchId, batchReviews = [], selected; const takeFor = () => null; ${source.slice(source.indexOf('function renderGeneration('), source.indexOf('async function refreshQa()'))}`, context);
+  vm.runInContext(`let jobs = [], submitting = false, submissionError = '', submissionPrompt = '', currentJob = 'a', view = 'create', reviewBatchId, batchReviews = [], selected; const takeFor = () => ({sound:'old-sound'}); ${source.slice(source.indexOf('function renderGeneration('), source.indexOf('async function refreshQa()'))}`, context);
   const render = code => vm.runInContext(`${code}; renderGeneration();`, context);
   render('');
   assert.equal(elements['generation-progress'].hidden, true);
@@ -50,6 +50,8 @@ test('generation feedback follows submission, running stages and terminal outcom
   assert.equal(elements.generate.disabled, true);
   render(`submitting = false; jobs = [{ id: 'a', status: 'running', progress: 'generating', started_at: new Date(Date.now() - 12000).toISOString(), attempts: [{number: 2}], input: { request: { prompt: 'Tone' }, budget: { attempts: 3 } }, candidate_ids: [] }]`);
   assert.equal(elements['generation-spinner'].hidden, false);
+  assert.equal(elements['generation-stage'].textContent, 'Generating your sound…');
+  assert.equal(elements['generation-prompt'].textContent, 'Tone');
   render("jobs[0].progress = 'evaluating'");
   render("jobs[0].status = 'canceling'");
   assert.equal(elements.generate.disabled, true);
