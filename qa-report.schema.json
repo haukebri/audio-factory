@@ -100,6 +100,46 @@
         }
       }
     },
+    "loop": {
+      "type": "object",
+      "required": [
+        "processing_version",
+        "start_sample",
+        "end_sample",
+        "split_sample",
+        "overlap_frames",
+        "output_frames",
+        "native_provider_loop"
+      ],
+      "properties": {
+        "processing_version": {
+          "type": "string"
+        },
+        "start_sample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_sample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "split_sample": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "overlap_frames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_frames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "native_provider_loop": {
+          "type": "boolean"
+        }
+      }
+    },
     "normalization": {
       "type": "object",
       "additionalProperties": false,

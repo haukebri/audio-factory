@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { config, type Request, root, sleep, validateRequest } from "./config.js";
+import { config, type Request, root, sleep, validateRequest, localGenerationPrompt } from "./config.js";
 import { acquireCompute, processIdentity, recoverBackend } from "./ownership.js";
 
 export type Backend = {
@@ -90,7 +90,7 @@ export class GgufBackend implements Backend {
       `${this.source}/build-metal/bin/sa3-generate`,
       [
         ...["--cond", "--dit", "--same", "--t5", "--tok"].flatMap((flag, i) => [flag, `${this.source}/models/${config.models[i]!.file}`]),
-        "--prompt", request.prompt,
+        "--prompt", localGenerationPrompt(request),
         "--duration", String(request.duration_seconds),
         "--seed", String(request.seed),
         "--steps", String(config.steps),

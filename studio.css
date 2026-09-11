@@ -137,3 +137,9 @@ button[aria-busy=true] { cursor: progress; }
 #review-batches h2 { flex-basis:100%; }
 .reviewing-batch .composer { display:none; }
 .reviewing-batch .layout { grid-template-columns:minmax(0,1fr); }
+
+.loop-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.loop-badge { display: inline-block; padding: 2px 9px; margin-bottom: 8px; border: 1px solid var(--primary); border-radius: 4px; color: var(--primary); font-size: 13px; font-weight: 650; }
+
+.generation-options { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; }
+.generation-options .loop-choice { margin-bottom: 0; }

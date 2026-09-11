@@ -82,3 +82,32 @@ if (process.argv[2] === '--crash') {
     } finally {await studio.close();await rm(root,{recursive:true,force:true});}
   });
 }
+
+if (process.argv[2] !== '--crash') test('queued loop edits resolve inheritance serially and keep explicit off through restart', async () => {
+  const root = await mkdtemp(resolve('.runtime/batch-loop-intent-'));
+  const seen = new Map();
+  const settings = { ...options(root), execute: async job => { seen.set(job.id, job.input.request.loop ?? false); return { outcome: 'needs_review' }; } };
+  let studio = await createStudio(settings);
+  try {
+    const value = { name: 'Loop fixture', sounds: [{ key: 'rain', prompt: 'Rain', duration_seconds: 5, loop: true }] };
+    const batch = await studio.batches.submit('loop-batch', value);
+    await until(() => studio.batches.get(batch.id).status === 'awaiting_review');
+    assert.equal([...seen.values()][0], true);
+    await studio.batches.pause(batch.id, true);
+    const edit = { prompt: 'Forest', duration_seconds: 5 };
+    await Promise.all([
+      studio.batches.revise(batch.id, 'rain', 'off', { ...edit, loop: false }),
+      studio.batches.revise(batch.id, 'rain', 'inherit-off', edit),
+    ]);
+    const operations = studio.batches.get(batch.id).sounds[0].operations;
+    assert.equal(operations[1].input.request.loop, false);
+    assert.equal(operations[2].input.request.loop, false);
+    await assert.rejects(studio.batches.revise(batch.id, 'rain', 'off', { ...edit, loop: true }), /conflict/);
+    await studio.close(); studio = await createStudio(settings);
+    await studio.batches.revise(batch.id, 'rain', 'inherit-off', edit);
+    await studio.batches.pause(batch.id, false);
+    await until(() => studio.batches.get(batch.id).status === 'awaiting_review');
+    assert.deepEqual([...seen.values()], [true, false, false]);
+    assert.equal(studio.batches.get(batch.id).sounds[0].operations.length, 3);
+  } finally { await studio.close(); await rm(root, { recursive: true, force: true }); }
+});

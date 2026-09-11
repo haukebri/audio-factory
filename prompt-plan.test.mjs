@@ -116,3 +116,16 @@ test('local duration supports 60 seconds while cloud rejects before submission',
   assert.throws(() => workflowInput({ ...input, provider: 'elevenlabs' }), /maximum of 30/);
   assert.throws(() => workflowInput({ request: { ...input.request, duration_seconds: 61 } }), /Invalid workflow request/);
 });
+
+test('loop guidance reaches prompt planning while the original wording remains separate', async () => {
+  const intent = 'Rain on leaves';
+  const prompts = ['Soft', 'Steady', 'Dense', 'Quiet'].map(p => `TrackType: SFX, ${p} rain on leaves`);
+  const plan = await preparePromptPlan(intent, { loop: true, request: async (_, input) => {
+    const body = JSON.parse(input.body);
+    assert.match(body.messages[0].content, /Loop requested: Continuous repeatable ambience/);
+    assert.equal(body.messages[1].content, intent);
+    return Response.json({ done: true, message: { content: JSON.stringify({ generation_prompts: prompts }) } });
+  } });
+  assert.equal(plan.intent, intent);
+  assert.equal(plan.generation_prompts[0], intent);
+});

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { createFactory } from "./dist/service.js";
 import { wavFixture as wav } from "./wav-fixture.mjs";
@@ -261,4 +261,41 @@ test("CLI port contention and failed local setup preserve the prior session and 
     await rm(root, { recursive: true, force: true });
     console.log(`Removed startup fixture: ${root}`);
   }
+});
+
+test('loop API intent preserves old non-loop identities and routes default cuts through loop processing', async () => {
+  const root = await mkdtemp(resolve('.runtime/audio-loop-api-'));
+  const received = [];
+  const options = { root, token: 'test', backend: {
+    async generate(request) { received.push(request); return wav(); }, async reset() {}, async unload() {},
+  } };
+  let factory = await createFactory(options);
+  const listen = async () => { await new Promise(resolve => factory.server.listen(0, '127.0.0.1', resolve)); return `http://127.0.0.1:${factory.server.address().port}`; };
+  let origin = await listen();
+  const post = (path, input, key) => fetch(origin + path, { method: 'POST', headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(input) });
+  const input = { prompt: 'Rain fixture', duration_seconds: 1, seed: 42 };
+  try {
+    const old = await post('/v1/sound-effects', input, 'old'); await old.arrayBuffer();
+    assert.equal((await post('/v1/sound-effects', { ...input, loop: false }, 'old')).status, 200);
+    assert.equal((await post('/v1/sound-effects', { ...input, loop: true }, 'old')).status, 409);
+    const response = await post('/v1/sound-effects', { ...input, loop: true }, 'loop');
+    assert.equal(response.status, 200); await response.arrayBuffer();
+    const id = response.headers.get('x-run-id');
+    const run = JSON.parse(await readFile(join(root, 'out/runs', id, 'run.json'), 'utf8'));
+    assert.equal(run.request.prompt, input.prompt);
+    assert.equal(run.request.loop, true);
+    assert.match(run.generation_prompt, /Continuous repeatable ambience/);
+    assert.equal(received[1].loop, true);
+    const cut = await post(`/v1/runs/${id}/cuts`, {});
+    const cutBytes = Buffer.from(await cut.arrayBuffer()); assert.equal(cut.status, 200, cutBytes.toString());
+    const { readdir } = await import('node:fs/promises');
+    const [cutId] = await readdir(join(root, 'out/runs', id, 'cuts'));
+    const report = JSON.parse(await readFile(join(root, 'out/runs', id, 'cuts', cutId, 'report.json'), 'utf8'));
+    assert.equal(report.request.loop, true);
+    assert.equal(report.loop.output_frames, 33075);
+    await factory.close(); factory = await createFactory(options); origin = await listen();
+    assert.equal((await post('/v1/sound-effects', { ...input, loop: true }, 'loop')).status, 200);
+    assert.equal((await post('/v1/sound-effects', input, 'old')).status, 200);
+    assert.equal(received.length, 2);
+  } finally { await factory.close(); await rm(root, { recursive: true, force: true }); }
 });

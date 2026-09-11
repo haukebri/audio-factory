@@ -1,3 +1,4 @@
+import { decodeLoopWav, renderLoop, quantizeLoop } from "./loop-audio.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -350,6 +351,58 @@ test("QA retries preserve evidence, refresh bundles and renew the idle deadline"
   } finally {
     t.mock.restoreAll();
     config.idle_ms = previousIdle;
+    await factory.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('loop cuts export the rotated PCM with immutable source and accurate duration', async () => {
+  const directory = await mkdtemp(`${root}/.runtime/qa-loop-`);
+  const source = wavFixture(() => true, 1);
+  const factory = await createFactory({ root: directory, token: 'test', backend: {
+    async generate() { return source; }, async reset() {}, async unload() {},
+  } });
+  try {
+    await new Promise(resolve => factory.server.listen(0, '127.0.0.1', resolve));
+    const response = await fetch(`http://127.0.0.1:${factory.server.address().port}/v1/sound-effects`, {
+      method: 'POST', headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Synthetic loop fixture', duration_seconds: 1 }),
+    });
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+    const id = response.headers.get('x-run-id');
+    const request = { loop: true, start_seconds: 0, end_seconds: 1, crossfade_seconds: 0.1 };
+    const report = await qaOperation(directory, id, 'cuts', request);
+    assert.equal(report.status, 'completed', report.error);
+    const audio = await readFile(report.delivery.audio);
+    assert.equal(inspectWav(audio).seconds, 0.9);
+    const buffer = bytes => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const decoded = decodeLoopWav(buffer(source));
+    const preview = quantizeLoop(renderLoop(decoded.samples, decoded.sampleRate, decoded.channels, request).samples);
+    const savedPcm = decodeLoopWav(buffer(audio)).samples;
+    assert.equal(savedPcm.length, preview.length);
+    assert.equal(savedPcm.findIndex((value, i) => value !== preview[i]), -1, 'browser preview matches every exported PCM16 sample');
+    assert.equal(report.loop.output_frames, 39690);
+    assert.equal(report.loop.overlap_frames, 4410);
+    assert.equal(report.bounds.fade_seconds, 0);
+    const metadata = JSON.parse(await readFile(report.delivery.metadata, 'utf8'));
+    assert.equal(verifyExport(metadata, audio, () => source).duration_seconds, 0.9);
+    assert.deepEqual(await readFile(`${directory}/out/runs/${id}/audio.wav`), source);
+    const again = await qaOperation(directory, id, 'cuts', request);
+    assert.equal(again.id, report.id);
+    assert.deepEqual(await readFile(again.delivery.audio), audio);
+    // Compare the PCM end/start transition across three exported repetitions with the original adjacent frames.
+    const dataOffset = audio.indexOf(Buffer.from('data')) + 8;
+    const pcm = audio.subarray(dataOffset);
+    const repeated = Buffer.concat([pcm, pcm, pcm]);
+    const gain = 10 ** (report.loop.gain_db / 20);
+    for (const boundary of [pcm.length, pcm.length * 2]) {
+      for (const [offset, frame] of [[-4, 22049], [0, 22050]]) {
+        const expected = source.readInt16LE(44 + frame * 4) * gain;
+        assert.ok(Math.abs(repeated.readInt16LE(boundary + offset) - expected) <= 1);
+      }
+    }
+  } finally {
     await factory.close();
     await rm(directory, { recursive: true, force: true });
   }

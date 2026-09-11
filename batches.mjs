@@ -9,8 +9,8 @@ const keyPattern = /^[a-zA-Z0-9_-]{1,128}$/;
 const durationOptions = [5, 10, 20, 30, 60];
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 function request(input) {
-  if (!plain(input) || Object.keys(input).some(k => !['prompt', 'duration_seconds'].includes(k)) || !validateRequest(input)) fail(400, 'Expected prompt and duration_seconds');
-  const result = { prompt: input.prompt, duration_seconds: input.duration_seconds ?? 5 };
+  if (!plain(input) || Object.keys(input).some(k => !['prompt', 'duration_seconds', 'loop'].includes(k)) || !validateRequest(input)) fail(400, 'Expected prompt, duration_seconds and optional boolean loop');
+  const result = { prompt: input.prompt, duration_seconds: input.duration_seconds ?? 5, ...(input.loop ? { loop: true } : {}) };
   if (!durationOptions.includes(result.duration_seconds)) fail(400, 'Duration must be 5, 10, 20, 30 or 60 seconds');
   return result;
 }
@@ -93,14 +93,15 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
     checkKey(key);
     return serial(async () => {
       const original = get(id), sound = item(original, assetKey);
-      const signature = hash(JSON.stringify(value));
+      const effective = typeof value === "function" ? value(sound) : value;
+      const signature = hash(JSON.stringify(effective));
       const existing = original.sounds.flatMap(s => s.operations).find(o => o.idempotency_key === key);
       if (existing) {
         if (existing.signature !== signature || !sound.operations.includes(existing)) fail(409, 'Idempotency key conflict');
         return describe(original);
       }
       const batch = structuredClone(original), target = item(batch, assetKey);
-      const input = build(target);
+      const input = build(target, effective);
       workflowInput(input);
       target.operations.push(operation(id, batch.sounds.indexOf(target), target.operations.length, input, key, signature));
       await persist(batch); tick(); return describe(batch);
@@ -120,19 +121,24 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
       });
     },
     revise(id, assetKey, key, input) {
-      const value = request(input);
-      return append(id, assetKey, key, { kind: 'revise', request: value }, sound => {
+      request(input);
+      return append(id, assetKey, key, sound => {
+        const accepted = sound.operations.find(o => o.idempotency_key === key);
+        const inherited = (accepted ?? sound.operations.at(-1)).input.request.loop ?? false;
+        return { kind: 'revise', request: request({ ...input, loop: input.loop ?? inherited }) };
+      }, (sound, value) => {
         if (!jobs.get(soundId(sound))) fail(409, 'Wait for the first generation to start');
-        return { request: value, provider: 'local', sound_parent_id: soundId(sound) };
+        return { request: { ...value.request, loop: value.request.loop === true }, provider: 'local', sound_parent_id: soundId(sound) };
       });
     },
     recreate(id, assetKey, key, input) {
-      if (!plain(input) || Object.keys(input).join() !== 'candidate_sha256' || typeof input.candidate_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.candidate_sha256)) fail(400, 'Expected candidate_sha256');
-      return append(id, assetKey, key, { kind: 'recreate', ...input }, sound => {
-        const c = jobs.store.loadCandidate(input.candidate_sha256);
+      if (!plain(input) || Object.keys(input).some(k => !['candidate_sha256', 'loop'].includes(k)) || (input.loop !== undefined && typeof input.loop !== 'boolean') || typeof input.candidate_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.candidate_sha256)) fail(400, 'Expected candidate_sha256');
+      const c = jobs.store.loadCandidate(input.candidate_sha256);
+      const loop = input.loop ?? c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false;
+      return append(id, assetKey, key, { kind: 'recreate', candidate_sha256: input.candidate_sha256, ...(loop ? { loop: true } : {}) }, sound => {
         const owner = jobs.list().find(j => j.candidate_ids.includes(c.candidate_sha256) || j.attempts?.some(a => a.id === c.attempt_id));
         if (!owner || (owner.sound_id ?? owner.id) !== soundId(sound)) fail(400, 'Candidate does not belong to this batch sound');
-        return { provider: 'elevenlabs', request: { prompt: c.evidence.generation.request.prompt, duration_seconds: c.evidence.generation.request.duration_seconds }, recreation_parent: c.candidate_sha256 };
+        return { provider: 'elevenlabs', request: { prompt: c.evidence.generation.request.prompt, duration_seconds: c.evidence.generation.request.duration_seconds, loop }, recreation_parent: c.candidate_sha256 };
       });
     },
     pause(id, paused) {
@@ -149,7 +155,8 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
         const selected = selection(s), c = jobs.store.loadCandidate(selected.candidate_sha256), cut = c.evidence.cut;
         return { key: s.key, candidate_sha256: c.candidate_sha256, selection_event_id: selected.event_id,
           audio_sha256: cut?.audio_sha256 ?? c.evidence.generation.audio_sha256,
-          duration_seconds: cut ? (cut.bounds.end_sample - cut.bounds.start_sample) / cut.bounds.sample_rate : c.evidence.generation.audio.seconds,
+          duration_seconds: cut ? (cut.loop?.output_frames ?? (cut.bounds.end_sample - cut.bounds.start_sample)) / cut.bounds.sample_rate : c.evidence.generation.audio.seconds,
+          loop: cut ? cut.request.loop === true : c.evidence.generation.request.loop === true,
           prompt: c.evidence.generation.request.prompt, requested_duration_seconds: c.evidence.generation.request.duration_seconds,
           audio_url: `${origin}/studio/candidates/${c.candidate_sha256}/${cut ? 'audio' : 'source'}`,
           export_url: `${origin}/studio/candidates/${c.candidate_sha256}/export` };

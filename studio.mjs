@@ -16,7 +16,7 @@ async function body(req, limit = 16384) {
   try { return JSON.parse(Buffer.concat(chunks)); } catch { fail(400, 'Malformed JSON'); }
 }
 export async function createStudio({ port = 8767, ...options }) {
-  const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
+  const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/loop-audio.mjs', 'loop-audio.mjs', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
   let jobs, batches;
   let closing;
   const sessions = new Map();
@@ -100,7 +100,7 @@ export async function createStudio({ port = 8767, ...options }) {
         if (req.method === 'GET' && !action) { json(res, 200, candidate); return; }
         if (req.method === 'GET' && action === 'selection-history') { json(res, 200, jobs.selectionHistory(id)); return; }
         if (req.method === 'POST' && action === 'select') { json(res, 200, jobs.selectTake(id, await body(req))); return; }
-        if (req.method === 'POST' && action === 'recreate') { await body(req); json(res, 202, await jobs.recreate(id, req.headers['idempotency-key'])); return; }
+        if (req.method === 'POST' && action === 'recreate') { const input = await body(req); json(res, 202, await jobs.recreate(id, req.headers['idempotency-key'], input)); return; }
         if (req.method === 'POST' && action === 'cut') { json(res, 200, await jobs.cut(id, await body(req))); return; }
         if (action === 'feedback') {
           if (req.method === 'GET') { json(res, 200, jobs.store.history(id)); return; }

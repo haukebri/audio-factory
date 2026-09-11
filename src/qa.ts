@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Ajv2020 } from "ajv/dist/2020.js";
@@ -33,6 +33,9 @@ export function qaRequest(kind: string, input: unknown) {
   const value = { kind, request: input };
   if (!validate(value)) throw new QaError(400, JSON.stringify(validate.errors));
   return input as {
+    loop?: boolean;
+    crossfade_seconds?: number;
+    curve?: "equal-power" | "equal-gain";
     normalize?: boolean;
     peak_db?: number;
     clap?: boolean;
@@ -50,10 +53,11 @@ async function save(path: string, value: unknown) {
   await rename(`${path}.tmp`, path);
 }
 export async function qaOperation(root: string, runId: string, kind: string, input: unknown) {
-  const request = qaRequest(kind, input);
+  let request = qaRequest(kind, input);
   const deadline = Date.now() + settings.timeout_ms;
   const runPath = join(root, "out", "runs", runId);
   const run = JSON.parse(await readFile(join(runPath, "run.json"), "utf8"));
+  if (kind === "cuts" && request.loop === undefined && run.request.loop === true) request = { ...request, loop: true };
   if (run.status !== "completed") throw new QaError(409, "Source run must be completed");
   const source = join(runPath, "audio.wav");
   const sourceHash = hash(await readFile(source));
@@ -66,6 +70,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
         readFile(`${factoryRoot}/export-lineage.mjs`),
         readFile(`${factoryRoot}/export.schema.json`),
         readFile(`${factoryRoot}/dist/qa.js`),
+        ...(request.loop ? [readFile(`${factoryRoot}/loop-audio.mjs`)] : []),
       ]),
     ),
   );
@@ -125,7 +130,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
     return JSON.parse(stdout);
   };
   let bounds: { start: number; end: number } | undefined;
-  if (kind === "cuts") {
+  if (kind === "cuts" && !request.loop) {
     const region =
       request.start_seconds === undefined
         ? ((await runAnalysis()).regions[0] as
@@ -161,6 +166,41 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
   try {
     if (kind === "analyses") {
       report.result = await runAnalysis();
+    } else if (request.loop) {
+      const modulePath = `${factoryRoot}/loop-audio.mjs`;
+      const { renderLoop, quantizeLoop } = await import(modulePath);
+      const { stdout: raw } = await execute("ffmpeg", ["-v", "error", "-nostdin", "-i", source, "-f", "f32le", "-"], {
+        encoding: "buffer", timeout: Math.max(1, deadline - Date.now()), maxBuffer: 32 * 1024 * 1024,
+      });
+      const samples = new Float32Array(raw.length / 4);
+      for (let i = 0; i < samples.length; i++) samples[i] = raw.readFloatLE(i * 4);
+      const rendered = renderLoop(samples, run.audio.sample_rate, run.audio.channels, {
+        ...request, peak_db: request.peak_db ?? settings.export_peak_db,
+        native_provider_loop: run.runtime?.backend === "elevenlabs" && run.settings?.loop === true,
+      });
+      const evidence = rendered.evidence;
+      const quantized = quantizeLoop(rendered.samples);
+      const pcm = Buffer.alloc(quantized.length * 2);
+      for (let i = 0; i < quantized.length; i++) pcm.writeInt16LE(quantized[i] * 32768, i * 2);
+      const temporary = join(directory, "loop.s16");
+      const output = join(directory, "audio.wav");
+      try {
+        await writeFile(temporary, pcm);
+        await execute("ffmpeg", ["-v", "error", "-nostdin", "-n", "-f", "s16le", "-ar", String(run.audio.sample_rate),
+          "-ac", String(run.audio.channels), "-i", temporary, "-c:a", "pcm_s16le", output], {
+          timeout: Math.max(1, deadline - Date.now()), killSignal: "SIGKILL",
+        });
+      } finally { await rm(temporary, { force: true }); }
+      report.loop = { ...evidence, native_provider_loop: run.runtime?.backend === "elevenlabs" && run.settings?.loop === true };
+      report.bounds = { region: null, start_sample: evidence.start_sample, end_sample: evidence.end_sample,
+        sample_rate: run.audio.sample_rate, fade_seconds: 0 };
+      report.normalization = { enabled: request.normalize !== false, target_peak_db: request.peak_db ?? settings.export_peak_db,
+        gain_db: evidence.gain_db, input_peak: evidence.input_peak };
+      report.ffmpeg = (await execute("ffmpeg", ["-version"], { timeout: Math.max(1, deadline - Date.now()) })).stdout.split("\n")[0];
+      report.result = await runAnalysis(output);
+      report.audio_sha256 = hash(await readFile(output));
+      report.audio_url = `/v1/runs/${runId}/cuts/${id}/audio`;
+      report.metadata_url = `/v1/runs/${runId}/cuts/${id}`;
     } else if (bounds) {
       const rate = run.audio.sample_rate;
       const seconds = (bounds.end - bounds.start) / rate;

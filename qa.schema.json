@@ -84,6 +84,9 @@
               "type": "string",
               "pattern": "^[a-zA-Z0-9_-]{1,128}$"
             },
+            "loop": { "type": "boolean" },
+            "crossfade_seconds": { "type": "number", "minimum": 0.05, "maximum": 2 },
+            "curve": { "enum": ["equal-power", "equal-gain"] },
             "normalize": {
               "type": "boolean"
             },

@@ -45,3 +45,26 @@ test('fresh takes persist sound membership and independent batches while retries
     assert.ok(![first, second, explicit].some(job => job.input.request.seed === afterReload.input.request.seed));
   } finally { await jobs.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('loop intent inherits on new takes, disables explicitly, and reattaches the accepted intent after restart', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'studio-loop-intent-'));
+  let calls = 0;
+  const options = { root, token: 'fixture', execute: async () => { calls++; return { outcome: 'needs_review' }; } };
+  let jobs = await openJobs(options);
+  const input = { provider: 'elevenlabs', request: { prompt: 'Rain', duration_seconds: 5, loop: true } };
+  try {
+    const first = await jobs.submit('first-loop', input); await jobs.wait();
+    const linked = { provider: 'elevenlabs', request: { prompt: 'Forest', duration_seconds: 5 }, sound_parent_id: first.id };
+    const second = await jobs.submit('inherit-loop', linked); await jobs.wait();
+    assert.equal(second.input.request.loop, true);
+    const off = await jobs.submit('b', { ...linked, request: { ...linked.request, loop: false } }); await jobs.wait();
+    assert.equal(off.input.request.loop ?? false, false);
+    assert.equal((await jobs.submit('inherit-loop', linked)).id, second.id);
+    await assert.rejects(jobs.submit('inherit-loop', { ...linked, request: { ...linked.request, loop: false } }), /conflict/);
+    await jobs.close(); jobs = await openJobs(options);
+    assert.equal((await jobs.submit('inherit-loop', linked)).id, second.id);
+    assert.equal(calls, 3);
+    const after = await jobs.submit('after-loop-restart', linked); await jobs.wait();
+    assert.equal(after.input.request.loop ?? false, false);
+  } finally { await jobs.close(); await rm(root, { recursive: true, force: true }); }
+});

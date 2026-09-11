@@ -81,3 +81,43 @@ test('studio delivers an normalized ElevenLabs take, exports provenance and reat
     assert.equal(calls, 1);
   } finally { await studio?.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('native loop requests preserve decoded duration and receipts without paid retries', async () => {
+  const root = await mkdtemp(resolve('.runtime/eleven-loop-'));
+  let studio, calls = 0;
+  try {
+    const path = join(root, 'fixture.mp3');
+    execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', path]);
+    const mp3 = await readFile(path);
+    const decoded = execFileSync('ffmpeg', ['-v', 'error', '-i', path, '-ar', '44100', '-ac', '2', '-f', 'f32le', '-']);
+    const backend = new ElevenLabsBackend({ root, key: () => 'fixture', fetch: async (_, options) => {
+      calls++;
+      assert.equal(JSON.parse(options.body).loop, true);
+      return new Response(mp3);
+    } });
+    const options = { root, token: 'test', port: 0, computePort: 0, fixture: true, backend, setup: async () => {} };
+    studio = await createStudio(options);
+    const input = { provider: 'elevenlabs', request: { prompt: 'Looped fixture', duration_seconds: 2, loop: true } };
+    const job = await studio.jobs.submit('native', input);
+    await studio.jobs.wait();
+    assert.equal(job.status, 'completed', job.error);
+    const candidate = studio.jobs.store.loadCandidate(job.result.candidate_sha256);
+    const generation = candidate.evidence.generation;
+    assert.equal(generation.request.loop, true);
+    assert.equal(generation.settings.loop, true);
+    assert.equal(generation.audio.seconds, decoded.length / 8 / 44100);
+    assert.equal(candidate.evidence.cut.loop.processing_version, 'native-gain-v1');
+    assert.equal(candidate.evidence.cut.loop.output_frames, decoded.length / 8);
+    const audio = studio.jobs.store.readAsset(candidate.candidate_sha256, 'audio');
+    assert.equal(inspectWav(audio).seconds, generation.audio.seconds);
+    const trim = await studio.jobs.cut(candidate.candidate_sha256, { start_seconds: 0, end_seconds: 0.7, loop: false });
+    const edited = await studio.jobs.cut(trim.candidate_sha256, { start_seconds: 0, end_seconds: 0.6 });
+    assert.equal(edited.evidence.cut.request.loop, false);
+    assert.equal(edited.evidence.cut.loop, undefined);
+    await assert.rejects(studio.jobs.submit('native', { ...input, request: { ...input.request, loop: false } }), /conflict/);
+    await studio.close(); studio = await createStudio(options);
+    assert.equal((await studio.jobs.submit('native', input)).id, job.id);
+    assert.equal(calls, 1);
+    assert.deepEqual(studio.jobs.store.readAsset(candidate.candidate_sha256, 'audio'), audio);
+  } finally { await studio?.close(); await rm(root, { recursive: true, force: true }); }
+});

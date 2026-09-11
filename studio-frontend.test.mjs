@@ -101,7 +101,7 @@ test('presentation groups snapshots and trims by generation, uses durable lineag
 
 test('batch click and submit handlers coalesce pending intents and retry lost responses', async () => {
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
-  const elements = Object.fromEntries(['batch-edit', 'batch-prompt', 'batch-duration', 'batch-regenerate', 'status', 'reconnect'].map(id => [id, { value: id === 'batch-duration' ? '5' : 'Tone' }]));
+  const elements = Object.fromEntries(['batch-edit', 'batch-prompt', 'batch-duration', 'batch-loop', 'batch-regenerate', 'status', 'reconnect'].map(id => [id, { value: id === 'batch-duration' ? '5' : 'Tone' }]));
   const parent = { querySelector: () => null };
   const makeButton = (text = '') => ({ textContent: text, dataset: {}, style: {}, getBoundingClientRect: () => ({width: 150}), parentElement: parent, setAttribute() {}, removeAttribute() {} });
   Object.assign(elements['batch-regenerate'], makeButton('Generate 5 new clips'));

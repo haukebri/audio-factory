@@ -15,6 +15,7 @@
       "minimum": 0.5,
       "maximum": 60
     },
+    "loop": { "type": "boolean" },
     "seed": {
       "type": "integer",
       "minimum": 0,

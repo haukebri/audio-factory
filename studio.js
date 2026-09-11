@@ -7,6 +7,8 @@ let view = 'create', feedback = new Map(), selections = [], readiness = {}, edit
 const say = message => { if ($('status').textContent !== message) $('status').textContent = message; };
 function remember(key, value) { localStorage.setItem('studio-' + key, JSON.stringify(value)); }
 function recall(key, fallback) { try { return JSON.parse(localStorage.getItem('studio-' + key)) ?? fallback; } catch { return fallback; } }
+$('loop').checked = recall('loop', false) === true;
+$('loop').addEventListener('change', () => remember('loop', $('loop').checked));
 const drafts = ['prompt', 'constraints', 'events', 'duration', 'seed'];
 for (const id of drafts) { $(id).value = recall(id, $(id).value); $(id).addEventListener($(id).tagName === 'SELECT' ? 'change' : 'input', () => remember(id, $(id).value)); }
 if (!$('duration').value) { $('duration').value = '5'; remember('duration', '5'); }
@@ -42,12 +44,12 @@ function runButton(b, operation, enqueue = action) {
   const label = b.textContent, minWidth = b.style.minWidth;
   b.style.minWidth = b.getBoundingClientRect().width + 'px';
   b.disabled = true; b.setAttribute('aria-busy', 'true');
-  b.textContent = /Use this/.test(label) ? 'Selecting…' : /Save trim/.test(label) ? 'Saving…' : /Generate|Queue/.test(label) ? 'Queueing…' : label === 'Replay' || label === 'Replay selection' ? 'Playing…' : 'Working…';
+  b.textContent = /Use this/.test(label) ? 'Selecting…' : /Save (?:trim|loop)/.test(label) ? 'Saving…' : /Generate|Queue/.test(label) ? 'Queueing…' : label === 'Replay' || label === 'Replay selection' ? 'Playing…' : 'Working…';
   let status = b.parentElement.querySelector(':scope > .action-status');
   if (!status) status = node('p', '', b.parentElement, { class: 'action-status', role: 'status', 'aria-live': 'polite' });
   status.textContent = b.textContent;
   return enqueue(async () => {
-    try { await operation(); status.textContent = /Use this/.test(label) ? 'Selected' : /Save trim/.test(label) ? 'Trim saved.' : /Generate|Queue/.test(label) ? 'Queued. You can keep listening.' : 'Done.'; }
+    try { await operation(); status.textContent = /Use this/.test(label) ? 'Selected' : /Save (?:trim|loop)/.test(label) ? 'Trim saved.' : /Generate|Queue/.test(label) ? 'Queued. You can keep listening.' : 'Done.'; }
     catch (error) { status.textContent = error.message; if (enqueue === action) { say('Operation not completed. Saved work is preserved.'); $('reconnect').hidden = false; } }
     finally { pendingButtons.delete(key); b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = label; b.style.minWidth = minWidth; updateSelected(); updateRecreate(); if (['batch-pause', 'batch-export', 'batch-regenerate', 'batch-generate-more'].includes(b.id)) renderReviewBatch(); if (b.id === 'cancel-generation') renderGeneration(); }
   });
@@ -74,7 +76,7 @@ function groupTakes(records, requests) {
     take.preferred = take.records.find(c => c.candidate_sha256 === take.job?.variants?.find(v => v.index === take.variant)?.result?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === take.job?.result?.candidate_sha256) ?? take.records.find(c => take.job?.attempts?.some(a => a.result?.candidate_sha256 === c.candidate_sha256));
     const versions = new Map();
     for (const c of take.records) { const cut = c.evidence.cut; const key = cut ? JSON.stringify([cut.audio_sha256, cut.id, cut.bounds]) : c.evidence.generation.id; if (!versions.has(key)) versions.set(key, []); versions.get(key).push(c); }
-    for (const records of versions.values()) { const c = records.find(c => c === take.preferred) ?? records[0]; take.versions.push({ records, candidate: c, name: c.evidence.cut ? `Trim ${(c.evidence.cut.bounds.start_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)}–${(c.evidence.cut.bounds.end_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)} s` : 'Original' }); }
+    for (const records of versions.values()) { const c = records.find(c => c === take.preferred) ?? records[0]; take.versions.push({ records, candidate: c, name: c.evidence.cut?.loop ? `Loop ${(c.evidence.cut.loop.output_frames / c.evidence.cut.bounds.sample_rate).toFixed(2)} s` : c.evidence.cut ? `Trim ${(c.evidence.cut.bounds.start_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)}–${(c.evidence.cut.bounds.end_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)} s` : 'Original' }); }
   }
   return result;
 }
@@ -82,12 +84,18 @@ const takeFor = id => takes.find(t => t.records.some(c => c.candidate_sha256 ===
 const versionFor = (take, id) => take.versions.find(v => v.records.some(c => c.candidate_sha256 === id));
 const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${take.job?.provider === 'elevenlabs' ? 'ElevenLabs' : 'Local'} · ${clipDuration(c).toFixed(2)} s${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
-const clipDuration = c => c.evidence.cut ? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
+const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
-function closeEditor() { if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
+let loopContext, loopNode, loopPreviewEpoch = 0;
+function stopLoopPreview() {
+  loopPreviewEpoch++;
+  if (loopNode) { loopNode.stop(); loopNode.disconnect(); loopNode = undefined; }
+  if (loopContext) { void loopContext.close(); loopContext = undefined; }
+}
+function closeEditor() { stopLoopPreview(); if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
 function audio(c, parent, label, source = false) {
   const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${c.candidate_sha256}/${source || !c.evidence.cut ? 'source' : 'audio'}` });
-  player.addEventListener('play', () => { document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
+  player.addEventListener('play', () => { stopLoopPreview(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
   player.addEventListener('error', () => { let error = parent.querySelector('.playback-error'); if (!error) error = node('p', '', parent, { class: 'playback-error error', role: 'status' }); error.textContent = 'Audio could not load. Reconnect and replay this clip.'; });
   return player;
 }
@@ -105,7 +113,7 @@ function navigate(next, push = true) {
   for (const id of ['create', 'library', 'settings']) $(id + '-view').hidden = id === 'create' ? !['create', 'listen'].includes(view) : view !== id;
   for (const link of document.querySelectorAll('nav a')) { if (link.hash === '#' + view || view === 'listen' && link.hash === '#create') link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }
   $('more-menu').open = false;
-  if (!$('workspace').getClientRects().length) $('workspace').querySelectorAll('audio').forEach(p => p.pause());
+  if (!$('workspace').getClientRects().length) { closeEditor(); $('workspace').querySelectorAll('audio').forEach(p => p.pause()); }
   remember('view', view);
   if (push) { $('main').focus({ preventScroll: true }); scrollTo(0, 0); }
 }
@@ -141,34 +149,76 @@ async function download(c) {
 function trim(c, box) {
   if (editorId === c.candidate_sha256) { closeEditor(); return; } closeEditor(); editorId = c.candidate_sha256;
   const id = c.candidate_sha256, seconds = c.evidence.generation.audio.seconds, bounds = c.evidence.cut?.bounds;
-  const draft = recall('trim-' + id, { start: bounds ? bounds.start_sample / bounds.sample_rate : 0, end: bounds ? bounds.end_sample / bounds.sample_rate : seconds });
+  const draft = recall('trim-' + id, { loop: c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false, crossfade: c.evidence.cut?.loop?.overlap_frames ? c.evidence.cut.loop.overlap_frames / bounds.sample_rate : 0.5, preserveNative: c.evidence.cut?.loop?.processing_version === 'native-gain-v1', start: bounds ? bounds.start_sample / bounds.sample_rate : 0, end: bounds ? bounds.end_sample / bounds.sample_rate : seconds });
+  draft.loop ??= c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false; draft.crossfade ??= 0.5; draft.curve ??= c.evidence.cut?.loop?.curve ?? 'equal-power';
   draft.start = Math.max(0, Math.min(seconds, Number(draft.start))); draft.end = Math.max(0, Math.min(seconds, Number(draft.end)));
   const editor = node('section', undefined, box, { class: 'trim-editor', 'data-editor': id }); node('h5', `Trim · ${identity(c)}`, editor);
   const form = node('form', undefined, editor), duration = node('p', '', form, { class: 'trim-duration', role: 'status' });
   const preview = audio(c, editor, `Trim preview · ${identity(c)}`, true); preview.controls = false;
   const error = node('p', '', form, { class: 'error', role: 'status' });
-  const valid = () => draft.start < draft.end;
+  const valid = () => draft.start < draft.end && (!draft.loop || draft.crossfade >= 0.05 && draft.crossfade <= 2 && draft.end - draft.start >= 0.2);
+  const cutInput = () => draft.loop && draft.preserveNative ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) };
   let save;
-  const update = () => { remember('trim-' + id, draft); duration.textContent = `Selection: ${Math.max(0, draft.end - draft.start).toFixed(2)} seconds`; error.textContent = valid() ? '' : 'Start must be before End.'; if (save) save.disabled = save.hasAttribute('aria-busy') || !valid(); preview.pause(); };
+  const update = () => { remember('trim-' + id, draft); duration.textContent = `Selection: ${Math.max(0, draft.end - draft.start).toFixed(2)} seconds`; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid(); if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save trim'; } preview.pause(); stopLoopPreview(); };
   for (const name of ['start', 'end']) {
     const label = node('label', `${name === 'start' ? 'Start' : 'End'} (seconds in original)`, form, { for: `cut-${name}` });
     const output = node('output', Number(draft[name]).toFixed(2), label);
     const range = node('input', undefined, form, { id: `cut-${name}`, type: 'range', min: '0', max: seconds, step: '0.01', value: draft[name] });
-    range.oninput = () => { draft[name] = Math.max(0, Math.min(seconds, Number(range.value))); output.textContent = draft[name].toFixed(2); update(); };
+    range.oninput = () => { draft[name] = Math.max(0, Math.min(seconds, Number(range.value))); output.textContent = draft[name].toFixed(2); draft.preserveNative = false; update(); };
   }
+  const loopLabel = node('label', undefined, form, { class: 'loop-choice' });
+  const loop = node('input', undefined, loopLabel, { type: 'checkbox', id: 'cut-loop' }); loop.checked = draft.loop;
+  loopLabel.append(document.createTextNode(' Loop'));
+  node('label', 'Crossfade (seconds)', form, { for: 'cut-crossfade' });
+  const fade = node('input', undefined, form, { id: 'cut-crossfade', type: 'number', min: '0.05', max: '2', step: '0.05', value: draft.crossfade });
+  fade.disabled = !draft.loop;
+  loop.onchange = () => { draft.loop = loop.checked; fade.disabled = !draft.loop; update(); };
+  fade.oninput = () => { draft.crossfade = Number(fade.value); draft.preserveNative = false; update(); };
+  const details = node('details', undefined, form); node('summary', 'Loop details', details);
+  const curveLabel = node('label', 'Crossfade curve', details);
+  const curve = node('select', undefined, curveLabel);
+  node('option', 'Equal power · diffuse ambience', curve, { value: 'equal-power' });
+  node('option', 'Equal gain · correlated sound', curve, { value: 'equal-gain' }); curve.value = draft.curve;
+  curve.onchange = () => { draft.curve = curve.value; draft.preserveNative = false; update(); };
+  if (draft.preserveNative) node('p', 'Native loop retained. Changing bounds, curve or crossfade creates a repair.', details, { class: 'hint' });
   let stopFrame;
-  const stop = () => { cancelAnimationFrame(stopFrame); preview.pause(); };
+  const stop = () => { cancelAnimationFrame(stopFrame); preview.pause(); stopLoopPreview(); };
   const checkEnd = () => { if (preview.currentTime >= draft.end) { stop(); preview.currentTime = draft.end; } else if (!preview.paused) stopFrame = requestAnimationFrame(checkEnd); };
   preview.addEventListener('pause', () => cancelAnimationFrame(stopFrame));
   preview.addEventListener('timeupdate', () => { if (preview.currentTime >= draft.end) { stop(); preview.currentTime = draft.end; } });
   const actions = node('div', undefined, form, { class: 'actions' });
   button('Replay selection', actions, async () => { if (!valid()) throw new Error('Start must be before End.'); stop(); preview.currentTime = draft.start; await preview.play().catch(error => { if (error.name !== 'AbortError' || !preview.paused) throw error; }); checkEnd(); }, local);
-  button('Pause', actions, () => stop(), local);
-  node('p', 'Preview plays the original region. Save trim adds short fades and normalization. Download uses the saved version.', form, { class: 'hint' });
+  button('Preview loop', actions, async () => {
+    if (!draft.loop || !valid()) throw new Error('Enable Loop and choose valid bounds and crossfade.');
+    stop(); document.querySelectorAll('audio').forEach(player => player.pause());
+    const epoch = loopPreviewEpoch, input = cutInput();
+    const context = new AudioContext({ sampleRate: 44100 }); loopContext = context;
+    try {
+      await context.resume();
+      const { decodeLoopWav, renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
+      const response = await fetch(`/studio/candidates/${id}/source`);
+      if (!response.ok) throw new Error('Original audio could not load.');
+      const source = decodeLoopWav(await response.arrayBuffer());
+      if (epoch !== loopPreviewEpoch || !editor.isConnected) return;
+      const rendered = renderLoop(source.samples, source.sampleRate, source.channels, { ...input,
+        native_provider_loop: c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true });
+      const pcm = quantizeLoop(rendered.samples);
+      const buffer = context.createBuffer(source.channels, rendered.evidence.output_frames, source.sampleRate);
+      for (let channel = 0; channel < source.channels; channel++) {
+        const data = buffer.getChannelData(channel);
+        for (let frame = 0; frame < data.length; frame++) data[frame] = pcm[frame * source.channels + channel];
+      }
+      loopNode = context.createBufferSource(); loopNode.buffer = buffer; loopNode.loop = true;
+      loopNode.connect(context.destination); loopNode.start();
+      duration.textContent = `Loop: ${(buffer.length / buffer.sampleRate).toFixed(2)} seconds · repeating until paused`;
+    } catch (error) { if (epoch === loopPreviewEpoch) stopLoopPreview(); throw error; }
+  }, local);
+  button('Pause', actions, () => { stop(); duration.textContent = 'Preview paused.'; }, local);
+  node('p', 'Replay selection plays the original. Preview loop plays the proposed blend continuously; listen for at least three cycles. Save creates a version. Download uses that saved version.', form, { class: 'hint' });
   save = node('button', 'Save trim', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
   save.onclick = () => {
     if (!valid()) return;
-    const input = { start_seconds: draft.start, end_seconds: draft.end }, row = editor.parentElement;
+    const input = cutInput(), row = editor.parentElement;
     runButton(save, async () => {
       const result = await api(`candidates/${id}/cut`, input);
       const stillEditing = editorId === id && editor.isConnected && row.isConnected;
@@ -176,7 +226,7 @@ function trim(c, box) {
       await refresh();
       const saved = candidates.find(c => c.candidate_sha256 === result.candidate_sha256);
       remember('version-' + takeFor(saved.candidate_sha256).id, saved.candidate_sha256);
-      if (stillEditing && row.isConnected && !editorId) { row.dataset.manualVersion = 'true'; row.replaceChildren(); renderClip(saved, row); trim(saved, row); node('p', 'Trim saved. Choose Use this take to select this version.', row, { role: 'status' }); }
+      if (stillEditing && row.isConnected && !editorId) { row.dataset.manualVersion = 'true'; row.replaceChildren(); renderClip(saved, row); trim(saved, row); node('p', 'Version saved. Choose Use this take to select this version.', row, { role: 'status' }); }
     });
   };
   form.onsubmit = event => event.preventDefault(); update();
@@ -196,6 +246,7 @@ function updateSelected() {
 }
 function renderClip(c, row, pinned = false) {
   row.dataset.clip = c.candidate_sha256;
+  if (c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop) node('span', 'Loop', row, { class: 'loop-badge' });
   node('h4', identity(c), row); node('strong', 'Selected', row, { 'data-selected': '', class: 'selected-badge', hidden: '' });
   const player = audio(c, row, identity(c)); const actions = node('div', undefined, row, { class: 'actions' });
   button('Replay', actions, async () => { player.currentTime = 0; await player.play().catch(error => { if (error.name !== 'AbortError' || !player.paused) throw error; }); }, local);
@@ -285,7 +336,7 @@ async function refresh() {
   if (!jobs.length) node('p', 'No requests yet.', $('jobs'));
   for (const job of [...jobs].reverse()) { const box = node('article', undefined, $('jobs'), { class: 'job' }); node('h3', job.input.request.prompt, box); node('p', `${job.status} · ${job.progress ?? 'queued'} · ${job.provider ?? "historical"}`, box); const details = node('details', undefined, box); node('summary', 'Details', details); node('pre', JSON.stringify(job, null, 2), details); const id = job.result?.candidate_sha256 ?? job.candidate_ids.at(-1); if (id) button('Open saved take', box, async () => { currentJob = job.id; await select(id); navigate('listen'); }, local); if (job.status === 'interrupted') button('Open recovery', box, () => { currentJob = job.id; renderGeneration(); navigate('listen'); }, local); }
 }
-function newTakeInput(job) { const request = { ...job.input.request }; delete request.seed; return { request, provider: 'local', sound_parent_id: job.id }; }
+function newTakeInput(job) { const request = { ...job.input.request }; delete request.seed; delete request.loop; return { request, provider: 'local', sound_parent_id: job.id }; }
 async function anotherTake(take) { if (submitting || jobs.some(j => ['running', 'canceling'].includes(j.status))) { say('Wait for this batch or cancel it first.'); return; } const input = take.job ? newTakeInput(take.job) : { request: { prompt: title(take.records[0]), duration_seconds: take.records[0].evidence.generation.request.duration_seconds }, provider: 'local' }; await submitInput(input, `another-${take.id}`); }
 function recreateButton(c, parent) {
   const item = reviewItem(c), batchId = reviewBatchId, id = c.candidate_sha256;
@@ -337,7 +388,7 @@ function renderBatch() {
   $('empty').hidden = true; $('sound-title').textContent = soundName(sound);
   if ($('sound-actions').dataset.sound !== sound) {
     const actions = $('sound-actions'); actions.dataset.sound = sound; actions.replaceChildren();
-    if (!item) { const take = takes.find(t => t.sound === sound); if (take) button('Generate more', actions, () => anotherTake(take)); button('Edit prompt', actions, () => { const c = takes.find(t => t.sound === sound)?.records[0]; if (c) { $('prompt').value = c.evidence.generation.request.prompt; $('duration').value = c.evidence.generation.request.duration_seconds; } composeParent = takes.find(t => t.sound === sound)?.job?.id; navigate('create'); $('prompt').focus(); }, local); }
+    if (!item) { const take = takes.find(t => t.sound === sound); if (take) button('Generate more', actions, () => anotherTake(take)); button('Edit prompt', actions, () => { const c = takes.find(t => t.sound === sound)?.records[0]; if (c) { $('prompt').value = c.evidence.generation.request.prompt; $('duration').value = c.evidence.generation.request.duration_seconds; $('loop').checked = [...jobs].filter(j => j.sound_id === sound || j.id === sound).sort((a,b) => a.started_at.localeCompare(b.started_at)).at(-1)?.input.request.loop === true; remember('loop', $('loop').checked); } composeParent = takes.find(t => t.sound === sound)?.job?.id; navigate('create'); $('prompt').focus(); }, local); }
   }
   const winner = selections.find(s => s.sound_id === sound)?.candidate_sha256;
   let best = box.querySelector('[data-best]'); if (!best) best = node('section', undefined, box, { 'data-best': '', class: 'selected-winner' });
@@ -411,7 +462,7 @@ function renderReviewBatch() {
   choices.value = sound.key; for (const b of $('sound-list').querySelectorAll('button')) { b.setAttribute('aria-current', String(b.dataset.soundKey === sound.key)); if (focusedSound === b.dataset.soundKey && document.activeElement !== b) b.focus({ preventScroll: true }); }
   currentJob = sound.operations.at(-1)?.job_id;
   const editorKey = reviewBatchId + ':' + sound.key;
-  if ($('batch-edit').dataset.key !== editorKey) { $('batch-edit').dataset.key = editorKey; const value = recall('batch-edit-' + editorKey, sound.operations.filter(o => o.input.provider === 'local').at(-1)?.input.request ?? sound.original_request); $('batch-prompt').value = value.prompt; $('batch-duration').value = String(value.duration_seconds); }
+  if ($('batch-edit').dataset.key !== editorKey) { $('batch-edit').dataset.key = editorKey; const value = recall('batch-edit-' + editorKey, sound.operations.at(-1)?.input.request ?? sound.original_request); $('batch-prompt').value = value.prompt; $('batch-duration').value = String(value.duration_seconds); $('batch-loop').checked = value.loop === true; }
   $('batch-regenerate').disabled = $('batch-regenerate').hasAttribute('aria-busy') || !jobs.some(j => j.id === sound.sound_id);
   $('batch-generate-more').disabled = $('batch-generate-more').hasAttribute('aria-busy') || $('batch-regenerate').disabled;
   $('batch-generation-readiness').textContent = !jobs.some(j => j.id === sound.sound_id) ? 'Generation controls become available when this sound’s first request starts.' : '';
@@ -426,9 +477,9 @@ function renderReviewBatch() {
   $('batch-export').onclick = () => runButton($('batch-export'), async () => { const manifest = await api(`batches/${batch.id}/winners`); for (const item of manifest.sounds) await download(candidates.find(c => c.candidate_sha256 === item.candidate_sha256)); const url = URL.createObjectURL(new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })); const a = node('a', undefined, document.body, { href: url, download: 'winners.json' }); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); });
 }
 $('batch-sound').onchange = () => openReviewSound($('batch-sound').value);
-for (const id of ['batch-prompt','batch-duration']) $(id).addEventListener('input', () => remember('batch-edit-' + $('batch-edit').dataset.key, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }));
+for (const id of ['batch-prompt','batch-duration','batch-loop']) $(id).addEventListener('input', () => remember('batch-edit-' + $('batch-edit').dataset.key, { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value), loop: $('batch-loop').checked }));
 const generateMore = b => {
-  const pending = { path: `batches/${reviewBatchId}/sounds/${reviewSoundKey}/regenerate`, input: { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value) }, key: uid() };
+  const pending = { path: `batches/${reviewBatchId}/sounds/${reviewSoundKey}/regenerate`, input: { prompt: $('batch-prompt').value, duration_seconds: Number($('batch-duration').value), loop: $('batch-loop').checked }, key: uid() };
   b.dataset.pendingKey = JSON.stringify([pending.path, pending.input]);
   return runButton(b, () => batchMutation(pending));
 };
@@ -442,7 +493,7 @@ async function submitInput(input, intent) {
 }
 $('compose').onsubmit = event => { event.preventDefault(); if ($('generate').disabled) return;
   const prompt = [$('prompt').value, $('events').value ? `Intended event count: ${$('events').value}.` : '', $('constraints').value.trim() ? `Constraints: ${$('constraints').value.trim()}` : ''].filter(Boolean).join('\n');
-  const input = { provider: 'local', ...(composeParent ? { sound_parent_id: composeParent } : {}), request: { prompt, duration_seconds: Number($('duration').value), ...($('seed').value ? { seed: Number($('seed').value) } : {}) } };
+  const input = { provider: 'local', ...(composeParent ? { sound_parent_id: composeParent } : {}), request: { prompt, duration_seconds: Number($('duration').value), loop: $('loop').checked, ...($('seed').value ? { seed: Number($('seed').value) } : {}) } };
   submitting = true; renderGeneration(); action(async () => { submitting = false; await submitInput(input, 'compose'); });
 };
 async function connect() {

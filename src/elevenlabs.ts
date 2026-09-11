@@ -44,7 +44,7 @@ export class ElevenLabsBackend {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // ElevenLabs SFX has no seed parameter. Keep the original user prompt verbatim.
     const body = JSON.stringify({ text: request.prompt, duration_seconds: request.duration_seconds,
-      model_id: elevenModel, prompt_influence: 0.3, loop: false });
+      model_id: elevenModel, prompt_influence: 0.3, loop: request.loop === true });
     const signature = hash(body);
     let receipt;
     try { receipt = JSON.parse(await readFile(join(directory, "response.json"), "utf8")); }
@@ -83,8 +83,24 @@ export class ElevenLabsBackend {
     if (hash(original) !== receipt.audio_sha256) throw new Error("ElevenLabs response hash mismatch");
     progress({ status: "exporting", provider: this.provider, receipt, evidence: directory });
     signal.throwIfAborted();
+    let filters = `volume=${config.peak_db}dB,alimiter=limit=0.7079:level=false:latency=true,apad,atrim=duration=${request.duration_seconds}`;
+    if (request.loop) {
+      // Let the decoder honor codec delay metadata. Never infer padding from the requested duration.
+      const { stdout: pcm } = await execute("ffmpeg", ["-nostdin", "-v", "error", "-i", join(directory, "original.mp3"),
+        "-ar", "44100", "-ac", "2", "-f", "f32le", "-"], { signal, encoding: "buffer", maxBuffer: 32 * 1024 * 1024 });
+      let peak = 0;
+      for (let i = 0; i < pcm.length; i += 4) {
+        const value = pcm.readFloatLE(i);
+        if (!Number.isFinite(value)) throw new Error("Nonfinite decoded native loop");
+        peak = Math.max(peak, Math.abs(value));
+      }
+      const gain = peak ? Math.min(10 ** (config.peak_db / 20), 10 ** (-3 / 20) / peak) : 1;
+      filters = `volume=${gain}`;
+      await persist(join(directory, "decode.json"), JSON.stringify({ version: 1, native_loop: true,
+        decoded_frames: pcm.length / 8, sample_rate: 44100, gain, padding: "decoder metadata only; no duration padding or trimming" }));
+    }
     await execute("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(directory, "original.mp3"),
-      "-ar", "44100", "-ac", "2", "-af", `volume=${config.peak_db}dB,alimiter=limit=0.7079:level=false:latency=true,apad,atrim=duration=${request.duration_seconds}`,
+      "-ar", "44100", "-ac", "2", "-af", filters,
       "-c:a", "pcm_s16le", join(directory, "audio.wav")], { signal });
     const audio = await readFile(join(directory, "audio.wav"));
     inspectWav(audio);

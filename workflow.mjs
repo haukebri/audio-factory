@@ -21,11 +21,14 @@ export function workflowInput(input) {
   qaRequest('analyses', input.qa ?? { clap: false });
   for (const [key, length] of [['sound_parent_id', 32], ['recreation_parent', 64]])
     if (input[key] !== undefined && (typeof input[key] !== 'string' || !new RegExp(`^[a-f0-9]{${length}}$`).test(input[key]))) throw new Error(`Invalid ${key}`);
+  // False and omission keep historical signatures; true adds a distinct effective intent.
+  const request = { ...input.request };
+  if (request.loop === false) delete request.loop;
   const provider = input.provider ?? 'local';
   if (!['local', 'elevenlabs'].includes(provider)) throw new Error('Unknown generation provider');
   if (provider === 'elevenlabs' && input.request.duration_seconds > 30) throw Object.assign(new Error('ElevenLabs supports a maximum of 30 seconds; use local generation for 60 seconds'), { status: 400 });
   if (input.recreation_parent && provider !== 'elevenlabs') throw new Error('Recreation requires ElevenLabs');
-  return { request: { ...input.request, duration_seconds: input.request.duration_seconds ?? config.default_duration_seconds }, provider,
+  return { request: { ...request, duration_seconds: input.request.duration_seconds ?? config.default_duration_seconds }, provider,
     ...(input.sound_parent_id ? { sound_parent_id: input.sound_parent_id } : {}), ...(input.recreation_parent ? { recreation_parent: input.recreation_parent } : {}) };
 }
 
@@ -157,7 +160,7 @@ export async function runWorkflow(job, { root, token, store, save, signal, backe
       return preserve(evidence, source, audio);
     };
     if (!candidate.evidence.cut) {
-      try { candidate = await cut({}); }
+      try { candidate = await cut(generation.request.loop ? { loop: true } : {}); }
       catch (error) {
         if (error.status !== 422) throw error;
         attempt.inflight = null; await save();
@@ -260,7 +263,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
           if (job.provider === 'local') {
             if (job.planning_started) throw new Error('Prompt planning interrupted; start an explicit new batch');
             job.planning_started = true; job.progress = 'planning'; await save(job);
-            job.prompt_plan = await (execution.preparePrompts ?? preparePromptPlan)(job.input.request.prompt, { signal: controller.signal });
+            job.prompt_plan = await (execution.preparePrompts ?? preparePromptPlan)(job.input.request.prompt, { signal: controller.signal, loop: job.input.request.loop === true });
             if (job.prompt_plan.version !== 'prompt-plan-v2' || job.prompt_plan.generation_prompts?.length !== 5 || new Set(job.prompt_plan.generation_prompts).size !== 5)
               throw new Error('Planner must return five distinct prompts');
           }
@@ -321,10 +324,11 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       try { return store.selectTake({ ...input, sound_id: candidateSound(id), candidate_sha256: id }); }
       catch (error) { throw Object.assign(error, { status: /conflict|Stale/.test(error.message) ? 409 : 400 }); }
     },
-    async recreate(id, key) {
+    async recreate(id, key, input = {}) {
+      if (!input || Object.keys(input).some(k => k !== "loop") || (input.loop !== undefined && typeof input.loop !== "boolean")) throw Object.assign(new Error("Expected optional boolean loop"), { status: 400 });
       const candidate = store.loadCandidate(id);
       const { prompt, duration_seconds } = candidate.evidence.generation.request;
-      return this.submit(key, { provider: 'elevenlabs', request: { prompt, duration_seconds }, recreation_parent: id });
+      return this.submit(key, { provider: 'elevenlabs', request: { prompt, duration_seconds, loop: input.loop ?? candidate.evidence.cut?.request?.loop ?? candidate.evidence.generation.request.loop ?? false }, recreation_parent: id });
     },
     readiness: () => ({ generation: execution.fixture ? 'fixture' : existsSync(`${factoryRoot}/.runtime/sa3-gguf/build-manifest.json`) ? 'local' : 'setup_required',
       elevenlabs: (() => { try { elevenKey(); return 'configured'; } catch { return 'key_required'; } })() }),
@@ -333,6 +337,8 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       qaRequest('cuts', input);
       if (closing || active || cutting) throw Object.assign(new Error('Factory busy; wait for owned work to finish'), { status: 429 });
       const candidate = store.loadCandidate(id);
+      const loop = input.loop ?? candidate.evidence.cut?.request?.loop ?? candidate.evidence.generation.request.loop;
+      input = { ...input, ...(loop === undefined ? {} : { loop }) };
       cutting = (async () => {
         await ensureSetup(false);
         const temporary = await mkdtemp(join(root, '.runtime/studio-cut-'));
@@ -374,7 +380,15 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     list: () => [...jobs.values()], get: id => jobs.get(id),
     async submit(key, input, resuming) {
       if (typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error("Idempotency-Key required"), { status: 400 });
-      input = workflowInput(input);
+      // Resolve inheritance before canonicalizing false, and use an existing key's accepted intent on retry.
+      workflowInput(input);
+      const prior = jobs.get(hash(key).slice(0, 32));
+      const parent = input.sound_parent_id ? jobs.get(input.sound_parent_id) : null;
+      const latest = parent ? [...jobs.values()].filter(j => soundId(j) === soundId(parent)).sort((a, b) => a.started_at.localeCompare(b.started_at)).at(-1) : null;
+      const recreated = input.recreation_parent ? store.loadCandidate(input.recreation_parent) : null;
+      const loop = input.request.loop ?? (prior ? prior.input.request.loop ?? false :
+        recreated ? recreated.evidence.cut?.request?.loop ?? recreated.evidence.generation.request.loop ?? false : latest?.input.request.loop ?? false);
+      input = workflowInput({ ...input, request: { ...input.request, ...(loop ? { loop: true } : { loop: false }) } });
       const id = hash(key).slice(0, 32);
       const signature = hash(JSON.stringify(input));
       const existing = jobs.get(id);

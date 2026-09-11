@@ -3,7 +3,7 @@ import { mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { Backend } from "./backend.js";
-import { config, hash, type Request, validateRequest, validateRun } from "./config.js";
+import { config, hash, type Request, validateRequest, validateRun, localGenerationPrompt } from "./config.js";
 import { QaError, qaOperation, qaRequest, qaRetrieve } from "./qa.js";
 import { inspectWav } from "./wav.js";
 import { elevenModel } from "./elevenlabs.js";
@@ -27,6 +27,7 @@ type Run = {
   signature: string;
   status: "generating" | "completed" | "failed" | "interrupted";
   request: Request;
+  generation_prompt?: string;
   started_at: string;
   finished_at?: string;
   elapsed_ms?: number;
@@ -124,7 +125,7 @@ export async function createFactory(options: {
         run.progress = progress;
       }, { id: run.id });
       run.audio = inspectWav(bytes);
-      if (Math.abs(run.audio.seconds - run.request.duration_seconds) > 1 / 44100)
+      if (!(backend.provider === "elevenlabs" && run.request.loop) && Math.abs(run.audio.seconds - run.request.duration_seconds) > 1 / 44100)
         throw new Error("Backend audio duration does not match request");
       const path = join(directory, run.id, "audio.wav");
       await atomicWrite(path, bytes);
@@ -263,6 +264,7 @@ export async function createFactory(options: {
         prompt: source.prompt,
         duration_seconds: source.duration_seconds ?? config.default_duration_seconds,
         seed: source.seed,
+        ...(source.loop ? { loop: true } : {}),
       };
       const key = req.headers["idempotency-key"] ?? randomUUID();
       if (typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(key))
@@ -290,6 +292,7 @@ export async function createFactory(options: {
         signature,
         status: "generating",
         request: { ...request, seed: request.seed ?? randomInt(2147483648) },
+        ...(request.loop && backend.provider !== "elevenlabs" ? { generation_prompt: localGenerationPrompt(request) } : {}),
         started_at: new Date().toISOString(),
         audio_path: `out/runs/${id}/audio.wav`,
         models: config.models,
@@ -309,8 +312,8 @@ export async function createFactory(options: {
         ...(backend.provider === "elevenlabs" ? {
           models: [],
           runtime: { backend: "elevenlabs", model: elevenModel },
-          settings: { peak_db: config.peak_db, prompt_influence: 0.3, loop: false,
-            postprocess: "MP3 decoded to stereo PCM16 44100 Hz; attenuation and peak ceiling; padded/trimmed to requested duration. Seed is local bookkeeping only." },
+          settings: { peak_db: config.peak_db, prompt_influence: 0.3, loop: request.loop === true,
+            postprocess: request.loop ? "MP3 decoder honors codec delay metadata; global attenuation only; no limiter, duration padding or trimming. Native boundary assessed during loop preparation." : "MP3 decoded to stereo PCM16 44100 Hz; attenuation and peak ceiling; padded/trimmed to requested duration. Seed is local bookkeeping only." },
           licenses: [{ name: "ElevenLabs Terms of Use", url: "https://elevenlabs.io/terms-of-use" }],
         } : {}),
       };

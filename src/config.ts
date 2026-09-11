@@ -26,7 +26,10 @@ export const validateRequest = ajv.compile(
   JSON.parse(readFileSync(`${root}/request.schema.json`, "utf8")),
 );
 export const validateRun = ajv.compile(JSON.parse(readFileSync(`${root}/run.schema.json`, "utf8")));
-export type Request = { prompt: string; duration_seconds: number; seed?: number };
+export type Request = { prompt: string; duration_seconds: number; seed?: number; loop?: boolean };
 export const hash = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
 export const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+export const loopInstructions = "Continuous repeatable ambience with consistent texture throughout, no intro or outro, and no fade-in or fade-out.";
+export const localGenerationPrompt = (request: Request) => request.loop ? `${request.prompt}\n${loopInstructions}` : request.prompt;

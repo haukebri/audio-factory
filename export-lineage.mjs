@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { inspectWav } from "./dist/wav.js";
 import Ajv2020 from "ajv/dist/2020.js";
 
 const schema = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), "utf8"));
@@ -31,6 +32,18 @@ export function verifyExport(record, bytes, readOriginal) {
     bounds.end_sample > Math.round(generation.audio.seconds * bounds.sample_rate)
   )
     throw new Error("Invalid export sample bounds");
+  if (cut.loop) {
+    const loop = cut.loop;
+    if (loop.start_sample !== bounds.start_sample || loop.end_sample !== bounds.end_sample ||
+        loop.sample_rate !== bounds.sample_rate || loop.channels !== generation.audio.channels ||
+        (loop.processing_version === 'native-gain-v1'
+          ? loop.split_sample !== null || loop.overlap_frames !== 0 || bounds.start_sample !== 0 || bounds.end_sample !== Math.round(generation.audio.seconds * bounds.sample_rate)
+          : loop.split_sample <= bounds.start_sample || loop.split_sample >= bounds.end_sample ||
+            loop.overlap_frames > Math.min(loop.split_sample - bounds.start_sample, bounds.end_sample - loop.split_sample)) ||
+        loop.output_frames !== bounds.end_sample - bounds.start_sample - loop.overlap_frames ||
+        Math.round(inspectWav(bytes).seconds * bounds.sample_rate) !== loop.output_frames)
+      throw new Error("Invalid loop frame evidence");
+  }
   if (
     analyses.length !== review.analysis_ids.length ||
     new Set(analyses.map((a) => a.id)).size !== analyses.length
@@ -48,6 +61,6 @@ export function verifyExport(record, bytes, readOriginal) {
   return {
     generation,
     review,
-    duration_seconds: (bounds.end_sample - bounds.start_sample) / bounds.sample_rate,
+    duration_seconds: (cut.loop?.output_frames ?? (bounds.end_sample - bounds.start_sample)) / bounds.sample_rate,
   };
 }

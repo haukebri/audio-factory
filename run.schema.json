@@ -17,6 +17,7 @@
     "review"
   ],
   "properties": {
+    "generation_prompt": { "type": "string", "minLength": 1 },
     "prompt_plan": {
       "anyOf": [
         {
@@ -180,6 +181,7 @@
           "minimum": 0.5,
           "maximum": 60
         },
+        "loop": { "type": "boolean" },
         "seed": {
           "type": "integer",
           "minimum": 0,
@@ -418,7 +420,7 @@
               "const": 0.3
             },
             "loop": {
-              "const": false
+              "type": "boolean"
             },
             "postprocess": {
               "type": "string",
@@ -567,7 +569,7 @@
                 "const": 0.3
               },
               "loop": {
-                "const": false
+                "type": "boolean"
               },
               "postprocess": {
                 "type": "string",

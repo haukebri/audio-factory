@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { hash } from './dist/config.js';
+import { hash, loopInstructions } from './dist/config.js';
 
 const model = 'gemma4:latest';
 // Guidance: https://github.com/Stability-AI/stable-audio-3/blob/main/docs/guides/prompting.md
@@ -38,7 +38,8 @@ const format = { ...outputSchema, properties: {
   generation_prompts: { type: 'array', minItems: 4, maxItems: 4, items: { type: 'string' } },
 } };
 
-export async function preparePromptPlan(intent, { signal, timeout = 120000, request = fetch } = {}) {
+export async function preparePromptPlan(intent, { signal, timeout = 120000, request = fetch, loop = false } = {}) {
+  const effectiveInstructions = instructions + (loop ? `\nLoop requested: ${loopInstructions} Preserve this intent in every variation.` : "");
   const bounded = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(timeout)]);
   let reply;
   try {
@@ -46,7 +47,7 @@ export async function preparePromptPlan(intent, { signal, timeout = 120000, requ
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: bounded,
       body: JSON.stringify({ model, stream: false, think: false, keep_alive: 0, format,
         options: { temperature: 0.2, num_ctx: 4096, num_predict: 2048 },
-        messages: [{ role: 'system', content: instructions }, { role: 'user', content: intent }] }),
+        messages: [{ role: 'system', content: effectiveInstructions }, { role: 'user', content: intent }] }),
     });
     if (!response.ok) throw new Error(`Local prompt model HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
     reply = await response.json();
@@ -61,7 +62,7 @@ export async function preparePromptPlan(intent, { signal, timeout = 120000, requ
     if (missingPrefix !== -1) throw new Error(`Invalid prompt plan: generation_prompts/${missingPrefix} must start with "TrackType: SFX,"`);
     // Preserve the original in code, rather than trusting the model to copy it exactly.
     output.generation_prompts.unshift(intent);
-    return { version: 'prompt-plan-v2', intent, ...output, model, instructions_sha256: hash(instructions), status: 'completed', error: null };
+    return { version: 'prompt-plan-v2', intent, ...output, model, instructions_sha256: hash(effectiveInstructions), status: 'completed', error: null };
   } catch (error) {
     signal?.throwIfAborted();
     // The workflow persists this error in the job record and exposes it in Studio.
