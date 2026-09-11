@@ -5,32 +5,23 @@ new vm.Script(readFileSync(new URL('./studio.js', import.meta.url), 'utf8'));
 
 import test from 'node:test';
 
-test('winner highlights update when a variation is playing', () => {
+test('winner highlights update on every representation without replacing a playing row', () => {
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
-  const node = (tag, text, parent, attrs = {}) => {
-    const classes = new Set();
-    const element = { tag, text, attrs, dataset: {}, children: [],
-      replaceChildren() { this.children = []; }, setAttribute(k, v) { this.attrs[k] = v; },
-      classList: { toggle(k, on) { on ? classes.add(k) : classes.delete(k); }, add(k) { classes.add(k); }, contains: k => classes.has(k) },
-      querySelector(selector) { return this.children.find(c => selector === '[data-best]' ? 'data-best' in c.attrs : selector === `[data-variant="${c.attrs['data-variant']}"]`); },
-      querySelectorAll() { return this.children.filter(c => c.tag === 'audio'); },
+  const rows = ['A', 'B', 'B'].map(id => {
+    const classes = new Set(), badge = {}, choose = { attrs: {}, hasAttribute: () => false, setAttribute(k, v) { this.attrs[k] = v; } };
+    return { dataset: { clip: id }, badge, choose, classes,
+      classList: { toggle(k, on) { on ? classes.add(k) : classes.delete(k); } },
+      querySelector: selector => selector === '[data-selected]' ? badge : choose,
     };
-    parent?.children.push(element); return element;
-  };
-  const box = node('div');
-  const context = vm.createContext({ node, $: () => box, identity: c => c.candidate_sha256,
-    audio: (c, parent) => Object.assign(node('audio', '', parent), { paused: false }),
-    button: (text, parent) => node('button', text, parent), recreateButton() {},
   });
-  vm.runInContext(`let currentJob = 'job', reviewBatchId, batchReviews = [], selected;
-    let candidates = ['A', 'B'].map(candidate_sha256 => ({candidate_sha256}));
-    let jobs = [{id: 'job', sound_id: 'sound', provider: 'local', attempts: [], variants: candidates.map((c, index) => ({index, result: c}))}];
-    let selections = [{sound_id: 'sound', candidate_sha256: 'A'}];
-    ${source.slice(source.indexOf('function renderBatch('), source.indexOf('function reviewItem('))}
-    renderBatch(); selections[0].candidate_sha256 = 'B'; renderBatch();`, context);
-  const cards = box.children.filter(c => 'data-variant' in c.attrs);
-  assert.deepEqual(cards.map(c => c.classList.contains('chosen')), [false, true]);
-  assert.deepEqual(cards.map(c => c.children.find(e => e.tag === 'div').children[0].attrs['aria-pressed']), ['false', 'true']);
+  const context = vm.createContext({ document: { querySelectorAll: () => rows } });
+  vm.runInContext(`let selections = [{candidate_sha256: 'A'}];
+    ${source.slice(source.indexOf('function updateSelected('), source.indexOf('function renderClip('))}
+    updateSelected(); selections[0].candidate_sha256 = 'B'; updateSelected();`, context);
+  assert.deepEqual(rows.map(row => row.classes.has('chosen')), [false, true, true]);
+  assert.deepEqual(rows.map(row => row.badge.hidden), [true, false, false]);
+  assert.deepEqual(rows.map(row => row.choose.attrs['aria-pressed']), ['false', 'true', 'true']);
+  assert.deepEqual(rows.map(row => row.choose.textContent), ['Use this take', 'Selected', 'Selected']);
 });
 
 test('user actions wait for background work instead of disappearing', async () => {
@@ -51,7 +42,7 @@ test('generation feedback follows submission, running stages and terminal outcom
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
   const elements = Object.fromEntries(['generation-progress', 'generation-stage', 'generation-detail', 'generation-spinner', 'generate', 'generation-prompt', 'generation-error', 'active-link', 'cancel-generation', 'recovery'].map(id => [id, { dataset: {}, replaceChildren() {}, setAttribute(key, value) { this[key] = value; } }]));
   const context = vm.createContext({ $: id => elements[id], Date, node() {}, button() {} });
-  vm.runInContext(`let jobs = [], submitting = false, currentJob, view = 'create'; ${source.slice(source.indexOf('function renderGeneration('), source.indexOf('async function refreshQa()'))}`, context);
+  vm.runInContext(`let jobs = [], submitting = false, currentJob, view = 'create', reviewBatchId, batchReviews = [], selected; const takeFor = () => null; ${source.slice(source.indexOf('function renderGeneration('), source.indexOf('async function refreshQa()'))}`, context);
   const render = code => vm.runInContext(`${code}; renderGeneration();`, context);
   render('');
   assert.equal(elements['generation-progress'].hidden, true);
@@ -82,19 +73,38 @@ test('presentation groups snapshots and trims by generation, uses durable lineag
   context.requests = [{ id: 'job-a', candidate_ids: ['original', 'analysis', 'prepared', 'qa'], result: { candidate_sha256: 'qa' }, attempts: [{ id: 'run-a' }] }, { id: 'job-b', sound_id: 'job-a', candidate_ids: ['second'] }];
   const grouped = vm.runInContext('groupTakes(records, requests)', context);
   assert.equal(grouped.length, 3);
-  assert.equal(grouped[0].versions.length, 3);
-  assert.equal(grouped[0].preferred.candidate_sha256, 'qa');
-  assert.equal(grouped[0].records.length, 5);
-  assert.equal(grouped[1].number, 2);
-  assert.equal(grouped[1].sound, 'job-a');
-  assert.equal(grouped[2].number, 1);
-  assert.equal(grouped[2].preferred, undefined);
-  assert.notEqual(grouped[1].id, grouped[0].id);
+  const first = grouped.find(t => t.id === 'run-a'), second = grouped.find(t => t.id === 'run-b'), orphan = grouped.find(t => t.id === 'run-c');
+  assert.equal(first.versions.length, 3);
+  assert.equal(first.preferred.candidate_sha256, 'qa');
+  assert.equal(first.records.length, 5);
+  assert.equal(second.number, 2);
+  assert.equal(second.sound, 'job-a');
+  assert.equal(orphan.number, 1);
+  assert.equal(orphan.preferred, undefined);
+  assert.notEqual(second.id, first.id);
+  // Two five-clip requests retain identities and numbers across retry snapshots and reload order.
+  context.records = [make('retry-first', 'retry-run'), ...Array.from({length: 5}, (_, index) => make(`clip-${index}`, `run-${index}`))];
+  context.requests = [{ id: 'modern', sound_id: 'modern', started_at: '2026-01-01', candidate_ids: [],
+    variants: Array.from({length: 5}, (_, index) => ({index, result: {candidate_sha256: `clip-${index}`}})),
+    attempts: [{id: 'retry-run', variant_index: 0}, ...Array.from({length: 5}, (_, index) => ({id: `run-${index}`, variant_index: index}))] }];
+  const before = vm.runInContext('groupTakes(records, requests)', context);
+  assert.deepEqual(Array.from(before, t => t.number), [1, 2, 3, 4, 5]);
+  assert.equal(before[0].records.length, 2);
+  assert.equal(before[0].preferred.candidate_sha256, 'clip-0');
+  context.records.push(...Array.from({length: 5}, (_, index) => make(`later-${index}`, `later-run-${index}`)));
+  context.requests.push({id: 'later-job', sound_id: 'modern', started_at: '2026-01-02', candidate_ids: [],
+    variants: Array.from({length: 5}, (_, index) => ({index})),
+    attempts: Array.from({length: 5}, (_, index) => ({id: `later-run-${index}`, variant_index: index}))});
+  const after = vm.runInContext('groupTakes([...records].reverse(), [...requests].reverse())', context);
+  assert.deepEqual(Array.from(after, t => [t.id, t.number]), [...Array.from(before, t => [t.id, t.number]), ...Array.from({length: 5}, (_, index) => [`later-job-${index}`, index + 6])]);
 });
 
 test('batch click and submit handlers coalesce pending intents and retry lost responses', async () => {
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
-  const elements = Object.fromEntries(['batch-edit', 'batch-prompt', 'batch-duration', 'status', 'reconnect'].map(id => [id, { value: id === 'batch-duration' ? '5' : 'Tone' }]));
+  const elements = Object.fromEntries(['batch-edit', 'batch-prompt', 'batch-duration', 'batch-regenerate', 'status', 'reconnect'].map(id => [id, { value: id === 'batch-duration' ? '5' : 'Tone' }]));
+  const parent = { querySelector: () => null };
+  const makeButton = (text = '') => ({ textContent: text, dataset: {}, style: {}, getBoundingClientRect: () => ({width: 150}), parentElement: parent, setAttribute() {}, removeAttribute() {} });
+  Object.assign(elements['batch-regenerate'], makeButton('Generate 5 new clips'));
   const storage = new Map(), operations = new Map(), requests = [];
   let loseResponse = false, nextKey = 0;
   const context = vm.createContext({
@@ -103,7 +113,7 @@ test('batch click and submit handlers coalesce pending intents and retry lost re
     remember: (key, value) => storage.set(key, value),
     localStorage: { removeItem: key => storage.delete(key.replace('studio-', '')) },
     say: message => { elements.status.textContent = message; },
-    node: () => ({}), refresh: async () => {}, reviewItem: () => ({ key: 'tone' }),
+    node: (tag, text) => makeButton(text), document: { querySelectorAll: () => [] }, updateSelected() {}, readiness: { elevenlabs: 'configured' }, refresh: async () => {}, reviewItem: () => ({ key: 'tone' }),
     api: async (path, input, key) => {
       requests.push({ path, input, key });
       if (!operations.has(key)) operations.set(key, { path, input });
@@ -114,24 +124,32 @@ test('batch click and submit handlers coalesce pending intents and retry lost re
     ${source.slice(source.indexOf('function action('), source.indexOf('function node('))}
     ${source.slice(source.indexOf('function button('), source.indexOf('function title('))}
     ${source.slice(source.indexOf('function recreateButton('), source.indexOf('async function useTake('))}
-    ${source.slice(source.indexOf('const batchActions ='), source.indexOf('async function openReviewSound('))}
+    ${source.slice(source.indexOf('async function batchMutation('), source.indexOf('async function openReviewSound('))}
   `, context);
   // Load the production form handler as well as the production recreation button.
-  vm.runInContext(source.split('\n').find(line => line.startsWith("$('batch-edit').onsubmit =")), context);
+  vm.runInContext(source.slice(source.indexOf('const generateMore ='), source.indexOf("$('batch-generate-more').onclick")), context);
   context.candidate = { candidate_sha256: 'candidate', evidence: { generation: { request: { duration_seconds: 5 } } } };
-  context.node = () => { const element = {}; context.lastButton = element; return element; };
+  context.node = (tag, text) => { const element = makeButton(text); if (tag === 'button') context.lastButton = element; return element; };
   vm.runInContext('recreateButton(candidate, null)', context);
+  const firstRepresentation = context.lastButton;
+  vm.runInContext('recreateButton(candidate, null)', context);
+  let releaseDuplicate;
+  context.gate = new Promise(resolve => { releaseDuplicate = resolve; });
+  vm.runInContext('action(() => gate)', context);
+  firstRepresentation.onclick(); context.lastButton.onclick();
+  releaseDuplicate(); await vm.runInContext('pendingAction', context);
+  assert.equal(operations.size, 1, 'selected and generation rows share one pending operation');
   for (const activate of [() => context.lastButton.onclick(), () => elements['batch-edit'].onsubmit({ preventDefault() {} })]) {
     let release;
     context.gate = new Promise(resolve => { release = resolve; });
     vm.runInContext('action(() => gate)', context);
     const before = operations.size;
     activate(); activate(); activate();
-    const acknowledgement = elements.status.textContent;
+    const acknowledgement = [context.lastButton.textContent, elements['batch-regenerate'].textContent].join(' ');
     release();
     await vm.runInContext('pendingAction', context);
     assert.equal(operations.size, before + 1);
-    assert.match(acknowledgement, /Submitting/);
+    assert.match(acknowledgement, /Queueing/);
     activate();
     await vm.runInContext('pendingAction', context);
     assert.equal(operations.size, before + 2, 'a later deliberate activation is allowed');
@@ -197,22 +215,21 @@ test('different batch intents preserve uncertain keys until explicit recovery', 
     });
     vm.runInContext(`let busy = false, pendingAction = Promise.resolve(), reviewBatchId = 'batch-a';
       ${source.slice(source.indexOf('function action('), source.indexOf('function node('))}
-      ${source.slice(source.indexOf('const batchActions ='), source.indexOf('async function openReviewSound('))}`, context);
-    await vm.runInContext(`batchAction('sounds/a/${firstAction}', {prompt: 'A', duration_seconds: 5})`, context);
+      ${source.slice(source.indexOf('async function batchMutation('), source.indexOf('async function openReviewSound('))}`, context);
+    await assert.rejects(vm.runInContext(`batchMutation({path: 'batches/batch-a/sounds/a/${firstAction}', input: {prompt: 'A', duration_seconds: 5}, key: uid()})`, context));
     const pending = storage.get('batch-submission');
-    await vm.runInContext(`batchAction('sounds/a/${firstAction}', {prompt: 'Changed', duration_seconds: 10})`, context);
+    await assert.rejects(vm.runInContext(`batchMutation({path: 'batches/batch-a/sounds/a/${firstAction}', input: {prompt: 'Changed', duration_seconds: 10}, key: uid()})`, context), /not queued/);
     assert.equal(requests.length, 1, 'changed input is a new intent even on the same path');
     assert.deepEqual(storage.get('batch-submission'), pending);
     const secondAction = firstAction === 'regenerate' ? 'recreate' : 'regenerate';
-    await vm.runInContext(`reviewBatchId = 'batch-b'; batchAction('sounds/b/${secondAction}', {prompt: 'B', duration_seconds: 10})`, context);
+    await assert.rejects(vm.runInContext(`batchMutation({path: 'batches/batch-b/sounds/b/${secondAction}', input: {prompt: 'B', duration_seconds: 10}, key: uid()})`, context), /batch-b.*not queued.*batch-a.*Reconnect/i);
     assert.equal(requests.length, 1, 'a new click cannot replay a different uncertain operation');
     assert.deepEqual(storage.get('batch-submission'), pending);
-    assert.match(status, /batch-b.*not queued.*batch-a.*Reconnect/i);
     await vm.runInContext("batchMutation(recall('batch-submission', null))", context);
     assert.equal(requests.at(-1).key, pending.key);
     assert.equal(operations.size, 1);
     assert.match(status, /batch-a/);
-    await vm.runInContext(`batchAction('sounds/b/${secondAction}', {prompt: 'B', duration_seconds: 10})`, context);
+    await vm.runInContext(`batchMutation({path: 'batches/batch-b/sounds/b/${secondAction}', input: {prompt: 'B', duration_seconds: 10}, key: uid()})`, context);
     assert.equal(operations.size, 2);
     assert.equal(requests.at(-1).path, `batches/batch-b/sounds/b/${secondAction}`);
     assert.equal(requests.at(-1).input.prompt, 'B');

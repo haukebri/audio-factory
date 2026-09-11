@@ -70,7 +70,6 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; }
 .generation-progress .hint { margin-bottom: 0; }
 .spinner { flex: 0 0 18px; height: 18px; border: 2px solid var(--boundary); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
 footer { max-width: 1440px; margin: 0 auto; border-top: 1px solid var(--line); padding: 20px; color: var(--muted); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .skip { position: absolute; left: -9999px; }
@@ -82,7 +81,7 @@ footer { max-width: 1440px; margin: 0 auto; border-top: 1px solid var(--line); p
 @media (max-width: 767px) {
   header { padding: 12px 16px; gap: 8px; }
   main { padding: 20px 16px 36px; }
-  .layout, .compare-grid { display: block; }
+  .layout { display: block; }
   body[data-view=create] #workspace { display: none; }
   body[data-view=listen] .composer { display: none; }
   .composer, .take { padding: 16px; }
@@ -99,21 +98,38 @@ footer { max-width: 1440px; margin: 0 auto; border-top: 1px solid var(--line); p
 /* Keep the secondary menu in ordinary document flow, including at large text sizes. */
 nav details { margin: 0; }
 nav summary { min-width: 44px; }
-.brand, #active-link, #compare-view > a { display: inline-flex; align-items: center; min-height: 44px; }
-#active-link, #compare-view > a { color: var(--primary); }
-#compare-view > a { margin-bottom: 12px; }
-.compare-grid { margin-top: 24px; }
+.brand, #active-link { display: inline-flex; align-items: center; min-height: 44px; }
+#active-link { color: var(--primary); }
 .generation-progress { margin-bottom: 20px; }
 
-#batch-results { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:1rem; margin:1.5rem 0; }
-#batch-results > h3 { grid-column:1 / -1; }
-.variant-card { border:1px solid var(--muted); border-radius:8px; background:var(--surface); padding:1rem; min-width:0; }
-.variant-card h4 { margin:0 0 .65rem; color:var(--primary); }
-.variant-card.chosen { outline:3px solid var(--primary); background:var(--selected); }
-.variant-prompt { font-size:.9rem; line-height:1.45; }
-.variant-card audio { width:100%; margin:.5rem 0; }
-.variant-card .actions { display:flex; flex-wrap:wrap; gap:.5rem; }
-.best-take { grid-column: 1 / -1; display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+#batch-results { display: grid; gap: 16px; margin: 20px 0; }
+.variant-card, .clip-row { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 16px; min-width: 0; margin: 12px 0; }
+.variant-card h4, .clip-row h4 { margin: 0 0 8px; color: var(--primary); }
+.variant-card.chosen, .clip-row.chosen { border-color: var(--primary); background: var(--selected); }
+.variant-card audio, .clip-row audio { width: 100%; margin: 8px 0; }
+.variant-card .actions, .clip-row .actions { margin-top: 8px; }
+.generation-group { margin: 0; border-top: 1px solid var(--line); }
+.generation-group > summary { padding: 14px 0; }
+.selected-badge { display: inline-block; font-weight: 700; color: var(--primary); }
+.trim-editor { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--boundary); }
+.trim-editor h5 { font-size: 16px; margin: 0 0 12px; }
+.trim-editor output { margin-left: 12px; font-variant-numeric: tabular-nums; color: var(--primary); }
+input[type=range] { padding: 0; border: 0; accent-color: var(--primary); }
+button:active { transform: translateY(1px); background: var(--selected); }
+button[aria-busy=true] { cursor: progress; }
+.action-status:empty { display: none; }
+.action-status { margin: 6px 0; }
+#sound-list { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+#sound-list button { text-align: left; justify-content: flex-start; }
+#sound-list [aria-current=true], #sound-list [aria-current=page], #sound-list [aria-pressed=true] { background: var(--selected); border-color: var(--primary); }
+.sound-picker { display: none; }
+#sound-actions { margin-bottom: 16px; }
+#sound-title:empty { display: none; }
+@media (max-width: 767px) {
+  #sound-list { display: none; }
+  .sound-picker { display: block; margin-bottom: 16px; }
+  #review-batch { padding: 16px; }
+}
 
 #review-batch { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:24px; margin-bottom:24px; }
 #review-batch h1 { margin:.5rem 0; }
