@@ -18,7 +18,9 @@ Studio must be running (`./run studio`, default `http://127.0.0.1:8767`). It own
 }
 ```
 
-The batch name is 1–200 characters. Submit 1–50 sounds within a 128 KiB body. Asset keys are unique within a batch, 1–128 letters, digits, underscores or hyphens. Prompts are 1–2000 nonblank characters. Duration choices are 5, 10, 20, 30 or 60 seconds; omission defaults to 5. Unknown fields are rejected. Creation always uses local generation; no paid calls happen automatically.
+The batch name is 1–200 characters. Submit 1–50 sounds within a 128 KiB body. Asset keys are unique within a batch, 1–128 letters, digits, underscores or hyphens. Prompts are 1–2000 nonblank characters. Duration choices are 5, 10, 20, 30 or 60 seconds; omission defaults to 5. Each sound also accepts optional boolean `loop`, default false. Unknown fields are rejected. Creation always uses local generation; no paid calls happen automatically.
+
+For continuous ambience, a sound can be `{ "key": "rain", "prompt": "Steady rain on leaves", "duration_seconds": 20, "loop": true }`. Duration is the source budget; the prepared loop may be shorter. The flag requests continuity guidance and loop-aware processing, including native ElevenLabs looping on an authorized recreation. See [processing and preview](usage.md#continuous-loops).
 
 A `202` response includes the saved `id`, a `Location` header and `review_url`, for example `http://127.0.0.1:8767/#batch/<id>`. It returns before generation completes. Repeating the same key and equivalent input returns the same batch; conflicting input returns `409`. Save the key before sending, and retain the returned ID in the consuming project's task context. A lost response is a reason to retry the same request, not create a new key.
 
@@ -55,6 +57,10 @@ The batch link shows selection progress and a sound selector. For each sound, th
 | `POST /studio/batches/<id>/resume` | `{}`; releases pending work; does not regenerate failed or canceled jobs |
 | `GET /studio/batches/<id>/winners` | Exact selected files and their hashes, or `409` if not ready |
 
+Regeneration accepts optional `loop`: omission inherits the sound's latest effective setting, while explicit false disables it. Recreation accepts optional `loop` alongside `candidate_sha256`; omission inherits the selected version's effective setting. Save the complete request and key. The same key reattaches to its accepted intent; changing loop intent conflicts.
+
+For loop review, use **Preview loop** for at least three cycles. Adjust the crossfade if needed, **Save loop**, then **Use this take**. Preview does not create a durable version or a winner.
+
 Recreation validates that the candidate belongs to the indicated sound and uses its exact generated prompt and original requested duration. ElevenLabs supports at most 30 seconds; 60-second recreation is rejected before a paid submission. Paid actions require explicit user authorization. Retrying the same recreation key reattaches to the queued operation, including after a lost response.
 
 Existing candidate selection, trim, audio, export and feedback endpoints are described in [usage](usage.md). The reviewer uses **Use this take** to create a persisted exact-version selection. Agent integrations should not call the selection endpoint to manufacture human decisions.
@@ -79,6 +85,7 @@ When ready, `GET /studio/batches/<id>/winners` returns:
       "audio_sha256": "...",
       "duration_seconds": 1.82,
       "requested_duration_seconds": 5,
+      "loop": false,
       "prompt": "A dog barking",
       "audio_url": "http://127.0.0.1:8767/studio/candidates/<sha>/audio",
       "export_url": "http://127.0.0.1:8767/studio/candidates/<sha>/export"
@@ -86,6 +93,8 @@ When ready, `GET /studio/batches/<id>/winners` returns:
   ]
 }
 ```
+
+The manifest's `loop` is the selected version's effective mode; `duration_seconds` is its actual output length, and `requested_duration_seconds` is the source budget. Configure the consuming player to repeat loop assets without altering the approved WAV.
 
 Fetch each `audio_url` and `export_url` using the same bearer credentials. Verify downloaded WAV bytes against `audio_sha256`, save the manifest and full provenance archives, and map files into the consuming project using `key`. Use a fresh destination for a new manifest revision; avoid overwriting unrelated assets. Downloading the same revision can reuse already verified files.
 

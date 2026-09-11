@@ -13,17 +13,23 @@ Local generation requires Apple Silicon macOS, Node >=22.11, pnpm 9.15.9, uv, Py
 ./run make examples/request.json
 ```
 
-Open http://127.0.0.1:8767. Describe the sound, set its duration, and choose **Generate 5 local takes**. Variation 1 keeps your original prompt unchanged. One text-model call creates four slight variations using sound-library captions, concrete source/action/texture details and the `TrackType: SFX,` prefix, preserving the original events, order and constraints. The audio model runs them sequentially; each finished result appears immediately. A failed planner stops the batch before audio generation.
+Open http://127.0.0.1:8767. Describe the sound, set its duration, enable **Loop** for continuous ambience if wanted, and choose **Generate 5 local takes**. Variation 1 keeps your original prompt unchanged. One text-model call creates four slight variations using sound-library captions, concrete source/action/texture details and the `TrackType: SFX,` prefix, preserving the original events, order and constraints. The audio model runs them sequentially; each finished result appears immediately. A failed planner stops the batch before audio generation.
 
-Both providers select the **first active region**, apply short fades, and peak-normalize to **−3 dBFS**, delivering stereo 44.1 kHz PCM16 WAVs. The complete original recording is preserved. Use **Open / trim / download** to choose different bounds or inspect other events in the original.
+Non-loop requests select the **first active region**, apply short fades, and peak-normalize to **−3 dBFS**, delivering stereo 44.1 kHz PCM16 WAVs. The complete original recording is preserved. Use **Trim** to choose different bounds or inspect other events in the original.
 
 Only deterministic silence and suspected-static failures trigger retries: up to three attempts per local prompt, with the same wording and a new seed. Failed takes remain available. An exhausted variation does not stop the other variations. An operational error stops the batch and preserves finished work. Static detection is a conservative broadband-noise heuristic; passing it does not establish sound accuracy.
+
+## Continuous loops
+
+Enable **Loop** beside Duration, or set `"loop": true` on a batch sound (`request.loop` for workflow inputs). Local loops use conservative edge trimming and rotation/crossfading. Usable native ElevenLabs loops retain their timing with global gain only. Loop processing adds no outer fades.
+
+Duration is the source-generation budget; the final loop may be shorter. Studio shows the actual duration and a Loop badge. Under **Trim**, adjust **Loop** and **Crossfade (seconds)**, then use **Preview loop** to audition the proposed saved waveform repeatedly. Listen for at least three cycles. **Save loop** creates an immutable version; **Use this take** selects it. Download and winner export use that exact version. See [loop options and inheritance](docs/usage.md#continuous-loops).
 
 ## Listen and choose
 
 Play the cards to compare variations; starting another player pauses the previous one. **Use this take** saves one preferred exact version per sound, with an append-only history when you change your mind. Other takes remain available and are not rejected. Earlier signal-failed attempts can also be played and selected. Approval/rejection notes remain separate from preference.
 
-**Recreate with ElevenLabs** sends the selected take's actual generated prompt unchanged, with its original requested duration. It makes **one paid generation**, with no automatic paid retries or extra prompt planning. Copy [`.env-template`](.env-template) to this checkout's ignored `.env`, then set your ElevenLabs API key:
+**Recreate with ElevenLabs** sends the selected take's actual generated prompt unchanged, with its original requested duration and effective loop intent. It makes **one paid generation**, with no automatic paid retries or extra prompt planning. Copy [`.env-template`](.env-template) to this checkout's ignored `.env`, then set your ElevenLabs API key:
 
 ```sh
 cp .env-template .env  # First-time setup; keep an existing .env
@@ -33,7 +39,7 @@ cp .env-template .env  # First-time setup; keep an existing .env
 ELEVEN_KEY=your_elevenlabs_api_key
 ```
 
-An environment variable takes precedence. The provider is `eleven_text_to_sound_v2`, prompt influence 0.3, looping off. ElevenLabs does not support the local seed. Original MP3 responses and request receipts are retained in `.runtime/elevenlabs/`; uncertain submissions are never automatically repeated.
+An environment variable takes precedence. The provider is `eleven_text_to_sound_v2`, prompt influence 0.3, and looping enabled when requested. ElevenLabs does not support the local seed. Original MP3 responses and request receipts are retained in `.runtime/elevenlabs/`; uncertain submissions are never automatically repeated.
 
 ## Agent batches
 

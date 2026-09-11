@@ -10,13 +10,13 @@ Run from the checkout root. The `run` launcher installs missing Node dependencie
 ./run studio
 ```
 
-A request has a nonblank `prompt` (1–2000 characters), `duration_seconds` (0.5–60; default 5), and optional integer `seed` (0–2147483647). Unknown fields are rejected. Local batches call Ollama `gemma4:latest` once (two-minute bound), preserve the original as variation 1 and persist four validated distinct rewrites, then generate each sequentially. A local prompt gets at most three attempts, retrying only silence/static with distinct seeds. Silence/static exhaustion continues the next prompt; operational failure stops. All produced takes are preserved.
+A request has a nonblank `prompt` (1–2000 characters), `duration_seconds` (0.5–60; default 5), optional integer `seed` (0–2147483647), and optional boolean `loop` (default false). Unknown fields are rejected. Local batches call Ollama `gemma4:latest` once (two-minute bound), preserve the original as variation 1 and persist four validated distinct rewrites, then generate each sequentially. A local prompt gets at most three attempts, retrying only silence/static with distinct seeds. Silence/static exhaustion continues the next prompt; operational failure stops. All produced takes are preserved.
 
 A workflow input is `{ "request": { "prompt": "A cat hissing", "duration_seconds": 5 }, "provider": "local" }`. Provider defaults to `local`; explicit `elevenlabs` makes one generation with the supplied prompt. `sound_parent_id` links another job to an existing sound. `make` prints variants/attempts; `workflow` prints the full job. Reusing an idempotency key with different input is a conflict. Semantic QA options (`clap: true`, target/alternatives, automatic mode, budgets) are rejected. `{ "clap": false }` remains compatible but does not load a model.
 
 ## Processing and retention
 
-Deterministic processing selects the first active region, applies 5 ms fades and normalizes the peak to −3 dBFS. Silence has no active region. Suspected static requires persistent, steady broadband noise; thresholds live in `qa-config.json`. Rhythmic-bass evidence remains advisory and never causes retries. The complete original recording survives processing. All semantic correctness requires listening.
+For non-loop requests, deterministic processing selects the first active region, applies 5 ms fades and normalizes the peak to −3 dBFS. Silence has no active region. Suspected static requires persistent, steady broadband noise; thresholds live in `qa-config.json`. Rhythmic-bass evidence remains advisory and never causes retries. The complete original recording survives processing. All semantic correctness requires listening.
 
 With the temporary service stopped:
 
@@ -27,9 +27,33 @@ With the temporary service stopped:
 ./run retain <audio-path>
 ```
 
-Offline inspect/analyze/cut require the source in `out/runs/<id>`. Studio can trim any durable candidate. Explicit cut bounds require both start and end within the original audio. `normalize: false` disables gain changes; `peak_db` allows −30 through −3. Cuts create new versions without changing source bytes or previous decisions.
+Offline inspect/analyze/cut require the source in `out/runs/<id>`. Studio can trim any durable candidate. Explicit cut bounds require both start and end within the original audio. `normalize: false` disables normalization (loop mixing still enforces the peak ceiling); `peak_db` allows −30 through −3. Cuts create new versions without changing source bytes or previous decisions.
 
 `retain` accepts durable candidate audio and legacy cut exports, verifies their provenance, and copies to a fresh `.runtime/retained/clip-*`. Copy the whole directory into the consuming project. Neither download nor preference implies approval or grants model/output rights.
+
+## Continuous loops
+
+For `make` and `/v1/sound-effects`, add `"loop": true` to the generation request. For workflow JSON and `POST /studio/jobs`, use:
+
+```json
+{ "request": { "prompt": "Steady rain on leaves", "duration_seconds": 20, "loop": true }, "provider": "local" }
+```
+
+Batch sounds accept the same boolean; see the [agent API](agent-api.md). New requests default to false. Sound regeneration inherits the latest effective setting when omitted; explicit false disables it. ElevenLabs recreation inherits the selected version's intent, with an optional `loop` override in the recreation body. Retries reuse the accepted intent even after later sound edits. Changing intent under an existing key conflicts; old requests that omitted the flag remain compatible.
+
+`duration_seconds` is the source-generation budget. Edge trimming and overlap shorten local loops; output is never padded, stretched or regenerated to meet an exact final length. Studio and winner manifests report actual duration. Provider duration limits still apply. Local generation adds continuity instructions separately from the recorded user wording. ElevenLabs receives its native loop flag; decoding honors codec metadata without requested-duration padding or a stateful limiter. Boundary diagnostics retain usable native loops with global gain only; flagged sources use the source-based repair path.
+
+Loop cuts use the useful continuous original, preserve interior quiet passages, rotate at shared stereo sample boundaries and overlap the internal join. Defaults: 0.5-second equal-power crossfade, adjustable from 0.05 to 2 seconds and capped at one quarter of the retained source. Equal-gain is available for correlated material. Global peak normalization defaults to −3 dBFS; no outer fades are applied. Unsuitable sources retain their original and return an actionable error for manual bounds or another take.
+
+Cut requests accept `loop`, `crossfade_seconds` and `curve` (`equal-power` or `equal-gain`), alongside existing options:
+
+```json
+{ "loop": true, "start_seconds": 1, "end_seconds": 19, "crossfade_seconds": 0.5, "curve": "equal-power" }
+```
+
+Bounds always refer to original-source seconds. An omitted cut mode inherits the source request, or the edited version's effective mode in Studio. Explicit false restores ordinary trimming. `{ "loop": true }` allows automatic edge analysis/native preservation; explicit bounds, overlap or curve request a source-based repair of a native loop. Processing evidence records source/output hashes, bounds, split, overlap frames, curve, gain, output frame count and native-provider intent. A reordered loop is not a contiguous trim.
+
+Studio's **Preview loop** renders the proposed PCM without saving or selecting, then repeats it with gapless Web Audio buffer playback. Listen for at least three cycles at both joins, including levels, phase, repeated calls and wave timing. **Save loop** creates one immutable version; **Use this take** separately selects it. Exports bind that exact waveform. Configure runtime looping in the consuming application; a WAV does not start repeating by itself.
 
 ## Studio API
 
@@ -47,7 +71,7 @@ The browser bootstraps `GET /studio/session` with `X-Studio-Bootstrap: 1`, recei
 | `POST /studio/jobs/<id>/resume` | `{}` and a new idempotency key start a fresh batch after failure/cancellation/interruption |
 | `POST /studio/jobs/<id>/acknowledge` | Acknowledge an uncertain interrupted outcome without generation |
 | `GET /studio/candidates` | Durable candidates and their exact provenance |
-| `POST /studio/candidates/<sha>/recreate` | `{}` and required idempotency key; one ElevenLabs request using this version's generation prompt and requested duration |
+| `POST /studio/candidates/<sha>/recreate` | `{}` or `{ "loop": false }` and required idempotency key; one ElevenLabs request using this version's generation prompt, requested duration and inherited/overridden loop intent |
 | `POST /studio/candidates/<sha>/select` | `{ "event_id": "<32 hex>", "supersedes": null }`; supersede the latest event ID on subsequent changes; stale changes return 409 |
 | `GET /studio/selections` | Latest preferred exact candidate per sound |
 | `GET /studio/candidates/<sha>/selection-history` | Append-only preference history for this sound |
