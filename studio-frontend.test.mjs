@@ -172,6 +172,7 @@ test('selection recovery preserves the current choice before transmission and af
     const storage = new Map(), events = [], requests = [];
     let fail = true, nextId = 0, status;
     const context = vm.createContext({
+      isBatchCandidate: () => false, offerLibrary() {},
       uid: () => String(++nextId), takeFor: () => ({ sound: 'sound' }), identity: c => `Take ${c.candidate_sha256}`,
       recall: (key, fallback) => storage.get(key) ?? fallback, remember: (key, value) => storage.set(key, value),
       localStorage: { removeItem: key => storage.delete(key.replace('studio-', '')) },

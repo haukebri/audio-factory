@@ -105,3 +105,36 @@ The manifest is a snapshot: a later human choice changes its revision but never 
 Batch definitions and queued revisions live in `.runtime/studio/batches/`, alongside durable jobs and candidates. Restart loads the queue and continues operations never submitted. Previously accepted jobs are looked up by their persisted deterministic IDs; completed, failed and canceled jobs are not submitted again. An interrupted job blocks further submission until explicitly recovered or acknowledged through the existing Studio recovery controls. Uncertain paid requests are never automatically replayed.
 
 To retry a failed sound deliberately, queue a new prompt revision with a new key after resolving the failure. Pausing/resuming the batch does not authorize repeating uncertain operations. Closing Studio stops the queue and cancels its active job through the existing shutdown flow; pending jobs survive for the next startup.
+
+## Search and reuse the sound library
+
+`GET /studio/library?q=wooden%20knock` returns curated entries, newest additions first. Search matches every whitespace-separated term, case-insensitively, across title, keywords, original request and exact generation prompt. Omit `q` to browse all entries; the query limit is 2000 characters. Use the same bearer authentication as batches.
+
+Current batch winners enter the library automatically, including winners saved before the library existed. Changing a winner updates that batch sound's entry. Standalone sounds enter only through an explicit Add to library action. Library membership is separate from acceptance/rejection feedback; agents must not manufacture human selection or consent.
+
+Each entry includes `id`, `revision`, `title`, `keywords`, `original_request`, `prompt`, `candidate_sha256`, `audio_sha256`, `duration_seconds`, `loop`, `provider`, `created_at`, `updated_at`, `tagging`, `audio_url` and `export_url`. Batch entries also include `batch_id`, `sound_id`, `sound_key` and `selection_event_id`. `prompt` preserves the actual generation prompt when recorded, falling back to the generation request for older records. URLs identify immutable candidates; verify fetched WAV bytes against `audio_sha256` as with winner collection.
+
+| Method / endpoint | Input / result |
+| --- | --- |
+| `GET /studio/library?q=…` | Matching library entries; empty query returns all |
+| `POST /studio/library` | `{ "candidate_sha256": "<64 hex characters>" }`; adds the exact candidate, or returns its existing entry |
+| `PATCH /studio/library/<id>` | `{ "revision": 1, "title": "Wooden tap", "keywords": ["wood", "knock"] }`; provide title, keywords or both |
+| `POST /studio/library/<id>/keywords` | `{ "revision": 1 }`; explicitly queues new keyword suggestions, replacing manual keywords when completed |
+
+Titles are nonblank and at most 200 characters. Keywords are at most 16 nonblank strings, each at most 80 characters; they are trimmed, lowercased and deduplicated. Unknown fields are rejected. Edits require the current revision and return `409` on conflicts; reload the entry before deciding how to merge a draft. Add requests are idempotent by candidate identity and require no separate idempotency key.
+
+Keyword suggestions use the local text model when generation is idle. `tagging` is `pending`, `completed`, `failed` or `manual`; failures include `tagging_error`. Pending work survives restarts. A failed or timed-out attempt does not retry automatically or prevent saving, downloading, or searching prompts. Explicit retry queues another attempt. Human keyword edits and winner changes invalidate late model responses. Suggestions describe prompt intent, not an analysis of the waveform.
+
+Example search (credentials remain inside the process):
+
+```sh
+python3 - <<'PY'
+import json, pathlib, urllib.parse, urllib.request
+url = 'http://127.0.0.1:8767/studio/library?' + urllib.parse.urlencode({'q': 'wooden knock'})
+request = urllib.request.Request(url, headers={
+    'Authorization': 'Bearer ' + pathlib.Path('.runtime/token').read_text().strip(),
+})
+with urllib.request.urlopen(request, timeout=30) as response:
+    print(json.dumps(json.load(response), indent=2))
+PY
+```

@@ -258,6 +258,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     operation.promise = (async () => {
       try {
         await persisted;
+        await execution.beforeCompute?.();
         controller.signal.throwIfAborted();
         if (!job.variants) {
           if (job.provider === 'local') {
@@ -340,6 +341,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       const loop = input.loop ?? candidate.evidence.cut?.request?.loop ?? candidate.evidence.generation.request.loop;
       input = { ...input, ...(loop === undefined ? {} : { loop }) };
       cutting = (async () => {
+        await execution.beforeCompute?.();
         await ensureSetup(false);
         const temporary = await mkdtemp(join(root, '.runtime/studio-cut-'));
         try {

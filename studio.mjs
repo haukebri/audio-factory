@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { openLibrary } from "./library.mjs";
 import { openBatches } from "./batches.mjs";
 import { openJobs } from "./workflow.mjs";
 
@@ -17,7 +18,7 @@ async function body(req, limit = 16384) {
 }
 export async function createStudio({ port = 8767, ...options }) {
   const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/qa-config.json', 'qa-config.json', 'application/json'], ['/loop-audio.mjs', 'loop-audio.mjs', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
-  let jobs, batches;
+  let jobs, batches, library;
   let closing;
   const sessions = new Map();
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
@@ -35,7 +36,7 @@ export async function createStudio({ port = 8767, ...options }) {
       if (req.method === 'GET' && Object.hasOwn(assets, path)) {
         res.writeHead(200, { 'Content-Type': assets[path].type }); res.end(assets[path].bytes); return;
       }
-      if (!jobs || !batches) fail(503, 'Studio starting');
+      if (!jobs || !batches || !library) fail(503, 'Studio starting');
       const cookie = req.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith('studio_session='))?.slice(15);
       let session = sessions.get(cookie);
       if (session?.expires < Date.now()) { sessions.delete(cookie); session = undefined; }
@@ -57,6 +58,18 @@ export async function createStudio({ port = 8767, ...options }) {
       } else {
         if (!session) fail(401, 'Browser session required');
         if (req.method !== 'GET' && (req.headers.origin !== origin || req.headers['x-studio-csrf'] !== session.csrf)) fail(403, 'Same-origin mutation credentials required');
+      }
+      if (path === '/studio/library' || path.startsWith('/studio/library?')) {
+        if (req.method === 'GET') {
+          const params = new URLSearchParams(path.split('?')[1]);
+          if ([...params.keys()].some(k => k !== 'q') || params.getAll('q').length > 1) fail(400, 'Expected only q');
+          json(res, 200, await library.list(params.get('q') ?? '')); return;
+        }
+        if (req.method === 'POST' && path === '/studio/library') { json(res, 200, await library.add(await body(req))); return; }
+      }
+      const libraryMatch = /^\/studio\/library\/([a-f0-9]{32}|[a-f0-9]{64})(\/keywords)?$/.exec(path);
+      if (libraryMatch && ((req.method === 'PATCH' && !libraryMatch[2]) || (req.method === 'POST' && libraryMatch[2]))) {
+        json(res, 200, await library.edit(libraryMatch[1], await body(req), Boolean(libraryMatch[2]))); return;
       }
       if (path === '/studio/batches') {
         if (req.method === 'GET') { json(res, 200, batches.list()); return; }
@@ -99,7 +112,7 @@ export async function createStudio({ port = 8767, ...options }) {
         const candidate = jobs.store.loadCandidate(id);
         if (req.method === 'GET' && !action) { json(res, 200, candidate); return; }
         if (req.method === 'GET' && action === 'selection-history') { json(res, 200, jobs.selectionHistory(id)); return; }
-        if (req.method === 'POST' && action === 'select') { json(res, 200, jobs.selectTake(id, await body(req))); return; }
+        if (req.method === 'POST' && action === 'select') { const selection = jobs.selectTake(id, await body(req)); await library.reconcile(); json(res, 200, selection); return; }
         if (req.method === 'POST' && action === 'recreate') { const input = await body(req); json(res, 202, await jobs.recreate(id, req.headers['idempotency-key'], input)); return; }
         if (req.method === 'POST' && action === 'cut') { json(res, 200, await jobs.cut(id, await body(req))); return; }
         if (action === 'feedback') {
@@ -143,15 +156,16 @@ export async function createStudio({ port = 8767, ...options }) {
   });
   server.requestTimeout = 30000;
   const close = () => closing ??= (async () => {
-    try { try { await batches?.close(); } finally { await jobs?.close(); } } finally {
+    try { try { await library?.close(); } finally { try { await batches?.close(); } finally { await jobs?.close(); } } } finally {
       server.closeAllConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));
     }
   })();
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
-    jobs = await openJobs(options);
+    jobs = await openJobs({ ...options, beforeCompute: () => library?.interrupt() });
     batches = await openBatches(jobs, { root: options.root, origin: `http://127.0.0.1:${server.address().port}` });
-    return { server, jobs, batches, close };
+    library = await openLibrary(jobs, batches, { root: options.root, origin: `http://127.0.0.1:${server.address().port}`, ...(options.suggestKeywords ? { suggest: options.suggestKeywords } : options.fixture ? { suggest: async () => { throw new Error('Keyword model disabled in fixture mode'); } } : {}) });
+    return { server, jobs, batches, library, close };
   } catch (error) { await close(); throw error; }
 }

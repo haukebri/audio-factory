@@ -99,3 +99,5 @@ See [task 08 evidence](tasks/m02/08-medium-gguf-generation.md#evidence) for exac
 validation and input/final hashes. Build environments, upstream source, binaries,
 partial downloads, weights, original MLX assets, candidates and browser evidence
 remain ignored; no runner changes, commits or publication are part of this task.
+
+`library.mjs` stores curated metadata, reconciles batch winners, searches prompts and keywords, and runs interruptible local keyword suggestions. Audio remains in the review store.

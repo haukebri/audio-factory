@@ -25,12 +25,13 @@ try {
   run('set','viewport','1280','900');
   // Reload must keep the in-flight request even when storage contains an older selection.
   ev(`remember('selected',takes.find(t=>t.sound===oldSound).records[0].candidate_sha256)`);
+  const reloadingJob = ev('currentJob');
   run('reload');wait('Boolean(csrf)&&!busy');
-  check(`$('batch-results').dataset.sound!==takeFor(recall('selected',null))?.sound&&$('generation-stage').textContent.length>0`);
+  check(`currentJob===${JSON.stringify(reloadingJob)}&&$('batch-results').dataset.sound===(jobs.find(j=>j.id===currentJob).sound_id??currentJob)&&$('generation-stage').textContent.length>0`);
   wait(`jobs.find(j=>j.id===currentJob)?.status==='completed'`);
   check(`!$('generation-progress').hidden&&$('generation-stage').textContent.includes('finished')&&$('batch-results').querySelectorAll('[data-clip]').length>0`);
   check(`[...$('sound-actions').querySelectorAll('button')].some(b=>b.textContent==='Generate more')`);
-  // A fresh Create view clears history, but it remains available through Library.
+  // A fresh Create view clears history, but it remains available through History.
   ev(`navigate('create')`);check(`$('batch-results').children.length===0&&!$('empty').hidden&&$('generation-progress').hidden`);
   // Failure to refresh an accepted request must not claim submission failed.
   ev(`window.nativeFetch=fetch;window.accepted=false;window.fetch=async(input,init)=>{if(input==='/studio/jobs'&&init?.method==='POST'){const response=await nativeFetch(input,init);accepted=true;return response;}if(accepted&&input==='/studio/jobs')throw new Error('Fixture update unavailable');return nativeFetch(input,init)};$('prompt').value='Accepted request update regression'`);

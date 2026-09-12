@@ -17,8 +17,8 @@ const click = (scope, label) => { evaluate(`document.querySelector('[data-edge-c
 const evidence = {url: manifest.url, checks: []};
 const checked = name => { evidence.checks.push(name); console.log(name); };
 try {
-  run('open', manifest.url + '/#library');
-  run('wait', '--fn', "document.querySelector('#library [data-library-focus]') && document.querySelector('#status').textContent.includes('Connected')");
+  run('open', manifest.url + '/#history');
+  run('wait', '--fn', "document.querySelector('#history-list [data-library-focus]') && document.querySelector('#status').textContent.includes('Connected')");
   run('snapshot', '-i');
   evaluate(`window.edgeFetch = window.fetch; window.edgeMode = 'configured'; window.edgePosts = 0;
     window.fetch = async (url, options = {}) => {
@@ -26,9 +26,9 @@ try {
       if (String(url).endsWith('/readiness')) return new Response(JSON.stringify({generation:'fixture', elevenlabs:edgeMode}), {headers:{'Content-Type':'application/json'}});
       return edgeFetch(url, options);
     };`);
-  assert.equal(evaluate(`(() => { const d = document.querySelector('#library details'); d.open = true; document.querySelector('#library').dataset.signature = ''; renderLibrary(); return document.querySelector('#library details').open; })()`), true);
+  assert.equal(evaluate(`(() => { const d = document.querySelector('#history-list details'); d.open = true; document.querySelector('#history-list').dataset.signature = ''; renderHistory(); return document.querySelector('#history-list details').open; })()`), true);
   checked('Library version disclosure survives a forced result rerender');
-  evaluate(`action(() => new Promise(resolve => window.edgeRelease = resolve)); document.querySelector('#library [data-library-focus]').click();`);
+  evaluate(`action(() => new Promise(resolve => window.edgeRelease = resolve)); document.querySelector('#history-list [data-library-focus]').click();`);
   run('wait', '--fn', "document.body.dataset.view === 'listen' && document.querySelector('[data-clip]')");
   assert.equal(evaluate(`document.querySelector('#review-batch').hidden`), true);
   evaluate('edgeRelease()');
@@ -73,8 +73,8 @@ try {
   assert.equal(evaluate(`document.querySelector('#generation-progress').hidden`), true);
   checked('Old Compare links return to listening without comparison markup');
   evaluate(`window.edgeOrphanFetch = window.fetch; window.fetch = async (url, options={}) => { if (options.method==='POST') throw Error('Orphan check forbids mutations'); if (['jobs','batches','selections'].includes(String(url).split('/').at(-1))) return new Response('[]',{headers:{'Content-Type':'application/json'}}); return edgeOrphanFetch(url,options); };`);
-  evaluate(`(async () => { await refresh(); navigate('library'); document.querySelector('#library').dataset.signature=''; renderLibrary(); })()`);
-  click('#library button', evaluate(`document.querySelector('#library [data-library-focus]').textContent`));
+  evaluate(`(async () => { await refresh(); navigate('history'); document.querySelector('#history-list').dataset.signature=''; renderHistory(); })()`);
+  click('#history-list button', evaluate(`document.querySelector('#history-list [data-library-focus]').textContent`));
   assert.equal(evaluate(`document.querySelector('#batch-results audio') !== null`), true);
   assert.equal(evaluate(`currentJob === undefined && document.querySelector('#generation-progress').hidden`), true);
   click('#batch-results button', 'Replay');

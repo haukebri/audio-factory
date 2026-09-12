@@ -27,7 +27,7 @@ Duration is the source-generation budget; the final loop may be shorter. Studio 
 
 ## Listen and choose
 
-Play the cards to compare variations; starting another player pauses the previous one. **Use this take** saves one preferred exact version per sound, with an append-only history when you change your mind. Other takes remain available and are not rejected. Earlier signal-failed attempts can also be played and selected. Approval/rejection notes remain separate from preference.
+Play the cards to compare variations; starting another player pauses the previous one. **Use this take** saves one preferred exact version per sound, with an append-only history when you change your mind. Other takes remain available and are not rejected. Earlier signal-failed attempts can also be played and selected. Approval/rejection notes remain separate from preference. Batch winners automatically enter the searchable **Library**; standalone selections and downloads offer **Add to library**. Search titles, editable keywords and both prompts. **History** keeps all batches and alternate takes accessible.
 
 **Recreate with ElevenLabs** sends the selected take's actual generated prompt unchanged, with its original requested duration and effective loop intent. It makes **one paid generation**, with no automatic paid retries or extra prompt planning. Copy [`.env-template`](.env-template) to this checkout's ignored `.env`, then set your ElevenLabs API key:
 

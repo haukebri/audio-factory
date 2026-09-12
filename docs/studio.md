@@ -20,3 +20,13 @@ Library filters are **All**, **Selected** and **Needs selection**. **Settings â†
 Interrupted work offers explicit recovery; canceling preserves finished audio. The Studio remains available after compute exits.
 
 [API and recovery details](usage.md).
+
+## Curated library and history
+
+**Library** contains reusable sounds: batch winners are added automatically, and each batch sound follows its current winner. Existing batch winners are included on startup. **History** retains every batch, take and saved version, including unfinished reviews.
+
+For standalone sounds, **Use this take** or **Download** offers **Add to library / Not now**. Downloads proceed immediately. You can also add an exact version from **More clip actions** in the listening desk. Already-saved versions show **In library**; repeated saves do not create duplicates.
+
+Search the Library by title, keywords, original request or generation prompt. Multiple words all have to match, in any order and across any of those fields. Play and download directly from results, open the original take, or use **Edit details** to change its title and comma-separated keywords. Both prompts remain visible under **Prompts and source**.
+
+Keyword suggestions run locally when generation is idle. Sounds are saved and searchable immediately. If tagging fails, enter keywords yourself or choose **Retry keywords**. Manual title and keyword edits survive batch winner replacements. Metadata lives under `.runtime/studio/library/`; the verified audio remains in the existing candidate store. Back up the whole `.runtime/studio/` directory.

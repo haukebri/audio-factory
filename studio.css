@@ -61,7 +61,7 @@ legend { margin-bottom: 8px; }
 .job button { margin: 4px 8px 4px 0; }
 .library-item { display: block; width: 100%; text-align: left; margin: 10px 0; padding: 16px; }
 .library-item[aria-pressed=true] { background: var(--selected); border-color: var(--primary); }
-#library { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+#library, #history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
 details { margin-top: 16px; }
 summary { min-height: 44px; padding: 10px 0; cursor: pointer; font-weight: 600; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; }
@@ -159,3 +159,10 @@ button[aria-busy=true] { cursor: progress; }
 .trim-duration:empty { display: none; }
 
 .generation-prompt { margin: 10px 0 6px; font-weight: 600; }
+
+#library-search { max-width: 760px; }
+.library-keywords { display: flex; flex-wrap: wrap; gap: 6px; }
+.library-keywords span { background: var(--selected); color: var(--primary); border-radius: 4px; padding: 3px 8px; font-size: 14px; }
+.library-editor { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+#library-offer { border-left: 4px solid var(--primary); }
+#library-offer h2 { margin-bottom: 8px; }

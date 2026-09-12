@@ -40,12 +40,12 @@ try {
       window.savedPlayer = document.querySelector('#candidate audio'); savedPlayer.loop = true; savedPlayer.currentTime = 0.2; await savedPlayer.play();
       window.savedNote = $('listen-note'); savedNote.closest('details').open = true; savedNote.value = 'Unsaved local note'; savedNote.dispatchEvent(new Event('input', {bubbles:true})); savedNote.focus();
       $('cut-start').value = '0.12'; $('cut-start').dispatchEvent(new Event('input', {bubbles:true}));
-      $('human-filter').value = 'accepted'; renderLibrary(); })()`);
+      $('human-filter').value = 'accepted'; renderHistory(); })()`);
     await externalReview(id, 'accepted');
     assert.deepEqual(await request('candidates'), before, 'feedback does not change candidate JSON');
     const refreshed = evaluate(`(async () => { window.dispatchEvent(new Event('focus')); await pendingAction;
       return { statuses: [...document.querySelectorAll('[data-human]')].filter(e => e.dataset.human === selected).map(e => e.textContent),
-        library: $('library').textContent, samePlayer: savedPlayer === document.querySelector('#candidate audio'), playing: !savedPlayer.paused,
+        library: $('history-list').textContent, samePlayer: savedPlayer === document.querySelector('#candidate audio'), playing: !savedPlayer.paused,
         sameNote: savedNote === $('listen-note'), note: savedNote.value, focus: document.activeElement === savedNote, trim: $('cut-start').value }; })()`);
     assert.ok(refreshed.statuses.length >= 2);
     assert.ok(refreshed.statuses.every(s => s === 'Human: Approved · Other tab'));
@@ -72,17 +72,17 @@ try {
     const polls = evaluate(`(async () => { const original = fetch; let feedbackRequests = 0; fetch = (...args) => { if (String(args[0]).endsWith('/feedback')) feedbackRequests++; return original(...args); };
       try { await refresh(); await refresh(); return feedbackRequests; } finally { fetch = original; savedPlayer.pause(); } })()`);
     assert.equal(polls, 0, 'unchanged polling must not fan out feedback requests');
-    evaluate(`(() => { navigate('library'); $('human-filter').value = 'all'; renderLibrary();
-      const target = [...$('library').querySelectorAll('button')].find(b => b.dataset.libraryFocus === selected);
+    evaluate(`(() => { navigate('history'); $('human-filter').value = 'all'; renderHistory();
+      const target = [...$('history-list').querySelectorAll('button')].find(b => b.dataset.libraryFocus === selected);
       target.closest('details').open = true; target.focus(); })()`);
     await externalReview(id, 'rejected');
     assert.equal(evaluate(`(async () => { window.dispatchEvent(new Event('focus')); await pendingAction; return document.activeElement.dataset.libraryFocus; })()`), id);
     await externalReview(id, 'accepted');
     evaluate(`(async () => { window.dispatchEvent(new Event('focus')); await pendingAction;
-      $('human-filter').value = 'accepted'; renderLibrary(); $('library').querySelector('.library-item > button').focus(); })()`);
+      $('human-filter').value = 'accepted'; renderHistory(); $('history-list').querySelector('.library-item > button').focus(); })()`);
     await externalReview(id, 'rejected');
     assert.equal(evaluate(`(async () => { window.dispatchEvent(new Event('focus')); await pendingAction; return document.activeElement.id; })()`), 'human-filter', 'a filtered-out focused take returns focus to the filter');
-    assert.match(evaluate(`$('library').textContent`), /No sounds match/);
+    assert.match(evaluate(`$('history-list').textContent`), /No sounds match/);
     assert.equal(evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
     console.log(`Passed review focus, conflict/retry, reopen, reconnect, player/draft preservation and polling at ${width}px`);
   }

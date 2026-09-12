@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 const uid = () => crypto.randomUUID().replaceAll('-', '');
 let pendingAction = Promise.resolve();
 let csrf, candidates = [], jobs = [], takes = [], selected, busy = false, submitting = false, currentJob, submissionPrompt = '', submissionError = '';
+let libraryEntries = [];
 let batchReviews = [], reviewBatchId = /^#batch\/([a-f0-9]{32})$/.exec(location.hash)?.[1] ?? null, reviewSoundKey;
 let view = 'create', feedback = new Map(), selections = [], readiness = {}, editorId, composeParent;
 const say = message => { if ($('status').textContent !== message) $('status').textContent = message; };
@@ -13,8 +14,8 @@ const drafts = ['prompt', 'constraints', 'events', 'duration', 'seed'];
 for (const id of drafts) { $(id).value = recall(id, $(id).value); $(id).addEventListener($(id).tagName === 'SELECT' ? 'change' : 'input', () => remember(id, $(id).value)); }
 if (!$('duration').value) { $('duration').value = '5'; remember('duration', '5'); }
 localStorage.removeItem('studio-comparison'); localStorage.removeItem('studio-compare-scope');
-async function api(path, value, key) {
-  const response = await fetch('/studio/' + path, { method: value === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf, ...(key ? { 'Idempotency-Key': key } : {}) }, ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
+async function api(path, value, key, method) {
+  const response = await fetch('/studio/' + path, { method: method ?? (value === undefined ? 'GET' : 'POST'), headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf, ...(key ? { 'Idempotency-Key': key } : {}) }, ...(value === undefined ? {} : { body: JSON.stringify(value) }) });
   const result = await response.json();
   if (!response.ok) throw Object.assign(new Error(result.error || `Request failed (${response.status})`), { status: response.status });
   return result;
@@ -51,7 +52,7 @@ function runButton(b, operation, enqueue = action) {
   return enqueue(async () => {
     try { await operation(); status.textContent = /Use this/.test(label) ? 'Selected' : /Save (?:trim|loop)/.test(label) ? 'Trim saved.' : /Generate|Queue/.test(label) ? 'Queued. You can keep listening.' : 'Done.'; }
     catch (error) { status.textContent = error.message; if (enqueue === action) { say('Operation not completed. Saved work is preserved.'); $('reconnect').hidden = false; } }
-    finally { pendingButtons.delete(key); b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = label; b.style.minWidth = minWidth; updateSelected(); updateRecreate(); if (['batch-pause', 'batch-export', 'batch-regenerate', 'batch-generate-more'].includes(b.id)) renderReviewBatch(); if (b.id === 'cancel-generation') renderGeneration(); }
+    finally { pendingButtons.delete(key); b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = label; b.style.minWidth = minWidth; updateSelected(); updateRecreate(); updateLibraryButtons(); if (['batch-pause', 'batch-export', 'batch-regenerate', 'batch-generate-more'].includes(b.id)) renderReviewBatch(); if (b.id === 'cancel-generation') renderGeneration(); }
   });
 }
 const local = operation => operation();
@@ -104,11 +105,11 @@ function navigate(next, push = true) {
   reviewBatchId = batchMatch?.[1] ?? (next === 'listen' ? reviewBatchId : null);
   if (batchMatch) next = 'listen';
   renderReviewBatch();
-  view = ['create', 'listen', 'library', 'settings'].includes(next) ? next : 'create';
+  view = ['create', 'listen', 'library', 'history', 'settings'].includes(next) ? next : 'create';
   if (batchMatch) submissionError = '';
   if (view === 'create' && !composeParent && !submitting) { const active = jobs.find(j => ['running', 'canceling'].includes(j.status)); selected = undefined; currentJob = active?.id; submissionError = ''; remember('selected', null); remember('current-job', currentJob ?? null); if (active) { view = 'listen'; history.replaceState(history.state, '', '#listen'); } renderBatch(); renderGeneration(); }
   document.body.dataset.view = view;
-  for (const id of ['create', 'library', 'settings']) $(id + '-view').hidden = id === 'create' ? !['create', 'listen'].includes(view) : view !== id;
+  for (const id of ['create', 'library', 'history', 'settings']) $(id + '-view').hidden = id === 'create' ? !['create', 'listen'].includes(view) : view !== id;
   for (const link of document.querySelectorAll('nav a')) { if (link.hash === '#' + view || view === 'listen' && link.hash === '#create') link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }
   $('more-menu').open = false;
   if (!$('workspace').getClientRects().length) { closeEditor(); $('workspace').querySelectorAll('audio').forEach(p => p.pause()); }
@@ -142,7 +143,7 @@ function renderDiagnostics() {
 async function download(c) {
   const id = c.candidate_sha256; say('Verifying audio and details…');
   const response = await fetch(`/studio/candidates/${id}/export`); if (!response.ok) throw new Error((await response.json()).error);
-  const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: `take-${takeFor(id).number}-${id.slice(0, 8)}.tar` }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Downloaded prepared audio, original, provenance and exact-version feedback.');
+  const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: `take-${takeFor(id).number}-${id.slice(0, 8)}.tar` }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Downloaded prepared audio, original, provenance and exact-version feedback.'); offerLibrary(c);
 }
 // Web Audio playback keeps source-relative seeking while auditioning the exported PCM.
 function trimPlayback(media, render, bounds, repeating = false) {
@@ -449,19 +450,110 @@ function renderClip(c, row, pinned = false) {
   const secondary = node('details', undefined, row, { class: 'clip-secondary' }); node('summary', 'More clip actions', secondary);
   const versions = takeFor(c.candidate_sha256).versions; row.dataset.versionCount = String(versions.length); row.dataset.preferred = takeFor(c.candidate_sha256).preferred?.candidate_sha256 ?? '';
   if (!pinned && versions.length > 1) { const label = node('label', 'Saved version', secondary); const list = node('select', undefined, label, { 'aria-label': 'Saved version' }); for (const v of versions) node('option', v.name, list, { value: (v.records.find(r => r.candidate_sha256 === c.candidate_sha256) ?? v.candidate).candidate_sha256 }); list.value = c.candidate_sha256; list.onchange = () => { row.dataset.manualVersion = 'true'; closeEditor(); player.pause(); const next = candidates.find(c => c.candidate_sha256 === list.value); remember('version-' + takeFor(next.candidate_sha256).id, next.candidate_sha256); row.replaceChildren(); renderClip(next, row); }; }
-  recreateButton(c, secondary); button('Download', secondary, () => download(c)); updateSelected();
+  recreateButton(c, secondary); button('Download', secondary, () => download(c)); const add = button('Add to library', secondary, () => addLibrary(c)); add.dataset.libraryCandidate = c.candidate_sha256; updateLibraryButtons(); updateSelected();
+}
+function isBatchCandidate(c) { return batchReviews.some(b => b.sounds.some(s => s.sound_id === takeFor(c.candidate_sha256)?.sound)); }
+function inLibrary(c) { return libraryEntries.some(e => e.candidate_sha256 === c.candidate_sha256); }
+function updateLibraryButtons() {
+  document.querySelectorAll('[data-library-candidate]').forEach(b => {
+    if (b.hasAttribute('aria-busy')) return;
+    const saved = libraryEntries.some(e => e.candidate_sha256 === b.dataset.libraryCandidate);
+    b.textContent = saved ? 'In library' : 'Add to library'; b.disabled = saved;
+  });
+  const offer = $('library-offer');
+  if (libraryEntries.some(e => e.candidate_sha256 === offer.dataset.candidate)) offer.hidden = true;
+}
+async function addLibrary(c) {
+  const entry = await api('library', { candidate_sha256: c.candidate_sha256 });
+  libraryEntries = [entry, ...libraryEntries.filter(e => e.id !== entry.id)];
+  updateLibraryButtons(); renderLibrary(); say('Added to library. Keywords will be suggested when generation is idle.');
+}
+function offerLibrary(c) {
+  if (isBatchCandidate(c) || inLibrary(c)) return;
+  const box = $('library-offer'); box.replaceChildren(); box.hidden = false; box.dataset.candidate = c.candidate_sha256;
+  node('h2', 'Keep this sound?', box); node('p', identity(c), box);
+  const actions = node('div', undefined, box, { class: 'actions' });
+  button('Add to library', actions, () => addLibrary(c));
+  button('Not now', actions, () => { box.hidden = true; }, local);
 }
 function renderLibrary() {
-  const signature = JSON.stringify([candidates.map(c => c.candidate_sha256), selections, $('search').value, $('human-filter').value]); if ($('library').dataset.signature === signature) return; $('library').dataset.signature = signature;
-  const focused = $('library').contains(document.activeElement) ? document.activeElement.dataset.libraryFocus : null;
-  const disclosures = new Map([...$('library').querySelectorAll('details')].map(details => [details.querySelector('summary').dataset.libraryFocus, details.open]));
-  $('library').replaceChildren(); const query = $('search').value.toLowerCase(); const filter = $('human-filter').value;
+  renderHistory();
+  const box = $('library'), terms = $('library-search').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = libraryEntries.filter(e => { const text = [e.title, ...e.keywords, e.original_request, e.prompt].join(' ').toLowerCase(); return terms.every(term => text.includes(term)); });
+  const editing = new Set([...box.querySelectorAll('[data-entry]')].filter(row => row.querySelector('form')).map(row => row.dataset.entry));
+  const visible = libraryEntries.filter(e => matches.includes(e) || editing.has(e.id));
+  const pinned = visible.length - matches.length;
+  $('library-count').textContent = `${matches.length} sound${matches.length === 1 ? '' : 's'}${pinned ? ` · ${pinned} editing draft${pinned === 1 ? '' : 's'} kept visible` : ''}`;
+  box.querySelector('.empty')?.remove();
+  for (const row of box.querySelectorAll('[data-entry]')) if (!visible.some(e => e.id === row.dataset.entry)) { row.querySelectorAll('audio').forEach(p => p.pause()); row.remove(); }
+  for (const entry of visible) {
+    let row = box.querySelector(`[data-entry="${entry.id}"]`);
+    if (row?.dataset.revision === String(entry.revision)) continue;
+    if (row && (row.contains(document.activeElement) || row.querySelector('form') || [...row.querySelectorAll('audio')].some(p => !p.paused))) {
+      if (row.dataset.candidate !== entry.candidate_sha256) {
+        if (!row.querySelector('.library-stale')) node('p', 'Winner changed. This is the previous version. Finish editing or pause playback and leave this card to load the current winner.', row, { class: 'library-stale hint', role: 'status' });
+        row.querySelectorAll('[data-version-action]').forEach(b => { b.disabled = true; });
+      }
+      continue;
+    }
+    if (!row) row = node('article', undefined, box, { class: 'take', 'data-entry': entry.id });
+    row.dataset.revision = String(entry.revision); row.dataset.candidate = entry.candidate_sha256; row.replaceChildren();
+    node('h2', entry.title, row);
+    node('p', `${entry.duration_seconds.toFixed(2)} s · ${entry.provider}${entry.loop ? ' · Loop' : ''}${entry.batch_id ? ' · Batch winner' : ''}`, row, { class: 'hint' });
+    const tags = node('div', undefined, row, { class: 'library-keywords', 'aria-label': 'Keywords' });
+    for (const keyword of entry.keywords) node('span', keyword, tags);
+    const c = candidates.find(c => c.candidate_sha256 === entry.candidate_sha256);
+    if (c) audio(c, row, entry.title);
+    if (entry.tagging === 'pending') node('p', 'Keywords pending · suggested when generation is idle.', row, { class: 'hint' });
+    if (entry.tagging === 'failed') node('p', 'Keywords unavailable. Search by prompt or add your own.', row, { class: 'hint' });
+    const actions = node('div', undefined, row, { class: 'actions' });
+    if (c) {
+      button('Download', actions, () => download(c)).dataset.versionAction = '';
+      button('Open take', actions, async () => { await select(c.candidate_sha256); navigate('listen'); }, local).dataset.versionAction = '';
+    }
+    button('Edit details', actions, () => editLibrary(entry, row), local);
+    if (entry.tagging === 'failed') button('Retry keywords', actions, async () => { await api(`library/${entry.id}/keywords`, { revision: entry.revision }); await refresh(); });
+    const details = node('details', undefined, row); node('summary', 'Prompts and source', details);
+    node('h3', 'Original request', details); node('p', entry.original_request, details);
+    node('h3', 'Generation prompt', details); node('p', entry.prompt, details);
+    if (entry.batch_id) node('a', 'Open batch review', details, { href: '#batch/' + entry.batch_id });
+  }
+  visible.forEach((entry, index) => { const row = box.querySelector(`[data-entry="${entry.id}"]`); if (row && box.children[index] !== row) box.insertBefore(row, box.children[index] ?? null); });
+  if (!visible.length) node('p', libraryEntries.length ? 'No sounds match. Try fewer words.' : 'Your library starts with a winner. Select a batch winner or add a sound from History.', box, { class: 'empty' });
+}
+function editLibrary(entry, row) {
+  if (row.querySelector('form')) return;
+  const form = node('form', undefined, row, { class: 'library-editor' });
+  const titleLabel = node('label', 'Title', form), name = node('input', undefined, titleLabel, { required: '', maxlength: '200', value: entry.title });
+  const tagsLabel = node('label', 'Keywords (comma separated)', form), tags = node('textarea', undefined, tagsLabel, { rows: '3', maxlength: '1310' }); tags.value = entry.keywords.join(', ');
+  node('p', 'Up to 16 keywords, 80 characters each.', form, { class: 'hint' });
+  const status = node('p', '', form, { role: 'status' });
+  const actions = node('div', undefined, form, { class: 'actions' });
+  const save = node('button', 'Save details', actions, { type: 'submit', class: 'primary' });
+  button('Cancel', actions, () => { form.remove(); row.dataset.revision = ''; renderLibrary(); }, local);
+  form.onsubmit = event => { event.preventDefault(); runButton(save, async () => {
+    try {
+      const input = { revision: entry.revision };
+      if (name.value !== entry.title) input.title = name.value;
+      if (tags.value !== entry.keywords.join(', ')) input.keywords = tags.value.split(',').map(s => s.trim()).filter(Boolean);
+      if (Object.keys(input).length > 1) await api(`library/${entry.id}`, input, undefined, 'PATCH');
+      form.remove(); row.dataset.revision = ''; await refresh(); say('Library details saved.');
+    } catch (error) { status.textContent = error.status === 409 ? 'This entry changed. Your draft is preserved; cancel and reopen to edit the latest version.' : error.message; }
+  }); };
+  name.focus();
+}
+$('library-search').oninput = renderLibrary;
+function renderHistory() {
+  const signature = JSON.stringify([candidates.map(c => c.candidate_sha256), selections, $('search').value, $('human-filter').value]); if ($('history-list').dataset.signature === signature) return; $('history-list').dataset.signature = signature;
+  const focused = $('history-list').contains(document.activeElement) ? document.activeElement.dataset.libraryFocus : null;
+  const disclosures = new Map([...$('history-list').querySelectorAll('details')].map(details => [details.querySelector('summary').dataset.libraryFocus, details.open]));
+  $('history-list').replaceChildren(); const query = $('search').value.toLowerCase(); const filter = $('human-filter').value;
   const sounds = new Map(); for (const take of takes) { if (!sounds.has(take.sound)) sounds.set(take.sound, []); sounds.get(take.sound).push(take); }
   let shown = 0;
   for (const group of sounds.values()) {
     if (!group.some(t => title(t.records[0]).toLowerCase().includes(query))) continue;
     const hasSelection = selections.some(s => s.sound_id === group[0].sound); const visible = filter === 'all' || (filter === 'selected' ? hasSelection : !hasSelection) ? group : []; if (!visible.length) continue;
-    shown++; const box = node('article', undefined, $('library'), { class: 'take' }); node('h2', title(group[0].records[0]), box); node('p', `${group.length} take${group.length === 1 ? '' : 's'}`, box, { class: 'hint' });
+    shown++; const box = node('article', undefined, $('history-list'), { class: 'take' }); node('h2', title(group[0].records[0]), box); node('p', `${group.length} take${group.length === 1 ? '' : 's'}`, box, { class: 'hint' });
     const best = selections.find(s => s.sound_id === group[0].sound); if (best) button('Open selected best take', box, async () => { await select(best.candidate_sha256); navigate('listen'); }, local).dataset.libraryFocus = 'best-' + group[0].sound;
     for (const take of visible) {
       const row = node('div', undefined, box, { class: 'library-item' }); const chosen = preferred(take);
@@ -471,14 +563,14 @@ function renderLibrary() {
       for (const v of take.versions) button(v.name, versions, async () => { await select(v.candidate.candidate_sha256); navigate('listen'); }, local).dataset.libraryFocus = v.candidate.candidate_sha256;
     }
   }
-  if (!shown) node('p', takes.length ? 'No sounds match these filters.' : 'No saved sounds yet. Start in Create.', $('library'), { class: 'empty' });
+  if (!shown) node('p', takes.length ? 'No sounds match these filters.' : 'No saved sounds yet. Start in Create.', $('history-list'), { class: 'empty' });
   if (focused) {
-    const target = [...$('library').querySelectorAll('[data-library-focus]')].find(el => el.dataset.libraryFocus === focused) ?? $('human-filter');
+    const target = [...$('history-list').querySelectorAll('[data-library-focus]')].find(el => el.dataset.libraryFocus === focused) ?? $('human-filter');
     const details = target.closest('details'); if (details) details.open = true;
     target.focus({ preventScroll: true });
   }
 }
-$('search').oninput = renderLibrary; $('human-filter').onchange = renderLibrary;
+$('search').oninput = renderHistory; $('human-filter').onchange = renderHistory;
 function renderGeneration() {
   const current = jobs.find(j => j.id === currentJob);
   const sound = reviewBatchId ? batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey)?.sound_id : (current?.sound_id ?? current?.id ?? takeFor(selected)?.sound);
@@ -513,9 +605,9 @@ async function refreshQa() {
   $('readiness').textContent = text; $('settings-readiness').textContent = text;
 }
 async function refresh() {
-  const [nextJobs, nextCandidates, nextSelections, nextBatches] = await Promise.all([api('jobs'), api('candidates'), api('selections'), api('batches'), refreshQa()]);
+  const [nextJobs, nextCandidates, nextSelections, nextBatches, nextLibrary] = await Promise.all([api('jobs'), api('candidates'), api('selections'), api('batches'), api('library'), refreshQa()]);
   if (currentJob) submissionError = '';
-  batchReviews = nextBatches;
+  batchReviews = nextBatches; libraryEntries = nextLibrary; updateLibraryButtons();
   selections = nextSelections;
   const changed = JSON.stringify(candidates) !== JSON.stringify(nextCandidates); jobs = nextJobs; candidates = nextCandidates; takes = groupTakes(candidates, jobs);
   if (changed) { await loadFeedback(); renderLibrary(); }
@@ -564,7 +656,7 @@ async function useTake(c) {
     if (latest?.candidate_sha256 !== id) await save({ id, value: { event_id: uid(), supersedes: latest?.event_id ?? null } });
     await refresh(); renderBatch(); renderLibrary();
     if (selections.find(s => s.sound_id === sound)?.candidate_sha256 !== id) throw new Error('The saved winner changed; choose this take again');
-    say(`Best take saved: ${identity(c)}. Other takes remain available.`);
+    say(`Best take saved: ${identity(c)}.${isBatchCandidate(c) ? ' Added to library.' : ''}`); offerLibrary(c);
   } catch (error) {
     if (error.status === 409) { localStorage.removeItem('studio-selection-' + sound); await refresh(); renderBatch(); renderLibrary(); }
     throw new Error(`${identity(c)} could not be confirmed as best take: ${error.message}. Reconnect and choose this take again`);
