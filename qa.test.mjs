@@ -1,4 +1,4 @@
-import { decodeLoopWav, renderLoop, quantizeLoop } from "./loop-audio.mjs";
+import { decodeLoopWav, renderLoop, renderTrim, quantizeLoop } from "./loop-audio.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -55,7 +55,7 @@ test("manual trims span 60-second originals and reject bounds outside the source
         assert.equal(compute.status, 200);
         assert.deepEqual(Buffer.from(await compute.arrayBuffer()), audio);
         const response = await post(route, input);
-        assert.equal(response.status, 200);
+        assert.equal(response.status, 200, response.ok ? undefined : JSON.stringify({ input, error: await response.text() }));
         const trimmed = await response.json();
         const prepared = studio.jobs.store.readAsset(trimmed.candidate_sha256, "audio");
         verifyExport(trimmed.evidence, prepared, () => source);
@@ -152,6 +152,24 @@ test("QA preserves source bytes and exports bounded, repeatable derivatives", as
     assert.equal(fadedAudio.readInt16LE(fadedData), 0);
     assert.ok(Math.abs(fadedAudio.readInt16LE(fadedData + (frames - 1) * 4)) < 20);
     assert.ok(Math.abs(fadedAudio.readInt16LE(fadedData + 1000 * 4)) > 1000);
+    const decoded = decodeLoopWav(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    for (const gain_db of [-12, 0, 12]) {
+      for (const loop of [false, true]) {
+        const input = { start_seconds: 0.2, end_seconds: 0.9, gain_db, loop };
+        const response = await post(`${path}/cuts`, input);
+        assert.equal(response.status, 200, response.ok ? undefined : JSON.stringify({ input, error: await response.text() }));
+        const wav = Buffer.from(await response.arrayBuffer());
+        const actual = decodeLoopWav(wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength));
+        const expected = (loop ? renderLoop : renderTrim)(decoded.samples, decoded.sampleRate, decoded.channels, input);
+        const previewPcm = quantizeLoop(expected.samples);
+        assert.equal(actual.samples.length, previewPcm.length);
+        assert.ok(actual.samples.every((sample, i) => sample === previewPcm[i]), 'preview PCM equals the exported PCM');
+        const evidence = await (await fetch(url + response.headers.get('location'), { headers })).json();
+        assert.equal(evidence.normalization.adjustment_db, gain_db);
+        assert.equal(evidence.normalization.limiter_reduction_db > 0, gain_db > 0);
+      }
+    }
+    for (const gain_db of [-12.1, 12.1, '6', null]) assert.equal((await post(`${path}/cuts`, { gain_db })).status, 400);
     const again = await post(`${path}/cuts`, { start_seconds: 0.2, end_seconds: 0.6 });
     assert.deepEqual(Buffer.from(await again.arrayBuffer()), audio);
     assert.deepEqual(Buffer.from(await (await fetch(url + report.audio_url, { headers })).arrayBuffer()), audio);
@@ -184,7 +202,7 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     })).stdout);
   try {
     for (const name of ["dist", "package.json", "config.json", "qa-config.json", "qa.py",
-      "bundle.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json",
+      "bundle.mjs", "loop-audio.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json",
       ...(await readdir(root)).filter((name) => name.endsWith(".schema.json"))]) {
       await cp(`${root}/${name}`, `${directory}/${name}`, { recursive: true });
     }

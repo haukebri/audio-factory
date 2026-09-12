@@ -16,7 +16,7 @@ async function body(req, limit = 16384) {
   try { return JSON.parse(Buffer.concat(chunks)); } catch { fail(400, 'Malformed JSON'); }
 }
 export async function createStudio({ port = 8767, ...options }) {
-  const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/loop-audio.mjs', 'loop-audio.mjs', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
+  const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/qa-config.json', 'qa-config.json', 'application/json'], ['/loop-audio.mjs', 'loop-audio.mjs', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
   let jobs, batches;
   let closing;
   const sessions = new Map();

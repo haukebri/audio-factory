@@ -4,7 +4,7 @@ Generate five local sound-effect variations, compare them in Studio, and save yo
 
 ## Install and generate
 
-Local generation requires Apple Silicon macOS, Node >=22.11, pnpm 9.15.9, uv, Python 3, Git, curl, FFmpeg and the Xcode Metal compiler. First setup downloads the pinned runtime and five model files (about 5.8 GB plus build/cache space). Install Ollama with `gemma4:latest` running on localhost:11434 for prompt variations.
+Local generation requires Apple Silicon macOS, Node >=22.11, pnpm 9.15.9, uv, Python 3, Git, curl, FFmpeg and the Xcode Metal compiler. First setup downloads the pinned runtime and five model files (about 5.8 GB plus build/cache space). Install Ollama and pull `gemma4:latest` for prompt variations. `./run studio` and `./run start` automatically start Ollama on localhost:11434, verify the model is installed, and stop their owned daemon on shutdown. An already-running Ollama instance is reused and left running.
 
 ```sh
 ./run setup
@@ -15,7 +15,7 @@ Local generation requires Apple Silicon macOS, Node >=22.11, pnpm 9.15.9, uv, Py
 
 Open http://127.0.0.1:8767. Describe the sound, set its duration, enable **Loop** for continuous ambience if wanted, and choose **Generate 5 local takes**. Variation 1 keeps your original prompt unchanged. One text-model call creates four slight variations using sound-library captions, concrete source/action/texture details and the `TrackType: SFX,` prefix, preserving the original events, order and constraints. The audio model runs them sequentially; each finished result appears immediately. A failed planner stops the batch before audio generation.
 
-Non-loop requests select the **first active region**, apply short fades, and peak-normalize to **−3 dBFS**, delivering stereo 44.1 kHz PCM16 WAVs. The complete original recording is preserved. Use **Trim** to choose different bounds or inspect other events in the original.
+Non-loop requests select the **first active region**, apply short fades, and peak-normalize to **−3 dBFS**, delivering stereo 44.1 kHz PCM16 WAVs. The complete original recording is preserved. Use **Trim** to choose different bounds or inspect other events in the original. Trim playback includes normalization; its **Level** slider applies −12 to +12 dB live and to the saved cut, with peak limiting for boosts.
 
 Only deterministic silence and suspected-static failures trigger retries: up to three attempts per local prompt, with the same wording and a new seed. Failed takes remain available. An exhausted variation does not stop the other variations. An operational error stops the batch and preserves finished work. Static detection is a conservative broadband-noise heuristic; passing it does not establish sound accuracy.
 

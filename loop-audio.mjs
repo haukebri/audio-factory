@@ -83,7 +83,8 @@ export function renderLoop(samples, sampleRate, channels, options = {}) {
   // Never boost near-silence. Even with normalization off, respect the export ceiling.
   const gain = peak === 0 ? 1 : normalize && peak >= 0.0001 ? target / peak : Math.min(1, target / peak);
   for (let i = 0; i < output.length; i++) output[i] *= gain;
-  return { samples: output, evidence: {
+  const leveled = applyLevel(output, sampleRate, channels, options.gain_db ?? 0, true);
+  return { ...leveled, evidence: {
     processing_version: preserveNative ? 'native-gain-v1' : 'rotate-crossfade-v1', start_sample: start, end_sample: end,
     split_sample: preserveNative ? null : split, overlap_frames: overlap, crossfade_start_frame: preserveNative ? null : join, curve: preserveNative ? null : curve,
     sample_rate: sampleRate, channels, gain_db: 20 * Math.log10(gain), input_peak: peak,
@@ -116,4 +117,76 @@ export function decodeLoopWav(buffer) {
 
 export function quantizeLoop(samples) {
   return samples.map(sample => Math.max(-32768, Math.min(32767, Math.round(sample * 32768))) / 32768);
+}
+
+// Shared post-normalization gain and stereo-linked, latency-compensated peak limiter.
+export function applyLevel(samples, sampleRate, channels, gainDb = 0, loop = false) {
+  if (!Number.isFinite(gainDb) || gainDb < -12 || gainDb > 12) throw new Error('Choose a level from -12 to +12 dB');
+  const amplitude = 10 ** (gainDb / 20);
+  const output = samples.map(value => value * amplitude);
+  const frames = output.length / channels, ceiling = 10 ** (-0.1 / 20);
+  const peaks = new Float32Array(frames);
+  let peak = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    for (let channel = 0; channel < channels; channel++) peaks[frame] = Math.max(peaks[frame], Math.abs(output[frame * channels + channel]));
+    peak = Math.max(peak, peaks[frame]);
+  }
+  if (!Number.isFinite(peak)) throw new Error('Nonfinite level sample');
+  let reduction = 1;
+  if (peak > ceiling) {
+    const lookahead = Math.min(frames - 1, Math.round(sampleRate * 0.005));
+    const release = Math.exp(-1 / (sampleRate * 0.05));
+    const required = new Float64Array(frames), deque = new Int32Array(frames + lookahead);
+    let head = 0, tail = 0;
+    for (let i = frames + lookahead - 1; i >= 0; i--) {
+      const value = i < frames || loop ? peaks[i % frames] : 0;
+      while (tail > head && deque[head] > i + lookahead) head++;
+      while (tail > head && (deque[tail - 1] < frames || loop ? peaks[deque[tail - 1] % frames] : 0) <= value) tail--;
+      deque[tail++] = i;
+      if (i < frames) required[i] = Math.min(1, ceiling / (peaks[deque[head] % frames] || ceiling));
+    }
+    // At a loop boundary, solve the periodic release envelope instead of resetting it.
+    let envelope = 1;
+    if (loop) for (const value of required) envelope = Math.min(value, 1 - (1 - envelope) * release);
+    for (let frame = 0; frame < frames; frame++) {
+      envelope = Math.min(required[frame], 1 - (1 - envelope) * release);
+      reduction = Math.min(reduction, envelope);
+      for (let channel = 0; channel < channels; channel++) output[frame * channels + channel] *= envelope;
+    }
+  }
+  return { samples: output, level: { adjustment_db: gainDb, limiter_reduction_db: -20 * Math.log10(reduction) } };
+}
+
+export function renderTrim(samples, sampleRate, channels, options = {}) {
+  const { start_seconds = 0, end_seconds = samples.length / channels / sampleRate,
+    fade_ms = 5, peak_db = -3, normalize = true } = options;
+  const start = Math.round(start_seconds * sampleRate), end = Math.round(end_seconds * sampleRate);
+  if (!(samples instanceof Float32Array) || !Number.isInteger(sampleRate) || sampleRate < 1 ||
+      !Number.isInteger(channels) || channels < 1 || samples.length % channels || samples.some(value => !Number.isFinite(value)) ||
+      !Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > samples.length / channels || end <= start ||
+      !Number.isFinite(fade_ms) || fade_ms < 0 || !Number.isFinite(peak_db) || peak_db < -30 || peak_db > -3 || typeof normalize !== 'boolean')
+    throw new Error('Choose valid trim bounds, fades and normalization');
+  const output = samples.slice(start * channels, end * channels), frames = end - start;
+  const fade = Math.min(fade_ms / 1000, frames / sampleRate / 2);
+  // FFmpeg parses duration options in microseconds, then rounds to source frames.
+  const fadeFrames = Math.floor((Math.trunc(fade * 1e6) * sampleRate + 5e5) / 1e6);
+  const fadeStart = Math.floor((Math.trunc((frames / sampleRate - fade) * 1e6) * sampleRate + 5e5) / 1e6);
+  let peak = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    const fadeIn = fadeFrames ? Math.min(1, frame / fadeFrames) : 1;
+    const fadeOut = fadeFrames ? Math.min(1, Math.max(0, (fadeStart + fadeFrames - frame) / fadeFrames)) : 1;
+    for (let channel = 0; channel < channels; channel++) {
+      const i = frame * channels + channel;
+      // Match the original FFmpeg PCM16 fade stages before measuring normalization.
+      output[i] = Math.trunc(Math.trunc(output[i] * 32768 * fadeIn) * fadeOut) / 32768;
+      peak = Math.max(peak, Math.abs(output[i]));
+    }
+  }
+  const gain = !normalize || peak === 0 ? 0 : peak_db - 20 * Math.log10(peak);
+  const amplitude = 10 ** (gain / 20);
+  for (let i = 0; i < output.length; i++) output[i] *= amplitude;
+  return { ...applyLevel(output, sampleRate, channels, options.gain_db ?? 0), evidence: {
+    start_sample: start, end_sample: end, sample_rate: sampleRate, fade_seconds: fade,
+    input_peak: peak, gain_db: gain, output_frames: frames,
+  } };
 }

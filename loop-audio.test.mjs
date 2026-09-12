@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderLoop } from './loop-audio.mjs';
+import { renderLoop, renderTrim, applyLevel } from './loop-audio.mjs';
 
 test('rotation preserves adjacent wrap frames, exact overlap endpoints, stereo and peak ceiling', () => {
   const rate = 1000, frames = 4000;
@@ -73,4 +73,59 @@ test('native loops preserve timing after boundary assessment, while explicit rep
   const assessed = renderLoop(padded, 1000, 1, { native_provider_loop: true });
   assert.equal(assessed.evidence.native_assessment.usable, false);
   assert.equal(assessed.evidence.processing_version, 'rotate-crossfade-v1');
+});
+
+
+test('trim levels normalize the selection, preserve stereo and limit peaks with lookahead', () => {
+  const source = new Float32Array(2000);
+  for (let i = 0; i < 1000; i++) { source[2 * i] = i < 500 ? 0.1 : 0.8; source[2 * i + 1] = -source[2 * i] / 2; }
+  const options = { start_seconds: 0, end_seconds: 0.4 };
+  const base = renderTrim(source, 1000, 2, options);
+  assert.ok(Math.abs(base.samples[200] - 10 ** (-3 / 20)) < 1e-6, 'normalize selected quiet region, not the loud event outside it');
+  for (const gain_db of [-12, 0, 12]) {
+    const cut = renderTrim(source, 1000, 2, { ...options, gain_db });
+    assert.equal(cut.samples.length, 800);
+    assert.equal(cut.samples[0], 0);
+    for (let i = 0; i < cut.samples.length; i += 2) {
+      assert.ok(Math.abs(cut.samples[i]) <= 10 ** (-0.1 / 20) + 1e-7);
+      assert.ok(Math.abs(cut.samples[i + 1] + cut.samples[i] / 2) < 10 ** ((base.evidence.gain_db + gain_db) / 20) / 32768, "stereo balance within faded PCM16 rounding");
+      if (gain_db <= 0) assert.ok(Math.abs(cut.samples[i] - base.samples[i] * 10 ** (gain_db / 20)) < 1e-7);
+    }
+    assert.equal(cut.level.limiter_reduction_db > 0, gain_db > 0);
+  }
+  const faded = renderTrim(new Float32Array(35280).fill(0.25), 44100, 2, { normalize: false }).samples;
+  assert.equal(faded[200], Math.trunc(8192 * 100 / 221) / 32768, 'FFmpeg rounds 5 ms to 221 frames and truncates PCM16 fades');
+  assert.equal(faded.at(-1), Math.trunc(8192 * 2 / 221) / 32768);
+  const transient = new Float32Array(1000).fill(0.2); transient[100] = 1;
+  const limited = applyLevel(transient, 1000, 1, 12).samples;
+  assert.ok(limited[94] > 0.7 && limited[95] < 0.21, '5 ms lookahead anticipates the transient');
+  assert.ok(limited[102] < limited[150] && limited[150] < limited[300], 'gain recovers gradually');
+  const rotated = Float32Array.from({length:1000}, (_, i) => transient[(i + 97) % 1000]);
+  const cyclic = applyLevel(transient, 1000, 1, 12, true).samples;
+  const cyclicRotated = applyLevel(rotated, 1000, 1, 12, true).samples;
+  for (let i = 0; i < 1000; i++) assert.ok(Math.abs(cyclicRotated[i] - cyclic[(i + 97) % 1000]) < 1e-7, 'loop envelope is independent of the seam');
+  assert.deepEqual(renderTrim(new Float32Array(2), 44100, 2, { gain_db: 12 }).samples, new Float32Array(2));
+  const raw = renderTrim(source, 1000, 2, { ...options, normalize: false, gain_db: -6 });
+  assert.ok(Math.abs(raw.samples[200] - 0.1 * 10 ** (-6 / 20)) < 1 / 32768);
+  for (const gain_db of [NaN, Infinity, -13, 13, '3']) assert.throws(() => renderTrim(source, 1000, 2, {gain_db}), /level/);
+});
+
+test('zero-level manual cuts retain the previous FFmpeg fades and normalized PCM', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { wavFixture } = await import('./wav-fixture.mjs');
+  const { decodeLoopWav, quantizeLoop } = await import('./loop-audio.mjs');
+  const wav = wavFixture(() => true, 1);
+  const source = decodeLoopWav(wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength));
+  for (const [start_seconds, end_seconds] of [[0, 0.4], [0.21, 0.39], [1234 / 44100, 10003 / 44100]]) {
+    const start = Math.round(start_seconds * 44100), end = Math.round(end_seconds * 44100), seconds = (end - start) / 44100;
+    const filters = `atrim=start_sample=${start}:end_sample=${end},asetpts=PTS-STARTPTS,afade=t=in:d=0.005,afade=t=out:st=${seconds - 0.005}:d=0.005`;
+    const ffmpeg = (filter, format) => execFileSync('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-af', filter, '-f', format, '-'], { input: wav });
+    const faded = ffmpeg(filters, 'f32le');
+    let peak = 0;
+    for (let i = 0; i < faded.length; i += 4) peak = Math.max(peak, Math.abs(faded.readFloatLE(i)));
+    const previous = ffmpeg(`${filters},volume=${-3 - 20 * Math.log10(peak)}dB`, 's16le');
+    const current = quantizeLoop(renderTrim(source.samples, 44100, 2, { start_seconds, end_seconds }).samples);
+    assert.equal(current.length * 2, previous.length);
+    for (let i = 0; i < current.length; i++) assert.ok(Math.abs(current[i] * 32768 - previous.readInt16LE(i * 2)) <= 1, JSON.stringify({ start_seconds, end_seconds, frame: i / 2, current: current[i] * 32768, previous: previous.readInt16LE(i * 2) }));
+  }
 });

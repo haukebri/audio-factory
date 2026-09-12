@@ -41,7 +41,7 @@ export function verifyExport(record, bytes, readOriginal) {
           : loop.split_sample <= bounds.start_sample || loop.split_sample >= bounds.end_sample ||
             loop.overlap_frames > Math.min(loop.split_sample - bounds.start_sample, bounds.end_sample - loop.split_sample)) ||
         loop.output_frames !== bounds.end_sample - bounds.start_sample - loop.overlap_frames ||
-        Math.round(inspectWav(bytes).seconds * bounds.sample_rate) !== loop.output_frames)
+        Math.round(inspectWav(bytes, cut.request.gain_db > 0 ? 10 ** (-0.1 / 20) + 1 / 32768 : 0.708).seconds * bounds.sample_rate) !== loop.output_frames)
       throw new Error("Invalid loop frame evidence");
   }
   if (

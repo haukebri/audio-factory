@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import test from 'node:test';
 import { ElevenLabsBackend, elevenModel } from './dist/elevenlabs.js';
+import { decodeLoopWav, renderLoop, quantizeLoop } from './loop-audio.mjs';
 import { inspectWav } from './dist/wav.js';
 import { createStudio } from './studio.mjs';
 
@@ -110,6 +111,16 @@ test('native loop requests preserve decoded duration and receipts without paid r
     assert.equal(candidate.evidence.cut.loop.output_frames, decoded.length / 8);
     const audio = studio.jobs.store.readAsset(candidate.candidate_sha256, 'audio');
     assert.equal(inspectWav(audio).seconds, generation.audio.seconds);
+    const boosted = await studio.jobs.cut(candidate.candidate_sha256, { loop: true, gain_db: 12 });
+    assert.equal(boosted.evidence.cut.loop.processing_version, 'native-gain-v1');
+    const decodedWav = bytes => decodeLoopWav(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    const original = decodedWav(studio.jobs.store.readAsset(candidate.candidate_sha256, 'source'));
+    const expected = quantizeLoop(renderLoop(original.samples, original.sampleRate, original.channels, { loop: true, native_provider_loop: true, gain_db: 12 }).samples);
+    const actual = decodedWav(studio.jobs.store.readAsset(boosted.candidate_sha256, 'audio')).samples;
+    assert.equal(actual.length, expected.length);
+    assert.ok(actual.every((sample, i) => sample === expected[i]));
+    const repeated = await studio.jobs.cut(boosted.candidate_sha256, { loop: true, gain_db: 12 });
+    assert.deepEqual(studio.jobs.store.readAsset(repeated.candidate_sha256, 'audio'), studio.jobs.store.readAsset(boosted.candidate_sha256, 'audio'), 'resaving uses the original without compounding gain');
     const trim = await studio.jobs.cut(candidate.candidate_sha256, { start_seconds: 0, end_seconds: 0.7, loop: false });
     const edited = await studio.jobs.cut(trim.candidate_sha256, { start_seconds: 0, end_seconds: 0.6 });
     assert.equal(edited.evidence.cut.request.loop, false);

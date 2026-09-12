@@ -15,7 +15,7 @@ test('launcher repairs failed signal sync and skips sync once imports work', asy
   const run = (...args) => execute(`${directory}/run`, args, { env, timeout: 120000 });
   try {
     for (const name of ['run', 'src', 'dist', 'tsconfig.json', 'package.json', 'config.json',
-      'qa-config.json', 'qa.py', 'bundle.mjs', 'export-lineage.mjs', 'signal-requirements.lock',
+      'qa-config.json', 'qa.py', 'bundle.mjs', 'loop-audio.mjs', 'export-lineage.mjs', 'signal-requirements.lock',
       ...(await readdir(root)).filter(name => name.endsWith('.schema.json'))]) {
       await cp(`${root}/${name}`, `${directory}/${name}`, { recursive: true });
     }

@@ -57,6 +57,8 @@ Studio's **Preview loop** renders the proposed PCM without saving or selecting, 
 
 ## Studio API
 
+`./run studio` and `./run start` start Ollama if needed and verify `gemma4:latest` before reporting ready. Shutdown stops only the Ollama daemon started by that server; an existing daemon remains running. Startup errors are visible immediately, with daemon logs in `.runtime/ollama.log`.
+
 Studio binds `127.0.0.1:8767` and remains open after generation. Only one workflow owner and one active batch or cut are allowed. Cancellation stops owned generation/setup, drains accepted signal processing, and never starts the remaining variations. Ctrl-C closes Studio safely.
 
 The browser bootstraps `GET /studio/session` with `X-Studio-Bootstrap: 1`, receiving an HttpOnly SameSite=Strict cookie and JSON `csrf`. Browser mutations require the exact Origin and `X-Studio-CSRF`. Non-browser clients use `Authorization: Bearer <private-token>` from `.runtime/token`, with no Origin. This is separate from `ELEVEN_KEY`; never log either secret. Host validation and no CORS remain enforced. JSON bodies are bounded to 16 KiB.
@@ -105,3 +107,7 @@ The [agent batch API](agent-api.md) adds a durable queue, one review link per ba
 ## Repository task runner
 
 `python3 scripts/run_codex_tasks.py <task-folder>` warns after five minutes without Codex output and reports pending command/tool items. Silence never triggers a retry. Each implementation and review attempt has a two-hour wall-clock deadline, allowing the supported 90-minute setup plus verification. Set `--execution-timeout-minutes <positive-integer>` before starting work that needs a different budget; output and pending operations do not extend it. A failed Codex turn, nonzero process exit, or expired deadline enters the existing bounded recovery/retry flow (at most six task attempts). Individual command failures remain available for Codex to handle within that budget.
+
+Trim playback includes the selected interval’s fades and peak normalization. **Level** adjusts the normalized audio from −12 to +12 dB in 0.5 dB steps and updates while playing; **Reset level** returns to 0 dB. **Preview loop** auditions the processed repeating loop. The saved version retains the adjustment, and reopening it always processes the preserved original, so gain does not accumulate. Boosts use a stereo-linked peak limiter at −0.1 dBFS and can reduce dynamics.
+
+Cut requests accept optional `gain_db` (−12 through +12, default 0), applied after normalization, including when `normalize: false`. Cut normalization evidence records `adjustment_db` and maximum `limiter_reduction_db`; the existing `gain_db` evidence remains the normalization gain alone.

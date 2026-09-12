@@ -4,6 +4,7 @@ import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { GgufBackend } from "./backend.js";
+import { Ollama } from "./ollama.js";
 import { config, root, sleep, validateRequest } from "./config.js";
 import { qaOperation, qaRequest } from "./qa.js";
 import { createFactory } from "./service.js";
@@ -45,6 +46,7 @@ async function stop() {
   }
 }
 async function launch() {
+  const ollama = new Ollama();
   const backend = new GgufBackend();
   const setup = new AbortController();
   let preparing: Promise<void> | undefined;
@@ -54,8 +56,9 @@ async function launch() {
     (closing ??= (async () => {
       setup.abort();
       await preparing?.catch(() => {});
-      await factory.close();
-      await backend.stop();
+      try { await factory.close(); } finally {
+        try { await backend.stop(); } finally { await ollama.stop(); }
+      }
     })());
   const factory = await createFactory({
     root,
@@ -67,22 +70,21 @@ async function launch() {
       void shutdown();
     },
   });
+  const interrupt = () => { setup.abort(); void ollama.stop(); void shutdown(); };
+  process.once("SIGTERM", interrupt);
+  process.once("SIGINT", interrupt);
   try {
     await new Promise<void>((resolve, reject) => {
       factory.server.once("error", reject);
       factory.server.listen(config.port, "127.0.0.1", resolve);
     });
+    await ollama.start();
     await (preparing = ensureSetup(true, setup.signal, backend.reserve()));
     setup.signal.throwIfAborted();
     await backend.start();
     setup.signal.throwIfAborted();
     await factory.beginSession();
     ready = true;
-    const interrupt = () => {
-      void shutdown();
-    };
-    process.once("SIGTERM", interrupt);
-    process.once("SIGINT", interrupt);
     return { shutdown };
   } catch (error) {
     await shutdown();
@@ -137,11 +139,24 @@ if (command === "make" || command === "generate" || command === "workflow") {
 } else if (command === "studio") {
   const modulePath = `${root}/studio.mjs`;
   const { createStudio } = await import(modulePath);
-  const studio = await createStudio({ root, token });
-  const interrupt = () => { void studio.close(); };
+  const ollama = new Ollama();
+  let studio: Awaited<ReturnType<typeof createStudio>> | undefined;
+  let interrupted = false;
+  const interrupt = () => {
+    interrupted = true;
+    void (async () => { try { await studio?.close(); } finally { await ollama.stop(); } })();
+  };
   process.once("SIGTERM", interrupt);
   process.once("SIGINT", interrupt);
-  console.error("Audio Factory studio ready on http://127.0.0.1:8767; Ctrl-C stops owned work");
+  try {
+    await ollama.start();
+    if (!interrupted) studio = await createStudio({ root, token });
+    if (interrupted) { await studio?.close(); await ollama.stop(); }
+    else console.error("Audio Factory studio ready on http://127.0.0.1:8767; Ctrl-C stops owned work");
+  } catch (error) {
+    await ollama.stop();
+    throw error;
+  }
 } else if (command === "serve") {
   await launch();
   console.error(`Temporary factory ready on ${url}; stops after ${config.idle_ms / 1000}s idle`);

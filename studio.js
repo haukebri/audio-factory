@@ -86,17 +86,12 @@ const identity = c => { const take = takeFor(c.candidate_sha256); return `${soun
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
 const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
-let loopContext, loopNode, loopPreviewEpoch = 0, loopStopped;
-function stopLoopPreview() {
-  loopPreviewEpoch++;
-  loopStopped?.(); loopStopped = undefined;
-  if (loopNode) { loopNode.stop(); loopNode.disconnect(); loopNode = undefined; }
-  if (loopContext) { void loopContext.close(); loopContext = undefined; }
-}
+let loopPlayer;
+function stopLoopPreview() { loopPlayer?.pause(); loopPlayer = undefined; }
 function closeEditor() { stopLoopPreview(); if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.dispose?.(); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
 function audio(c, parent, label, source = false) {
   const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${c.candidate_sha256}/${source || !c.evidence.cut ? 'source' : 'audio'}` });
-  player.addEventListener('play', () => { stopLoopPreview(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
+  player.addEventListener('play', () => { stopLoopPreview(); document.querySelector('.trim-editor')?.playback?.pause(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
   player.addEventListener('error', () => { let error = parent.querySelector('.playback-error'); if (!error) error = node('p', '', parent, { class: 'playback-error error', role: 'status' }); error.textContent = 'Audio could not load. Reconnect and replay this clip.'; });
   return player;
 }
@@ -149,6 +144,71 @@ async function download(c) {
   const response = await fetch(`/studio/candidates/${id}/export`); if (!response.ok) throw new Error((await response.json()).error);
   const url = URL.createObjectURL(await response.blob()); const link = node('a', undefined, document.body, { href: url, download: `take-${takeFor(id).number}-${id.slice(0, 8)}.tar` }); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); say('Downloaded prepared audio, original, provenance and exact-version feedback.');
 }
+// Web Audio playback keeps source-relative seeking while auditioning the exported PCM.
+function trimPlayback(media, render, bounds, repeating = false) {
+  const player = new EventTarget(), nodes = new Set();
+  let context, current, offset = bounds().start, started = 0, duration = 0, playing = false, epoch = 0, disposed = false;
+  const emit = name => player.dispatchEvent(new Event(name));
+  const time = () => {
+    if (!playing) return offset;
+    const elapsed = offset - bounds().start + context.currentTime - started;
+    return bounds().start + (repeating ? elapsed % duration : Math.min(duration, elapsed));
+  };
+  const clear = () => { for (const entry of nodes) { entry.source.onended = null; entry.source.stop(); entry.source.disconnect(); entry.gain.disconnect(); } nodes.clear(); current = undefined; };
+  player.pause = () => { epoch++; offset = time(); playing = false; clear(); emit('pause'); };
+  const install = rendered => {
+    const pcm = rendered.pcm, channels = rendered.channels;
+    const buffer = context.createBuffer(channels, pcm.length / channels, rendered.sampleRate);
+    for (let channel = 0; channel < channels; channel++) {
+      const data = buffer.getChannelData(channel);
+      for (let frame = 0; frame < data.length; frame++) data[frame] = pcm[frame * channels + channel];
+    }
+    offset = time(); duration = buffer.duration;
+    const at = Math.max(0, Math.min(duration, offset - bounds().start));
+    if (!repeating && at >= duration) { player.pause(); return; }
+    const previous = current, now = context.currentTime;
+    const source = context.createBufferSource(), gain = context.createGain();
+    source.buffer = buffer; source.loop = repeating; source.connect(gain); gain.connect(context.destination);
+    current = { source, gain }; nodes.add(current);
+    const entry = current;
+    source.onended = () => {
+      nodes.delete(entry); source.disconnect(); gain.disconnect();
+      if (current === entry && playing) { offset = bounds().start + duration; playing = false; current = undefined; emit('ended'); emit('pause'); }
+    };
+    if (previous) {
+      gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + 0.005);
+      previous.gain.gain.cancelAndHoldAtTime(now); previous.gain.gain.linearRampToValueAtTime(0, now + 0.005);
+      previous.source.stop(now + 0.005);
+    }
+    started = now; playing = true; source.start(now, repeating ? at % duration : at);
+  };
+  player.play = async () => {
+    if (disposed || playing) return;
+    const token = ++epoch;
+    context ??= new AudioContext({ sampleRate: 44100 });
+    await context.resume();
+    const rendered = await render();
+    if (disposed || token !== epoch) return;
+    document.querySelectorAll('audio').forEach(audio => audio.pause());
+    install(rendered); if (playing) { emit('play'); emit('playing'); }
+  };
+  player.refresh = async () => {
+    if (!playing) return;
+    const token = ++epoch, rendered = await render();
+    if (!disposed && playing && token === epoch) install(rendered);
+  };
+  player.dispose = () => { disposed = true; player.pause(); if (context) void context.close(); };
+  player.load = () => { player.error = null; media.load(); };
+  Object.defineProperties(player, {
+    currentTime: { get: time, set(value) { const resume = playing; player.pause(); offset = value; emit('seeked'); if (resume) void player.play().catch(error => { player.error = error; emit('error'); }); } },
+    paused: { get: () => !playing }, ended: { get: () => !playing && offset >= bounds().start + duration },
+    src: { get: () => media.src, set(value) { media.src = value; } }, readyState: { get: () => media.readyState },
+  });
+  media.addEventListener('loadedmetadata', () => emit('loadedmetadata'));
+  media.addEventListener('error', () => { player.error = media.error; emit('error'); });
+  return player;
+}
+
 function waveformTrim(c, editor, form, preview, draft, changed) {
   const seconds = c.evidence.generation.audio.seconds, gap = Math.min(0.01, seconds);
   const frame = node('div', undefined, form, { class: 'trim-waveform' });
@@ -260,7 +320,7 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
   };
   retry.onclick = () => { preview.load(); void load(); };
   const resize = new ResizeObserver(draw); resize.observe(timeline);
-  editor.dispose = () => { disposed = true; pause(); controller.abort(); resize.disconnect(); };
+  editor.dispose = () => { disposed = true; pause(); preview.dispose(); controller.abort(); resize.disconnect(); };
   update(); void load();
   return { update, pause, getSource };
 }
@@ -270,17 +330,46 @@ function trim(c, box) {
   const id = c.candidate_sha256, seconds = c.evidence.generation.audio.seconds, bounds = c.evidence.cut?.bounds;
   const draft = recall('trim-' + id, { loop: c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false, crossfade: c.evidence.cut?.loop?.overlap_frames ? c.evidence.cut.loop.overlap_frames / bounds.sample_rate : 0.5, preserveNative: c.evidence.cut?.loop?.processing_version === 'native-gain-v1', start: bounds ? bounds.start_sample / bounds.sample_rate : 0, end: bounds ? bounds.end_sample / bounds.sample_rate : seconds });
   draft.loop ??= c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false; draft.crossfade ??= 0.5; draft.curve ??= c.evidence.cut?.loop?.curve ?? 'equal-power';
+  draft.gain = Number.isFinite(draft.gain) ? Math.max(-12, Math.min(12, draft.gain)) : c.evidence.cut?.request?.gain_db ?? 0;
   draft.start = Math.max(0, Math.min(seconds, Number(draft.start) || 0)); draft.end = Math.max(0, Math.min(seconds, Number(draft.end) || seconds));
   if (draft.end <= draft.start) { draft.start = 0; draft.end = seconds; }
   const editor = node('section', undefined, box, { class: 'trim-editor', 'data-editor': id }); node('h5', `Trim · ${identity(c)}`, editor);
   const form = node('form', undefined, editor), duration = node('p', '', form, { class: 'trim-duration', role: 'status' });
-  const preview = audio(c, editor, `Trim preview · ${identity(c)}`, true); preview.controls = false;
+  const media = audio(c, editor, `Trim source · ${identity(c)}`, true); media.controls = false;
+  let settingsPromise;
+  const render = async (repeating = false) => {
+    const { renderTrim, renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
+    const source = await waveform.getSource();
+    settingsPromise ??= fetch('/qa-config.json').then(response => { if (!response.ok) throw new Error('Trim settings could not load'); return response.json(); }).catch(error => { settingsPromise = undefined; throw error; });
+    const settings = await settingsPromise;
+    const options = { ...cutInput(), peak_db: c.evidence.cut?.request?.peak_db ?? settings.export_peak_db,
+      normalize: c.evidence.cut?.request?.normalize ?? true, fade_ms: settings.fade_ms,
+      native_provider_loop: c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true };
+    const rendered = (repeating ? renderLoop : renderTrim)(source.samples, source.sampleRate, source.channels,
+      repeating ? options : { ...options, start_seconds: draft.start, end_seconds: draft.end });
+    return { pcm: quantizeLoop(rendered.samples), channels: source.channels, sampleRate: source.sampleRate };
+  };
+  const preview = trimPlayback(media, () => render(false), () => draft);
+  editor.playback = preview;
   const error = node('p', '', form, { class: 'error', role: 'status' });
   const valid = () => draft.start < draft.end && (!draft.loop || draft.crossfade >= 0.05 && draft.crossfade <= 2 && draft.end - draft.start >= 0.2);
-  const cutInput = () => draft.loop && draft.preserveNative ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) };
+  const cutInput = () => ({ gain_db: draft.gain, ...(c.evidence.cut?.request?.peak_db === undefined ? {} : { peak_db: c.evidence.cut.request.peak_db }), ...(c.evidence.cut?.request?.normalize === undefined ? {} : { normalize: c.evidence.cut.request.normalize }), ...(draft.loop && draft.preserveNative ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) }) });
   let save;
   const update = () => { remember('trim-' + id, draft); duration.textContent = ''; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid(); if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save trim'; } preview.pause(); stopLoopPreview(); };
   const waveform = waveformTrim(c, editor, form, preview, draft, update);
+  const levelLabel = node('label', 'Level ', form, { for: 'cut-gain' });
+  const levelValue = node('output', '', levelLabel, { for: 'cut-gain' });
+  const level = node('input', undefined, form, { id: 'cut-gain', type: 'range', min: '-12', max: '12', step: '0.5', value: draft.gain });
+  const showLevel = () => { levelValue.textContent = `${draft.gain > 0 ? '+' : ''}${draft.gain.toFixed(1)} dB`; level.setAttribute('aria-valuetext', levelValue.textContent); };
+  let levelFrame;
+  const adjustLevel = () => {
+    draft.gain = Number(level.value); remember('trim-' + id, draft); showLevel();
+    cancelAnimationFrame(levelFrame);
+    levelFrame = requestAnimationFrame(() => { void Promise.all([preview.refresh(), repeatingPreview.refresh()]).catch(failure => { preview.pause(); stopLoopPreview(); error.textContent = failure.message; }); });
+  };
+  level.oninput = adjustLevel;
+  const resetLevel = node('button', 'Reset level', form, { type: 'button' });
+  resetLevel.onclick = () => { level.value = '0'; adjustLevel(); }; showLevel();
   const loopLabel = node('label', undefined, form, { class: 'loop-choice' });
   const loop = node('input', undefined, loopLabel, { type: 'checkbox', id: 'cut-loop' }); loop.checked = draft.loop;
   loopLabel.append(document.createTextNode(' Loop'));
@@ -296,37 +385,24 @@ function trim(c, box) {
   node('option', 'Equal gain · correlated sound', curve, { value: 'equal-gain' }); curve.value = draft.curve;
   curve.onchange = () => { draft.curve = curve.value; draft.preserveNative = false; update(); };
   if (draft.preserveNative) node('p', 'Native loop retained. Changing bounds, curve or crossfade creates a repair.', details, { class: 'hint' });
-  const stop = () => { waveform.pause(); stopLoopPreview(); };
+  const repeatingPreview = trimPlayback(media, () => render(true), () => draft, true);
+  const disposeWaveform = editor.dispose;
+  editor.dispose = () => { cancelAnimationFrame(levelFrame); repeatingPreview.dispose(); disposeWaveform(); };
   const actions = node('div', undefined, form, { class: 'actions' });
   const loopPlay = node('button', 'Preview loop', actions, { type: 'button' });
+  repeatingPreview.addEventListener('error', () => { stopLoopPreview(); duration.textContent = 'Audio could not load. Retry audio to continue.'; });
+  repeatingPreview.addEventListener('pause', () => { loopPlay.textContent = 'Preview loop'; duration.textContent = ''; });
   loopPlay.onclick = async () => {
-    if (loopContext) { stop(); return; }
+    if (loopPlayer) { stopLoopPreview(); return; }
     if (!draft.loop || !valid()) { duration.textContent = 'Enable Loop and choose valid bounds and crossfade.'; return; }
-    stop(); document.querySelectorAll('audio').forEach(player => player.pause());
-    const epoch = loopPreviewEpoch, input = cutInput();
-    loopPlay.textContent = 'Stop loop';
-    duration.textContent = 'Loading processed loop preview…';
-    loopStopped = () => { loopPlay.textContent = 'Preview loop'; duration.textContent = ''; };
+    waveform.pause(); loopPlayer = repeatingPreview;
+    loopPlay.textContent = 'Stop loop'; duration.textContent = 'Loading processed loop preview…';
     try {
-      const context = new AudioContext({ sampleRate: 44100 }); loopContext = context;
-      await context.resume();
-      const { renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
-      const source = await waveform.getSource();
-      if (epoch !== loopPreviewEpoch || !editor.isConnected) return;
-      const rendered = renderLoop(source.samples, source.sampleRate, source.channels, { ...input,
-        native_provider_loop: c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true });
-      const pcm = quantizeLoop(rendered.samples);
-      const buffer = context.createBuffer(source.channels, rendered.evidence.output_frames, source.sampleRate);
-      for (let channel = 0; channel < source.channels; channel++) {
-        const data = buffer.getChannelData(channel);
-        for (let frame = 0; frame < data.length; frame++) data[frame] = pcm[frame * source.channels + channel];
-      }
-      loopNode = context.createBufferSource(); loopNode.buffer = buffer; loopNode.loop = true;
-      loopNode.connect(context.destination); loopNode.start();
-      duration.textContent = `Processed loop preview · repeating · ${(buffer.length / buffer.sampleRate).toFixed(2)} seconds`;
-    } catch (error) { if (epoch === loopPreviewEpoch) { stopLoopPreview(); duration.textContent = error.message; } }
+      await repeatingPreview.play();
+      if (!repeatingPreview.paused) duration.textContent = 'Processed loop preview · repeating';
+    } catch (failure) { stopLoopPreview(); duration.textContent = failure.message; }
   };
-  node('p', 'Play auditions the original interval. Save trim adds fades and normalization. Preview loop repeats the proposed processed blend; listen for at least three cycles. Saving creates a version without choosing a winner. Download uses that saved version.', form, { class: 'hint' });
+  node('p', 'Play includes fades, normalization and Level. Preview loop repeats the processed blend. Boosts are peak-limited to prevent clipping. Saving creates a version without choosing a winner. Download uses that saved version.', form, { class: 'hint' });
   save = node('button', 'Save trim', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
   save.onclick = () => {
     if (!valid()) return;

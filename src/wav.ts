@@ -1,4 +1,4 @@
-export function inspectWav(bytes: Buffer) {
+export function inspectWav(bytes: Buffer, peakLimit = 0.708) {
   if (bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WAVE")
     throw new Error("Expected RIFF WAV");
   let channels = 0;
@@ -27,7 +27,7 @@ export function inspectWav(bytes: Buffer) {
     peak = Math.max(peak, Math.abs(sample));
     energy += sample * sample;
   }
-  if (peak > 0.708) throw new Error(`Audio peak outside -3 dB budget: ${peak}`);
+  if (peak > peakLimit) throw new Error(`Audio peak outside ${peakLimit} budget: ${peak}`);
   return {
     sample_rate: sampleRate,
     channels,

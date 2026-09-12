@@ -148,6 +148,8 @@
         "enabled": {
           "type": "boolean"
         },
+        "adjustment_db": { "type": "number", "minimum": -12, "maximum": 12 },
+        "limiter_reduction_db": { "type": "number", "minimum": 0 },
         "target_peak_db": {
           "type": "number"
         },

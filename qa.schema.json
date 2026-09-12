@@ -87,6 +87,7 @@
             "loop": { "type": "boolean" },
             "crossfade_seconds": { "type": "number", "minimum": 0.05, "maximum": 2 },
             "curve": { "enum": ["equal-power", "equal-gain"] },
+            "gain_db": { "type": "number", "minimum": -12, "maximum": 12 },
             "normalize": {
               "type": "boolean"
             },
