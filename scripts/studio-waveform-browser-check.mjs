@@ -12,7 +12,7 @@ const evaluate = code => run('eval', code).result;
 const wait = code => run('wait', '--fn', code);
 const check = (code, expected = true) => assert.deepEqual(evaluate(code), expected, code);
 const open = () => {
-  evaluate(`(() => { closeEditor(); const row = document.querySelector('#batch-results [data-clip]'); trim(candidates.find(c => c.candidate_sha256 === row.dataset.clip), row); window.editor = document.querySelector('.trim-editor'); window.player = editor.playback; window.play = editor.querySelector('.actions button'); })()`);
+  evaluate(`(() => { closeEditor(); const row = document.querySelector('#batch-results [data-take]'); trim(candidates.find(c => c.candidate_sha256 === row.dataset.clip), row); window.editor = document.querySelector('.trim-editor'); window.player = editor.playback; window.play = editor.querySelector('.actions button'); })()`);
 };
 const ready = () => wait('!play.disabled');
 const key = (name, key) => evaluate(`document.getElementById('cut-${name}').dispatchEvent(new KeyboardEvent('keydown', {key:${JSON.stringify(key)}, bubbles:true}))`);
@@ -25,7 +25,7 @@ try {
   assert.equal((await readiness.json()).generation, 'fixture');
   run('open', manifest.url); wait('Boolean(csrf) && !busy');
   check('candidates.length > 0 && candidates.every(c => c.fixture)');
-  evaluate(`(async () => { await select(preferred(takes[0]).candidate_sha256); navigate('listen'); window.sourceFetches = 0; window.posts = []; window.frames=new Set();window.raf=requestAnimationFrame;window.caf=cancelAnimationFrame;window.requestAnimationFrame=callback=>{const id=raf(time=>{frames.delete(id);callback(time)});frames.add(id);return id};window.cancelAnimationFrame=id=>{frames.delete(id);caf(id)}; window.realFetch = fetch; window.fetch = (input, init) => { if (String(input).endsWith('/source')) sourceFetches++; if (init?.method === 'POST') posts.push({url: input, body: JSON.parse(init.body)}); return realFetch(input, init); }; })()`);
+  evaluate(`(async () => { await select(preferred(takes[0]).candidate_sha256); navigate('listen'); await useTake(preferred(takes[0])); window.sourceFetches = 0; window.posts = []; window.frames=new Set();window.raf=requestAnimationFrame;window.caf=cancelAnimationFrame;window.requestAnimationFrame=callback=>{const id=raf(time=>{frames.delete(id);callback(time)});frames.add(id);return id};window.cancelAnimationFrame=id=>{frames.delete(id);caf(id)}; window.realFetch = fetch; window.fetch = (input, init) => { if (String(input).endsWith('/source')) sourceFetches++; if (init?.method === 'POST') posts.push({url: input, body: JSON.parse(init.body)}); return realFetch(input, init); }; })()`);
   evaluate(`window.playedBuffers=[];window.createAudioBuffer=AudioContext.prototype.createBuffer;AudioContext.prototype.createBuffer=function(...args){const buffer=createAudioBuffer.apply(this,args);playedBuffers.push(buffer);return buffer;}`);
   open(); ready();
   evaluate(`window.sourceID = editor.dataset.editor`);
@@ -110,10 +110,11 @@ try {
   evaluate('loopButton.click()'); wait('Boolean(loopPlayer) && !loopPlayer.paused'); evaluate('play.click()'); wait('!player.paused'); check('!loopPlayer');
   evaluate('loopButton.click()'); wait('Boolean(loopPlayer) && !loopPlayer.paused'); key('end','ArrowLeft'); check('!loopPlayer && player.paused');
   evaluate(`$('cut-gain').value='12';$('cut-gain').dispatchEvent(new Event('input'))`);
-  // Save once, preserve exact bounds, do not choose a winner; exact export remains available.
+  // Save once, preserve exact bounds, and select the new main track; exact export remains available.
   evaluate(`$('cut-loop').checked=false; $('cut-loop').dispatchEvent(new Event('change')); window.beforeCount=candidates.length;window.winners=JSON.stringify(selections);window.savedBounds=[${bound('start')},${bound('end')}];[...editor.querySelectorAll('button')].find(b=>b.textContent==='Save trim').click()`);
   wait('!busy && candidates.length===beforeCount+1 && document.querySelector(".trim-editor")?.dataset.editor!==sourceID');
-  check('JSON.stringify(selections)===winners');
+  check(`selections.some(s=>s.candidate_sha256===document.querySelector('.trim-editor').dataset.editor)`);
+  check(`document.querySelector('[data-best] [data-clip]').dataset.clip===document.querySelector('.trim-editor').dataset.editor`);
   check(`$('cut-gain').value`,'12');
   check(`candidates.find(c=>c.candidate_sha256===document.querySelector('.trim-editor').dataset.editor).evidence.cut.normalization.adjustment_db`,12);
   check(`posts.filter(p=>String(p.url).endsWith('/cut')).length`,1);
@@ -121,17 +122,17 @@ try {
   check(`posts.find(p=>String(p.url).endsWith('/cut')).body.end_seconds`,2.99);
   check(`${bound('start')}===.01 && ${bound('end')}===2.99`);
   check(`(async()=>{const id=document.querySelector('.trim-editor').dataset.editor; const r=await realFetch('/studio/candidates/'+id+'/export'); return r.ok&&(await r.blob()).size>0;})()`);
-  // Existing processed save still creates an immutable loop without changing winners.
+  // Saving a processed loop selects that exact immutable loop.
   evaluate(`window.editor=document.querySelector('.trim-editor');window.player=editor.playback;window.play=editor.querySelector('.actions button');$('cut-loop').checked=true;$('cut-loop').dispatchEvent(new Event('change'));window.beforeLoop=candidates.length;[...editor.querySelectorAll('button')].find(b=>b.textContent==='Save loop').click()`);
   wait('!busy && candidates.length===beforeLoop+1');
-  check(`JSON.stringify(selections)===winners && posts.filter(p=>String(p.url).endsWith('/cut')).at(-1).body.loop===true`);
+  check(`selections.some(s=>s.candidate_sha256===document.querySelector('.trim-editor').dataset.editor) && posts.filter(p=>String(p.url).endsWith('/cut')).at(-1).body.loop===true`);
   check(`candidates.find(c=>c.candidate_sha256===document.querySelector('.trim-editor').dataset.editor).evidence.cut.loop.output_frames>0`);
   // Reopening an exact sample boundary must not quantize it to the display's hundredths.
-  evaluate(`(async()=>{const result=await api('candidates/'+sourceID+'/cut',{start_seconds:1234/44100,end_seconds:100003/44100,loop:false});await refresh();closeEditor();const row=document.querySelector('#batch-results [data-clip]'),saved=candidates.find(c=>c.candidate_sha256===result.candidate_sha256);row.replaceChildren();renderClip(saved,row);trim(saved,row);window.editor=document.querySelector('.trim-editor');window.player=editor.playback;window.play=editor.querySelector('.actions button');})()`);
+  evaluate(`(async()=>{const result=await api('candidates/'+sourceID+'/cut',{start_seconds:1234/44100,end_seconds:100003/44100,loop:false});await refresh();closeEditor();const row=document.querySelector('#batch-results [data-take]'),saved=candidates.find(c=>c.candidate_sha256===result.candidate_sha256);row.replaceChildren();renderClip(saved,row);trim(saved,row);window.editor=document.querySelector('.trim-editor');window.player=editor.playback;window.play=editor.querySelector('.actions button');})()`);
   ready();check(`${bound('start')}===1234/44100 && ${bound('end')}===100003/44100`);
   evaluate(`window.exactID=editor.dataset.editor;[...editor.querySelectorAll('button')].find(b=>b.textContent==='Save trim').click()`);
   wait('!busy && document.querySelector(".trim-editor").dataset.editor!==exactID');
-  check(`posts.at(-1).body.start_seconds===1234/44100 && posts.at(-1).body.end_seconds===100003/44100`);
+  check(`posts.filter(p=>p.url.endsWith('/cut')).at(-1).body.start_seconds===1234/44100 && posts.filter(p=>p.url.endsWith('/cut')).at(-1).body.end_seconds===100003/44100`);
   // Failed source loading/decode, retry, rejected play, and closing during pending load.
   evaluate(`closeEditor(); window.fetch=(input,init)=>String(input).endsWith('/source')?Promise.resolve(new Response('broken',{status:200})):realFetch(input,init)`);
   open(); wait('!editor.querySelector("button:nth-of-type(1)") || [...editor.querySelectorAll("button")].some(b=>b.textContent==="Retry audio"&&!b.hidden)');

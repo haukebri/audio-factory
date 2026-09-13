@@ -20,7 +20,7 @@ async function until(check, budget = 60000) { const end = Date.now() + budget; w
 const request = { name: 'Import verification', sounds: [{ key: 'rain', prompt: 'Rain on a window', duration_seconds: 5 }, { key: 'gate', prompt: 'Gate closing', duration_seconds: 5 }] };
 const takeGroups = async (records, jobs) => {
   const script = await readFile('studio.js', 'utf8');
-  return vm.runInNewContext(script.slice(script.indexOf('function groupTakes('), script.indexOf('const takeFor =')) + '\ngroupTakes(records, jobs)', { records, jobs });
+  return vm.runInNewContext(script.slice(script.indexOf('function formatDuration('), script.indexOf('const takeFor =')) + '\ngroupTakes(records, jobs)', { records, jobs });
 };
 if (process.argv[2] === '--crash') {
   const [root, point] = process.argv.slice(3);

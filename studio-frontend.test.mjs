@@ -67,16 +67,18 @@ test('generation feedback follows submission, running stages and terminal outcom
 test('presentation groups snapshots and trims by generation, uses durable lineage and exact preferred versions', () => {
   const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
   const context = vm.createContext({});
-  vm.runInContext(source.slice(source.indexOf('function groupTakes('), source.indexOf('const takeFor')), context);
+  vm.runInContext(source.slice(source.indexOf('function formatDuration('), source.indexOf('const takeFor')), context);
   const make = (id, run, cut = null) => ({ candidate_sha256: id, attempt_id: run, evidence: { generation: { id: run, started_at: run === 'run-a' ? '2026-01-01' : '2026-01-02' }, cut } });
-  const cut = { id: 'cut', audio_sha256: 'same-audio', bounds: { start_sample: 0, end_sample: 100 } };
-  const records = [make('original', 'run-a'), make('analysis', 'run-a'), make('prepared', 'run-a', cut), make('qa', 'run-a', cut), make('trim', 'run-a', { ...cut, id: 'trim', bounds: { start_sample: 10, end_sample: 90 } }), make('second', 'run-b', cut), make('unlinked', 'run-c', cut)];
+  const cut = { id: 'cut', audio_sha256: 'same-audio', bounds: { sample_rate: 1000, start_sample: 0, end_sample: 100 } };
+  const records = [make('original', 'run-a'), make('analysis', 'run-a'), make('prepared', 'run-a', cut), make('qa', 'run-a', cut), make('trim', 'run-a', { ...cut, id: 'trim', bounds: { sample_rate: 1000, start_sample: 10, end_sample: 90 } }), make('second', 'run-b', cut), make('unlinked', 'run-c', cut)];
   context.records = records;
   context.requests = [{ id: 'job-a', candidate_ids: ['original', 'analysis', 'prepared', 'qa'], result: { candidate_sha256: 'qa' }, attempts: [{ id: 'run-a' }] }, { id: 'job-b', sound_id: 'job-a', candidate_ids: ['second'] }];
   const grouped = vm.runInContext('groupTakes(records, requests)', context);
   assert.equal(grouped.length, 3);
   const first = grouped.find(t => t.id === 'run-a'), second = grouped.find(t => t.id === 'run-b'), orphan = grouped.find(t => t.id === 'run-c');
   assert.equal(first.versions.length, 3);
+  assert.deepEqual(Array.from(first.versions, v => v.name), ['Original', 'Automatic · Trim 0 ms–100 ms', 'Edit 1 · Trim 10 ms–90 ms']);
+  assert.deepEqual(Array.from(vm.runInContext('groupTakes([...records].reverse(), requests)', context).find(t => t.id === first.id).versions, v => v.name), Array.from(first.versions, v => v.name));
   assert.equal(first.preferred.candidate_sha256, 'qa');
   assert.equal(first.records.length, 5);
   assert.equal(second.number, 2);
@@ -239,4 +241,78 @@ test('different batch intents preserve uncertain keys until explicit recovery', 
     assert.notEqual(requests.at(-1).key, pending.key);
     assert.equal(storage.size, 0);
   }
+});
+
+const trimSource = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
+const handler = trimSource.slice(trimSource.indexOf('  save.onclick = () => {'), trimSource.indexOf('  form.onsubmit = event => event.preventDefault(); update();'));
+
+for (const connected of [true, false]) {
+  test(`trim Save selects its new version when editor is ${connected ? 'connected' : 'disconnected'}`, async () => {
+    const { context, saved, requests, messages } = setup(connected);
+    context.save.onclick();
+    await context.done;
+    assert.equal(context.winner, saved.candidate_sha256);
+    assert.deepEqual(requests, ['candidates/automatic/cut']);
+    assert.deepEqual(context.chosen, [saved]);
+    if (connected) assert.ok(messages.some(message => /selected/i.test(message)), 'visible saved confirmation identifies selection');
+  });
+}
+
+test('selection failure rejects Save completion without claiming success', async () => {
+  const { context, saved, messages } = setup(true, true);
+  context.save.onclick();
+  await assert.rejects(context.done, /Selection failed/);
+  assert.ok(context.candidates.includes(saved), 'new cut remains saved');
+  assert.equal(context.winner, 'automatic');
+  assert.equal(messages.length, 0, 'no saved-and-selected confirmation');
+});
+
+function setup(connected, failSelection = false) {
+  const old = { candidate_sha256: 'automatic' }, saved = { candidate_sha256: 'manual' };
+  const requests = [], messages = [], remembered = new Map();
+  const row = { isConnected: connected, dataset: {}, replaceChildren() {} };
+  const context = vm.createContext({
+    save: {}, valid: () => true, cutInput: () => ({ start_seconds: .1, end_seconds: .2 }),
+    editor: { parentElement: row, isConnected: connected }, editorId: 'automatic', id: 'automatic',
+    runButton: (_, operation) => { context.done = operation(); },
+    api: async path => { requests.push(path); return saved; },
+    refresh: async () => {}, candidates: [old, saved], takeFor: () => ({ id: 'take' }),
+    remember: (key, value) => remembered.set(key, value),
+    useTake: async c => { context.chosen.push(c); if (failSelection) throw new Error('Selection failed'); context.winner = c.candidate_sha256; },
+    winner: 'automatic', chosen: [],
+    closeEditor: () => { context.editorId = undefined; },
+    renderClip() {}, trim: c => { context.editorId = c.candidate_sha256; },
+    node: (_tag, message) => { messages.push(message); },
+  });
+  vm.runInContext(handler, context);
+  return { context, saved, requests, messages };
+}
+
+test('short sound durations remain distinguishable down to milliseconds', () => {
+  const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
+  const context = vm.createContext({});
+  vm.runInContext(source.slice(source.indexOf('function formatDuration('), source.indexOf('function groupTakes(')), context);
+  const actual = vm.runInContext('[0, 0.0000001, 0.000022676, 0.003, 0.042, 0.9998, 1.234, 60].map(formatDuration)', context);
+  assert.deepEqual(Array.from(actual), ['0 ms', '<0.001 ms', '0.023 ms', '3 ms', '42 ms', '999.8 ms', '1.234 s', '60.000 s']);
+});
+
+test('feedback refresh handles a real-sized library without exhausting browser requests', async () => {
+  const source = readFileSync(new URL('./studio.js', import.meta.url), 'utf8');
+  const ids = Array.from({ length: 1700 }, (_, index) => String(index));
+  const feedback = new Map();
+  let active = 0, peak = 0;
+  const context = vm.createContext({
+    feedback, candidates: ids.map(candidate_sha256 => ({ candidate_sha256 })),
+    api: async path => {
+      active++; peak = Math.max(peak, active);
+      await new Promise(resolve => setImmediate(resolve));
+      active--;
+      return [path.split('/')[1]];
+    }, updateHuman() {}, renderLibrary() {},
+  });
+  vm.runInContext(source.slice(source.indexOf('async function loadFeedback('), source.indexOf("window.addEventListener('focus'")), context);
+  await vm.runInContext('loadFeedback()', context);
+  assert.ok(peak <= 16, `Launched ${peak} simultaneous requests`);
+  assert.equal(feedback.size, ids.length);
+  for (const id of ids) assert.deepEqual(feedback.get(id), [id]);
 });

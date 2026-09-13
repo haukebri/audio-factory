@@ -195,6 +195,11 @@ function runButton(b, operation, enqueue = action) {
 }
 const local = operation => operation();
 function title(c) { if (!c) return 'Sound'; return c.evidence.generation.prompt_plan?.intent ?? c.evidence.generation.request.prompt; }
+function formatDuration(seconds) {
+  if (seconds > 0 && seconds < 0.000001) return '<0.001 ms';
+  if (seconds < 1) return `${Number((seconds * 1000).toFixed(3))} ms`;
+  return `${seconds.toFixed(3)} s`;
+}
 function groupTakes(records, requests) {
   const groups = new Map();
   const root = job => { const seen = new Set(); while (!job?.sound_id && job?.parent_id && !seen.has(job.id)) { seen.add(job.id); const parent = requests.find(j => j.id === job.parent_id); if (!parent) break; job = parent; } return job?.sound_id ?? job?.id; };
@@ -216,14 +221,27 @@ function groupTakes(records, requests) {
     take.preferred = take.records.find(c => c.candidate_sha256 === take.job?.variants?.find(v => v.index === take.variant)?.result?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === take.job?.result?.candidate_sha256) ?? take.records.find(c => take.job?.attempts?.some(a => a.result?.candidate_sha256 === c.candidate_sha256));
     const versions = new Map();
     for (const c of take.records) { const cut = c.evidence.cut; const key = cut ? JSON.stringify([cut.audio_sha256, cut.id, cut.bounds]) : c.evidence.generation.id; if (!versions.has(key)) versions.set(key, []); versions.get(key).push(c); }
-    for (const records of versions.values()) { const c = records.find(c => c === take.preferred) ?? records[0]; take.versions.push({ records, candidate: c, name: c.evidence.cut?.loop ? `Loop ${(c.evidence.cut.loop.output_frames / c.evidence.cut.bounds.sample_rate).toFixed(2)} s` : c.evidence.cut ? `Trim ${(c.evidence.cut.bounds.start_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)}–${(c.evidence.cut.bounds.end_sample / c.evidence.cut.bounds.sample_rate).toFixed(2)} s` : 'Original' }); }
+    const named = [];
+    for (const records of versions.values()) {
+      const c = records.find(c => c === take.preferred) ?? records[0], cut = c.evidence.cut;
+      const automatic = records.includes(take.preferred);
+      let name = 'Original';
+      if (cut) {
+        const rate = cut.bounds.sample_rate;
+        const scope = cut.loop ? `Loop ${formatDuration((cut.loop.output_frames ?? (cut.bounds.end_sample - cut.bounds.start_sample)) / rate)}` : `Trim ${formatDuration(cut.bounds.start_sample / rate)}–${formatDuration(cut.bounds.end_sample / rate)}`;
+        name = automatic ? `Automatic · ${scope}` : scope;
+      }
+      named.push({ records, candidate: c, name, automatic, at: cut?.started_at ?? '' });
+    }
+    let edits = 0;
+    take.versions = named.sort((a, b) => a.at.localeCompare(b.at) || (a.candidate.evidence.cut?.id ?? '').localeCompare(b.candidate.evidence.cut?.id ?? '')).map(v => { if (!v.automatic && v.candidate.evidence.cut) v.name = `Edit ${++edits} · ${v.name}`; return v; });
   }
   return result;
 }
 const takeFor = id => takes.find(t => t.records.some(c => c.candidate_sha256 === id));
 const versionFor = (take, id) => take.versions.find(v => v.records.some(c => c.candidate_sha256 === id));
 const sourceLabel = provider => provider === 'youtube' ? 'YouTube' : provider === 'elevenlabs' ? 'ElevenLabs' : 'Local';
-const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${sourceLabel(take.job?.provider ?? c.evidence.generation.runtime?.backend)} · ${clipDuration(c).toFixed(2)} s${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
+const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${sourceLabel(take.job?.provider ?? c.evidence.generation.runtime?.backend)} · ${formatDuration(clipDuration(c))}${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
 const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
@@ -261,7 +279,11 @@ function navigate(next, push = true) {
 document.addEventListener('click', event => { const link = event.target.closest('a[href^="#"]'); if (!link || link.classList.contains('skip')) return; event.preventDefault(); if (link.hash === '#create') composeParent = undefined; navigate(link.hash.slice(1)); });
 window.addEventListener('popstate', async () => { if (history.state?.selected && history.state.selected !== selected) await select(history.state.selected); navigate(location.hash.slice(1), false); if (reviewBatchId && view === 'listen') await openReviewSound($('batch-sound').value); scrollTo(0, history.state?.scroll ?? 0); });
 async function loadFeedback(ids = candidates.map(c => c.candidate_sha256)) {
-  const histories = await Promise.all(ids.map(id => api(`candidates/${id}/feedback`)));
+  const histories = [];
+  // Bound in-flight requests: large libraries exhaust Chromium's request resources.
+  for (let offset = 0; offset < ids.length; offset += 16) {
+    histories.push(...await Promise.all(ids.slice(offset, offset + 16).map(id => api(`candidates/${id}/feedback`))));
+  }
   let changed = false;
   ids.forEach((id, index) => {
     if (JSON.stringify(feedback.get(id)) === JSON.stringify(histories[index])) return;
@@ -398,13 +420,13 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
   const update = () => {
     for (const name of ['start', 'end']) {
       const handle = handles[name]; handle.style.left = `${100 * draft[name] / seconds}%`;
-      handle.setAttribute('aria-valuenow', draft[name]); handle.setAttribute('aria-valuetext', `${draft[name].toFixed(2)} seconds`);
+      handle.setAttribute('aria-valuenow', draft[name]); handle.setAttribute('aria-valuetext', formatDuration(draft[name]));
       handle.setAttribute('aria-valuemin', name === 'start' ? 0 : draft.start + gap);
       handle.setAttribute('aria-valuemax', name === 'start' ? draft.end - gap : seconds);
     }
     selection.style.left = `${100 * draft.start / seconds}%`; selection.style.right = `${100 * (seconds - draft.end) / seconds}%`;
     timeline.style.setProperty('--start', `${100 * draft.start / seconds}%`); timeline.style.setProperty('--end', `${100 * draft.end / seconds}%`);
-    readout.textContent = `Start ${draft.start.toFixed(2)} s · End ${draft.end.toFixed(2)} s · Selected ${(draft.end - draft.start).toFixed(2)} s`;
+    readout.textContent = `Start ${formatDuration(draft.start)} · End ${formatDuration(draft.end)} · Selected ${formatDuration(draft.end - draft.start)}`;
     position();
   };
   const adjust = (name, value) => {
@@ -545,19 +567,20 @@ function trim(c, box) {
       if (!repeatingPreview.paused) duration.textContent = 'Processed loop preview · repeating';
     } catch (failure) { stopLoopPreview(); duration.textContent = failure.message; }
   };
-  node('p', 'Play includes fades, normalization and Level. Preview loop repeats the processed blend. Boosts are peak-limited to prevent clipping. Saving creates a version without choosing a winner. Download uses that saved version.', form, { class: 'hint' });
+  node('p', 'Play includes fades, normalization and Level. Preview loop repeats the processed blend. Boosts are peak-limited to prevent clipping. Saving selects the new version as the main track. Download uses that saved version.', form, { class: 'hint' });
   save = node('button', 'Save trim', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
   save.onclick = () => {
     if (!valid()) return;
     const input = cutInput(), row = editor.parentElement;
     runButton(save, async () => {
       const result = await api(`candidates/${id}/cut`, input);
-      const stillEditing = editorId === id && editor.isConnected && row.isConnected;
-      if (stillEditing) closeEditor();
       await refresh();
       const saved = candidates.find(c => c.candidate_sha256 === result.candidate_sha256);
       remember('version-' + takeFor(saved.candidate_sha256).id, saved.candidate_sha256);
-      if (stillEditing && row.isConnected && !editorId) { row.dataset.manualVersion = 'true'; row.replaceChildren(); renderClip(saved, row); trim(saved, row); node('p', 'Version saved. Choose Use this take to select this version.', row, { role: 'status' }); }
+      await useTake(saved);
+      const stillEditing = editorId === id && editor.isConnected && row.isConnected;
+      if (stillEditing) closeEditor();
+      if (stillEditing && row.isConnected && !editorId) { row.dataset.manualVersion = 'true'; row.replaceChildren(); renderClip(saved, row); trim(saved, row); node('p', 'Saved and selected as main track.', row, { role: 'status' }); }
     });
   };
   form.onsubmit = event => event.preventDefault(); update();
@@ -577,8 +600,13 @@ function updateSelected() {
 }
 function renderClip(c, row, pinned = false) {
   row.dataset.clip = c.candidate_sha256;
+  const take = takeFor(c.candidate_sha256);
   if (c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop) node('span', 'Loop', row, { class: 'loop-badge' });
-  node('h4', identity(c), row); node('strong', 'Selected', row, { 'data-selected': '', class: 'selected-badge', hidden: '' });
+  node('h4', `Clip ${take.number} · ${versionFor(take, c.candidate_sha256).name}`, row);
+  const meta = node('p', undefined, row, { class: 'clip-meta' });
+  node('strong', formatDuration(clipDuration(c)), meta, { class: 'clip-duration' });
+  node('span', sourceLabel(take.job?.provider ?? c.evidence.generation.runtime?.backend), meta);
+  node('strong', 'Main track', row, { 'data-selected': '', class: 'selected-badge', hidden: '' });
   const player = audio(c, row, identity(c)); const actions = node('div', undefined, row, { class: 'actions' });
   button('Replay', actions, async () => { player.currentTime = 0; await player.play().catch(error => { if (error.name !== 'AbortError' || !player.paused) throw error; }); }, local);
   const choose = button('Use this take', actions, () => useTake(c)); choose.dataset.choose = ''; choose.dataset.pendingKey = 'select-' + c.candidate_sha256;
@@ -589,9 +617,9 @@ function renderClip(c, row, pinned = false) {
     if (target.dataset.clip !== c.candidate_sha256) { target.querySelectorAll('audio').forEach(p => p.pause()); target.replaceChildren(); renderClip(c, target); }
     trim(c, target); target.scrollIntoView({ block: 'nearest' });
   }, local);
+  const versions = take.versions; row.dataset.versionCount = String(versions.length); row.dataset.preferred = take.preferred?.candidate_sha256 ?? '';
+  if (!pinned && versions.length > 1) { const label = node('label', 'Saved version', row, { class: 'clip-version' }); const list = node('select', undefined, label, { 'aria-label': 'Saved version' }); for (const v of versions) node('option', v.name, list, { value: (v.records.find(r => r.candidate_sha256 === c.candidate_sha256) ?? v.candidate).candidate_sha256 }); list.value = c.candidate_sha256; list.onchange = () => { row.dataset.manualVersion = 'true'; closeEditor(); player.pause(); const next = candidates.find(c => c.candidate_sha256 === list.value); remember('version-' + takeFor(next.candidate_sha256).id, next.candidate_sha256); row.replaceChildren(); renderClip(next, row); }; }
   const secondary = node('details', undefined, row, { class: 'clip-secondary' }); node('summary', 'More clip actions', secondary);
-  const versions = takeFor(c.candidate_sha256).versions; row.dataset.versionCount = String(versions.length); row.dataset.preferred = takeFor(c.candidate_sha256).preferred?.candidate_sha256 ?? '';
-  if (!pinned && versions.length > 1) { const label = node('label', 'Saved version', secondary); const list = node('select', undefined, label, { 'aria-label': 'Saved version' }); for (const v of versions) node('option', v.name, list, { value: (v.records.find(r => r.candidate_sha256 === c.candidate_sha256) ?? v.candidate).candidate_sha256 }); list.value = c.candidate_sha256; list.onchange = () => { row.dataset.manualVersion = 'true'; closeEditor(); player.pause(); const next = candidates.find(c => c.candidate_sha256 === list.value); remember('version-' + takeFor(next.candidate_sha256).id, next.candidate_sha256); row.replaceChildren(); renderClip(next, row); }; }
   recreateButton(c, secondary); button('Download', secondary, () => download(c)); const add = button('Add to library', secondary, () => addLibrary(c)); add.dataset.libraryCandidate = c.candidate_sha256; updateLibraryButtons(); updateSelected();
 }
 function isBatchCandidate(c) { return batchReviews.some(b => b.sounds.some(s => s.sound_id === takeFor(c.candidate_sha256)?.sound)); }
@@ -641,7 +669,7 @@ function renderLibrary() {
     if (!row) row = node('article', undefined, box, { class: 'take', 'data-entry': entry.id });
     row.dataset.revision = String(entry.revision); row.dataset.candidate = entry.candidate_sha256; row.replaceChildren();
     node('h2', entry.title, row);
-    node('p', `${entry.duration_seconds.toFixed(2)} s · ${entry.provider}${entry.loop ? ' · Loop' : ''}${entry.batch_id ? ' · Batch winner' : ''}`, row, { class: 'hint' });
+    node('p', `${formatDuration(entry.duration_seconds)} · ${entry.provider}${entry.loop ? ' · Loop' : ''}${entry.batch_id ? ' · Batch winner' : ''}`, row, { class: 'hint' });
     const tags = node('div', undefined, row, { class: 'library-keywords', 'aria-label': 'Keywords' });
     for (const keyword of entry.keywords) node('span', keyword, tags);
     const c = candidates.find(c => c.candidate_sha256 === entry.candidate_sha256);
@@ -822,7 +850,7 @@ function renderBatch() {
   const winnerRecord = candidates.find(c => c.candidate_sha256 === winner);
   if (best.dataset.id !== (winner ?? '')) {
     best.dataset.id = winner ?? '';
-    const heading = best.querySelector('h3') ?? node('h3', 'Selected winner', best); heading.hidden = !winner;
+    const heading = best.querySelector('h3') ?? node('h3', 'Main track', best); heading.hidden = !winner;
     if (winnerRecord) { const row = node('article', undefined, best, { class: 'clip-row' }); heading.after(row); renderClip(winnerRecord, row, true); }
   }
   for (const row of best.querySelectorAll('[data-clip]')) {

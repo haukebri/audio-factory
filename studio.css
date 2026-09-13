@@ -105,12 +105,16 @@ nav summary { min-width: 44px; }
 #batch-results { display: grid; gap: 16px; margin: 20px 0; }
 .variant-card, .clip-row { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 16px; min-width: 0; margin: 12px 0; }
 .variant-card h4, .clip-row h4 { margin: 0 0 8px; color: var(--primary); }
-.variant-card.chosen, .clip-row.chosen { border-color: var(--primary); background: var(--selected); }
+.variant-card.chosen, .clip-row.chosen { border-color: var(--primary); border-left: 4px solid var(--primary); background: var(--selected); }
 .variant-card audio, .clip-row audio { width: 100%; margin: 8px 0; }
 .variant-card .actions, .clip-row .actions { margin-top: 8px; }
 .generation-group { margin: 0; border-top: 1px solid var(--line); }
 .generation-group > summary { padding: 14px 0; }
 .selected-badge { display: inline-block; font-weight: 700; color: var(--primary); }
+.clip-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 10px; color: var(--muted); }
+.clip-meta .clip-duration { color: var(--ink); font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.clip-version { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 12px 0 4px; }
+.clip-version select { flex: 1 1 220px; width: auto; min-width: 0; }
 .trim-editor { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--boundary); }
 .trim-editor h5 { font-size: 16px; margin: 0 0 12px; }
 .trim-editor output { margin-left: 12px; font-variant-numeric: tabular-nums; color: var(--primary); }
@@ -129,6 +133,8 @@ button[aria-busy=true] { cursor: progress; }
   #sound-list { display: none; }
   .sound-picker { display: block; margin-bottom: 16px; }
   #review-batch { padding: 16px; }
+  .clip-version { display: block; }
+  .clip-version select { width: 100%; }
 }
 
 #review-batch { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:24px; margin-bottom:24px; }
