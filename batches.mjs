@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hash, root as factoryRoot, validateRequest } from './dist/config.js';
 import { atomicJson } from './dist/service.js';
+import { importInput } from './youtube.mjs';
 import { workflowInput } from './workflow.mjs';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
@@ -49,11 +50,11 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
     return job;
   };
   const soundId = sound => sound.operations[0].job_id;
-  const interrupted = () => jobs.list().some(j => j.status === 'interrupted');
+  const interrupted = () => jobs.list().some(j => j.status === 'interrupted' && j.provider !== 'youtube');
   const selection = sound => jobs.store.selectionHistory(soundId(sound)).at(-1) ?? null;
   function describe(batch) {
     const sounds = batch.sounds.map(s => {
-      const operations = s.operations.map(o => ({ ...o, status: jobFor(o)?.status ?? (o.error ? 'failed' : batch.paused ? 'paused' : 'queued'), error: jobFor(o)?.error ?? o.error ?? null }));
+      const operations = s.operations.map(o => ({ ...o, status: jobFor(o)?.status ?? (o.canceled_at ? 'canceled' : o.error ? 'failed' : batch.paused ? 'paused' : 'queued'), error: jobFor(o)?.error ?? o.error ?? null }));
       const chosen = selection(s);
       const pending = operations.some(o => ['running', 'canceling', 'queued', 'paused', 'interrupted'].includes(o.status));
       return { key: s.key, original_request: s.request, sound_id: soundId(s), selection: chosen, operations,
@@ -71,8 +72,13 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
     if (closed || queueError || jobs.busy() || interrupted()) return;
     const queued = [...batches.values()].filter(b => !b.paused).flatMap(batch => batch.sounds.flatMap(sound => sound.operations.map(op => ({ batch, sound, op })))).sort((a,b) => a.op.created_at.localeCompare(b.op.created_at));
     for (const { batch, sound, op } of queued) {
-      if (jobFor(op) || op.error) continue;
-      try { await jobs.submit(op.key, op.input); }
+      const existing = jobFor(op);
+      if (existing?.provider === 'youtube' && existing.status === 'interrupted') { await jobs.recover(existing.id); return; }
+      if (existing || op.error || op.canceled_at) continue;
+      try { await serial(async () => {
+        const current = item(get(batch.id), sound.key).operations.find(o => o.key === op.key);
+        if (!get(batch.id).paused && !current.canceled_at) await jobs.submit(op.key, op.input);
+      }); }
       catch (error) {
         if ([429, 409].includes(error.status)) return;
         // Record a pre-submission failure once; never invent a replacement key.
@@ -95,7 +101,7 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
       const original = get(id), sound = item(original, assetKey);
       const effective = typeof value === "function" ? value(sound) : value;
       const signature = hash(JSON.stringify(effective));
-      const existing = original.sounds.flatMap(s => s.operations).find(o => o.idempotency_key === key);
+      const existing = [...batches.values()].flatMap(b => b.sounds.flatMap(s => s.operations)).find(o => o.idempotency_key === key);
       if (existing) {
         if (existing.signature !== signature || !sound.operations.includes(existing)) fail(409, 'Idempotency key conflict');
         return describe(original);
@@ -124,21 +130,52 @@ export async function openBatches(jobs, { root = factoryRoot, origin }) {
       request(input);
       return append(id, assetKey, key, sound => {
         const accepted = sound.operations.find(o => o.idempotency_key === key);
-        const inherited = (accepted ?? sound.operations.at(-1)).input.request.loop ?? false;
+        const inherited = (accepted ?? sound.operations.findLast(o => o.input.provider !== 'youtube')).input.request.loop ?? false;
         return { kind: 'revise', request: request({ ...input, loop: input.loop ?? inherited }) };
       }, (sound, value) => {
         if (!jobs.get(soundId(sound))) fail(409, 'Wait for the first generation to start');
         return { request: { ...value.request, loop: value.request.loop === true }, provider: 'local', sound_parent_id: soundId(sound) };
       });
     },
+    youtube(id, assetKey, key, input) {
+      const interval = importInput(input);
+      return append(id, assetKey, key, { kind: 'youtube', ...interval }, sound => {
+        if (!jobs.get(soundId(sound))) fail(409, 'Wait for this sound’s first request to start');
+        const intent = sound.operations.findLast(o => o.input.provider !== 'youtube')?.input.request ?? sound.request;
+        return { provider: 'youtube', request: { prompt: intent.prompt, duration_seconds: intent.duration_seconds,
+          ...(intent.loop ? { loop: true } : {}) }, import: interval, sound_parent_id: soundId(sound) };
+      });
+    },
+    queuedJob(id) {
+      for (const batch of batches.values()) for (const sound of batch.sounds) {
+        const op = sound.operations.find(o => o.job_id === id);
+        if (op) return { id, sound_id: soundId(sound), input: op.input, provider: op.input.provider,
+          status: op.canceled_at ? 'canceled' : op.error ? 'failed' : batch.paused ? 'paused' : 'queued',
+          candidate_ids: [], started_at: op.created_at, error: op.error ?? null };
+      }
+    },
+    cancelQueued(id) {
+      return serial(async () => {
+        if (jobs.get(id)) return jobs.cancel(id);
+        for (const original of batches.values()) {
+          const batch = structuredClone(original);
+          const op = batch.sounds.flatMap(s => s.operations).find(o => o.job_id === id);
+          if (!op || op.input.provider !== 'youtube') continue;
+          op.canceled_at ??= new Date().toISOString(); await persist(batch);
+          return this.queuedJob(id);
+        }
+        fail(404, 'Unknown queued import');
+      });
+    },
     recreate(id, assetKey, key, input) {
       if (!plain(input) || Object.keys(input).some(k => !['candidate_sha256', 'loop'].includes(k)) || (input.loop !== undefined && typeof input.loop !== 'boolean') || typeof input.candidate_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.candidate_sha256)) fail(400, 'Expected candidate_sha256');
       const c = jobs.store.loadCandidate(input.candidate_sha256);
-      const loop = input.loop ?? c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false;
+      const owner = jobs.list().find(j => j.candidate_ids.includes(c.candidate_sha256) || j.attempts?.some(a => a.id === c.attempt_id));
+      const loop = input.loop ?? (c.evidence.generation.runtime.backend === 'youtube' ? owner?.input.request.loop ?? false : c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false);
       return append(id, assetKey, key, { kind: 'recreate', candidate_sha256: input.candidate_sha256, ...(loop ? { loop: true } : {}) }, sound => {
-        const owner = jobs.list().find(j => j.candidate_ids.includes(c.candidate_sha256) || j.attempts?.some(a => a.id === c.attempt_id));
         if (!owner || (owner.sound_id ?? owner.id) !== soundId(sound)) fail(400, 'Candidate does not belong to this batch sound');
-        return { provider: 'elevenlabs', request: { prompt: c.evidence.generation.request.prompt, duration_seconds: c.evidence.generation.request.duration_seconds, loop }, recreation_parent: c.candidate_sha256 };
+        const intent = c.evidence.generation.runtime.backend === 'youtube' ? owner.input.request : c.evidence.generation.request;
+        return { provider: 'elevenlabs', request: { prompt: intent.prompt, duration_seconds: intent.duration_seconds, loop }, recreation_parent: c.candidate_sha256 };
       });
     },
     pause(id, paused) {

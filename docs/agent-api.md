@@ -138,3 +138,14 @@ with urllib.request.urlopen(request, timeout=30) as response:
     print(json.dumps(json.load(response), indent=2))
 PY
 ```
+
+### YouTube intervals in an existing batch sound
+
+Use the same bearer authentication or Studio session/CSRF credentials as other routes:
+
+- `POST /studio/youtube/search` with `{ "query": "rain on window" }` returns `{ "results": [{ "id", "title", "url" }] }` without changing the batch.
+- `POST /studio/batches/:batchId/sounds/:soundKey/youtube` with `Idempotency-Key` and `{ "url": "https://www.youtube.com/watch?v=CBDZg1Jb_T4", "start_seconds": 120, "end_seconds": 125 }` returns HTTP 202 and the batch, including the stable import operation `job_id`.
+- Poll the existing job/batch routes. `POST /studio/jobs/:jobId/cancel` also handles queued imports. `POST /studio/jobs/:jobId/recover` retries a failed/interrupted import under the same take identity; no paid or generation call is replayed. Interrupted read-only imports automatically recover when their batch queue resumes.
+- `/studio/readiness` includes `youtube: { ready, tools }` and generation planner availability. Tool installation is a separate operator action, never part of a submitted import.
+
+The server derives ownership from the batch sound's first job. The same key and canonical interval return the existing operation; key conflicts across inputs or sounds return 409. A new key explicitly requests another take. Imports cannot be submitted through the generic job creation route. Select and export completed imported candidates through the existing candidate selection, Library, winners and export routes. The legacy `evidence.generation` envelope discriminates acquisition with `runtime.backend: "youtube"`; it contains actual WAV properties and sound intent, with no fictitious model, seed or license. Retry URL/bounds remain in the accepted job input.

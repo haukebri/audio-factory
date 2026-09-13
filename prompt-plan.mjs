@@ -28,7 +28,7 @@ confusable sounds as negative examples (e.g. screaming or growling for a cat his
 Respect the requested duration and natural event length; do not stretch a brief event
 into repeated or sustained action unless requested. Do not change duration settings.
 Return only JSON with generation_prompts.`;
-const planSchema = JSON.parse(readFileSync(new URL('./run.schema.json', import.meta.url))).properties.prompt_plan.anyOf[1];
+const planSchema = JSON.parse(readFileSync(new URL('./run.schema.json', import.meta.url))).anyOf[0].properties.prompt_plan.anyOf[1];
 const outputSchema = { type: 'object', additionalProperties: false, required: ['generation_prompts'], properties: {
   generation_prompts: { ...planSchema.properties.generation_prompts, minItems: 4, maxItems: 4 },
 } };

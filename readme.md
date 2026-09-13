@@ -81,3 +81,5 @@ The smoke uses durable keys under `.runtime/hybrid-smoke/`; reruns reuse saved o
 See [Studio](docs/studio.md), [examples](examples/readme.md), and [third-party notices](THIRD_PARTY_NOTICES.md). Historical milestone documents record earlier behavior; this README and the current usage guide supersede their execution instructions.
 
 Studio duration choices are 5, 10, 20, 30 and 60 seconds (default 5). The 60-second option is local only; ElevenLabs recreation supports at most 30 seconds.
+
+YouTube intervals can be added as ordinary takes in a batch sound. Run `pnpm setup:youtube`, then use the per-sound **YouTube** popup. See [Studio setup, import and recovery](docs/studio.md#add-a-youtube-take). No Data API key or generation model is required for importing and editing.

@@ -53,7 +53,7 @@ async function save(path: string, value: unknown) {
   await writeFile(`${path}.tmp`, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(`${path}.tmp`, path);
 }
-export async function qaOperation(root: string, runId: string, kind: string, input: unknown) {
+export async function qaOperation(root: string, runId: string, kind: string, input: unknown, signal?: AbortSignal) {
   let request = qaRequest(kind, input);
   const deadline = Date.now() + settings.timeout_ms;
   const runPath = join(root, "out", "runs", runId);
@@ -84,7 +84,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       process.execPath,
       [`${factoryRoot}/bundle.mjs`, root, JSON.stringify(report)],
       {
-        timeout: Math.max(1, deadline - Date.now()),
+        signal, timeout: Math.max(1, deadline - Date.now()),
         maxBuffer: 4 * 1024 * 1024,
         killSignal: "SIGKILL",
       },
@@ -122,7 +122,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       python,
       [`${factoryRoot}/qa.py`, path, JSON.stringify(request)],
       {
-        timeout: Math.max(1, deadline - Date.now()),
+        signal, timeout: Math.max(1, deadline - Date.now()),
         maxBuffer: 4 * 1024 * 1024,
         killSignal: "SIGKILL",
         env: { ...process.env, HF_HUB_OFFLINE: "1", TOKENIZERS_PARALLELISM: "false" },
@@ -171,7 +171,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       const modulePath = `${factoryRoot}/loop-audio.mjs`;
       const { renderLoop, renderTrim, quantizeLoop } = await import(modulePath);
       const { stdout: raw } = await execute("ffmpeg", ["-v", "error", "-nostdin", "-i", source, "-f", "f32le", "-"], {
-        encoding: "buffer", timeout: Math.max(1, deadline - Date.now()), maxBuffer: 32 * 1024 * 1024,
+        encoding: "buffer", signal, timeout: Math.max(1, deadline - Date.now()), maxBuffer: 32 * 1024 * 1024,
         killSignal: "SIGKILL",
       });
       const samples = new Float32Array(raw.length / 4);
@@ -190,7 +190,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
         await writeFile(temporary, pcm);
         await execute("ffmpeg", ["-v", "error", "-nostdin", "-n", "-f", "s16le", "-ar", String(run.audio.sample_rate),
           "-ac", String(run.audio.channels), "-i", temporary, "-c:a", "pcm_s16le", output], {
-          timeout: Math.max(1, deadline - Date.now()), killSignal: "SIGKILL",
+          signal, timeout: Math.max(1, deadline - Date.now()), killSignal: "SIGKILL",
         });
       } finally { await rm(temporary, { force: true }); }
       if (request.loop) report.loop = { ...evidence, native_provider_loop: run.runtime?.backend === "elevenlabs" && run.settings?.loop === true };
@@ -199,7 +199,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
         sample_rate: run.audio.sample_rate, fade_seconds: request.loop ? 0 : evidence.fade_seconds };
       report.normalization = { enabled: request.normalize !== false, target_peak_db: request.peak_db ?? settings.export_peak_db,
         gain_db: evidence.gain_db, input_peak: evidence.input_peak, ...rendered.level };
-      report.ffmpeg = (await execute("ffmpeg", ["-version"], { timeout: Math.max(1, deadline - Date.now()) })).stdout.split("\n")[0];
+      report.ffmpeg = (await execute("ffmpeg", ["-version"], { signal, timeout: Math.max(1, deadline - Date.now()) })).stdout.split("\n")[0];
       report.result = await runAnalysis(output);
       report.audio_sha256 = hash(await readFile(output));
       report.audio_url = `/v1/runs/${runId}/cuts/${id}/audio`;

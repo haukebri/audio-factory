@@ -8,6 +8,144 @@ let view = 'create', feedback = new Map(), selections = [], readiness = {}, edit
 const say = message => { if ($('status').textContent !== message) $('status').textContent = message; };
 function remember(key, value) { localStorage.setItem('studio-' + key, JSON.stringify(value)); }
 function recall(key, fallback) { try { return JSON.parse(localStorage.getItem('studio-' + key)) ?? fallback; } catch { return fallback; } }
+let youtube;
+const youtubeKey = (batch, sound) => `youtube-${batch}:${sound}`;
+function unloadYoutube() { $('youtube-player').replaceChildren(); }
+function closeYoutube() {
+  if (!$('youtube-dialog').open) return;
+  saveYoutubeDraft(); unloadYoutube(); $('youtube-dialog').close(); youtube = undefined;
+  if ($('batch-youtube').getClientRects().length) $('batch-youtube').focus({ preventScroll: true });
+}
+function saveYoutubeDraft(changedInterval = false) {
+  if (!youtube) return;
+  const draft = youtube.draft;
+  Object.assign(draft, { query: $('youtube-query').value, url: $('youtube-url').value, start: $('youtube-start').value, end: $('youtube-end').value });
+  if (changedInterval && ['failed', 'canceled'].includes(youtubeOperation(youtube)?.status)) delete draft.pending;
+  remember(youtube.key, draft);
+}
+function youtubeOperation(context) {
+  const sound = batchReviews.find(b => b.id === context.batch)?.sounds.find(s => s.key === context.sound);
+  return sound?.operations.find(o => o.idempotency_key === context.draft.pending?.key);
+}
+function pauseForYoutube() {
+  stopLoopPreview(); document.querySelector('.trim-editor')?.playback?.pause();
+  document.querySelectorAll('audio').forEach(player => player.pause());
+}
+function playYoutube(url, autoplay = false) {
+  const parsed = new URL(url); let id;
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port || parsed.searchParams.has('list')) throw new Error('Use one HTTPS YouTube video.');
+  if (parsed.hostname === 'youtu.be') id = parsed.pathname.slice(1);
+  else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(parsed.hostname)) id = parsed.pathname === '/watch' ? parsed.searchParams.get('v') : parsed.pathname.match(/^\/(?:shorts|embed)\/([\w-]{11})\/?$/)?.[1];
+  if (!/^[\w-]{11}$/.test(id ?? '')) throw new Error('Enter a valid YouTube video URL.');
+  pauseForYoutube(); unloadYoutube();
+  node('iframe', undefined, $('youtube-player'), { src: `https://www.youtube.com/embed/${id}?autoplay=${autoplay ? 1 : 0}`, title: 'YouTube video audition', referrerpolicy: 'strict-origin-when-cross-origin', allow: 'autoplay; encrypted-media; picture-in-picture', allowfullscreen: '' });
+  $('youtube-url').value = `https://www.youtube.com/watch?v=${id}`;
+  $('youtube-external').href = $('youtube-url').value; $('youtube-external').hidden = false;
+  saveYoutubeDraft(true);
+}
+function openYoutube() {
+  if (!batchReviews.find(b => b.id === reviewBatchId)?.sounds.some(s => s.key === reviewSoundKey)) return;
+  closeYoutube(); pauseForYoutube();
+  const batch = reviewBatchId, sound = reviewSoundKey, key = youtubeKey(batch, sound);
+  const draft = recall(key, { query: $('batch-prompt').value.slice(0, 300), url: '', start: '0', end: '5' });
+  const pending = batchReviews.find(b => b.id === batch)?.sounds.find(s => s.key === sound)?.operations.findLast(o => o.input.provider === 'youtube' && ['queued','paused','running','canceling','interrupted'].includes(o.status));
+  if (!draft.pending && pending) {
+    draft.pending = { key: pending.idempotency_key, input: pending.input.import, job_id: pending.job_id };
+    Object.assign(draft, { url: pending.input.import.url, start: String(pending.input.import.start_seconds), end: String(pending.input.import.end_seconds) });
+  }
+  youtube = { batch, sound, key, draft, submitting: false, searching: false };
+  remember(key, draft);
+  $('youtube-target').textContent = sound.replaceAll('_', ' ').replaceAll('-', ' ');
+  for (const [id, value] of Object.entries({ query: draft.query, url: draft.url, start: draft.start, end: draft.end })) $('youtube-' + id).value = value ?? '';
+  $('youtube-results').replaceChildren(); $('youtube-error').textContent = draft.error ?? ''; $('youtube-external').hidden = true;
+  $('youtube-search').disabled = false; $('youtube-dialog').showModal(); updateYoutube(); $('youtube-query').focus();
+}
+function updateYoutube() {
+  if (!youtube) return;
+  const ready = readiness.youtube;
+  $('youtube-readiness').textContent = ready?.ready ? 'YouTube import ready' : ready?.error ?? ready?.tools?.filter(t => t.error).map(t => `${t.name}: ${t.error}`).join(' · ') ?? 'Checking YouTube tools…';
+  const op = youtubeOperation(youtube), job = jobs.find(j => j.id === op?.job_id);
+  const pending = youtube.draft.pending;
+  const active = pending && (!op || ['queued','paused','running','canceling','interrupted'].includes(op.status));
+  $('youtube-add').disabled = youtube.submitting || Boolean(op && active) || !ready?.ready;
+  $('youtube-add').textContent = youtube.submitting ? 'Submitting…' : pending && !op ? 'Retry acceptance' : op?.status === 'failed' ? 'Retry import' : 'Add audio to this sound';
+  for (const id of ['url','start','end']) $('youtube-' + id).disabled = Boolean(active) || youtube.submitting;
+  $('youtube-cancel').hidden = !op || !['queued','paused','running','canceling'].includes(op.status);
+  $('youtube-cancel').disabled = op?.status === 'canceling';
+  $('youtube-progress').textContent = op ? `${op.status === 'running' ? 'Importing audio' : op.status} · ${job?.progress ?? 'Waiting for the batch queue'}${job && ['running','canceling'].includes(job.status) ? ' · ' + Math.floor((Date.now() - Date.parse(job.started_at)) / 1000) + 's elapsed' : ''}` : youtube.submitting ? 'Saving import request…' : pending ? 'Acceptance uncertain. Retry with the same request to reconnect safely.' : youtube.searching ? 'Searching YouTube…' : '';
+  $('youtube-error').textContent = op?.error ?? youtube.draft.error ?? '';
+}
+function syncYoutube() {
+  for (const batch of batchReviews) for (const sound of batch.sounds) {
+    const key = youtubeKey(batch.id, sound.key), draft = recall(key, null);
+    if (!draft?.pending) continue;
+    const op = sound.operations.find(o => o.idempotency_key === draft.pending.key);
+    if (!op) continue;
+    draft.pending.job_id = op.job_id;
+    if (op.status === 'completed') {
+      delete draft.pending; delete draft.error; remember(key, draft);
+      const matching = youtube?.key === key;
+      if (matching) { youtube.draft = draft; closeYoutube(); }
+      if (matching && reviewBatchId === batch.id && reviewSoundKey === sound.key) {
+        const group = $('batch-results').querySelector(`[data-generation="${op.job_id}"]`);
+        if (group) { group.open = true; group.dataset.manual = 'true'; group.scrollIntoView({ block: 'nearest' }); }
+      }
+      say(`YouTube audio added to ${sound.key.replaceAll('_', ' ')}.`);
+    } else { remember(key, draft); if (youtube?.key === key) youtube.draft = draft; }
+  }
+  updateYoutube();
+}
+$('batch-youtube').onclick = openYoutube;
+$('youtube-close').onclick = closeYoutube;
+$('youtube-dialog').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeYoutube(); } });
+$('youtube-dialog').addEventListener('cancel', event => { event.preventDefault(); closeYoutube(); });
+$('youtube-dialog').addEventListener('click', event => {
+  if (event.target !== $('youtube-dialog')) return;
+  const rect = event.target.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeYoutube();
+});
+for (const id of ['query','url','start','end']) $('youtube-' + id).addEventListener('input', () => { saveYoutubeDraft(id !== 'query'); updateYoutube(); });
+$('youtube-url').addEventListener('change', () => { if (!$('youtube-url').value) return; try { playYoutube($('youtube-url').value); } catch (error) { $('youtube-error').textContent = error.message; } });
+$('youtube-search-form').onsubmit = async event => {
+  event.preventDefault(); const context = youtube; if (!context || context.searching) return;
+  saveYoutubeDraft(); delete context.draft.error; remember(context.key, context.draft); context.searching = true; $('youtube-search').disabled = true; $('youtube-error').textContent = ''; $('youtube-progress').textContent = 'Searching YouTube…';
+  try {
+    const result = await api('youtube/search', { query: context.draft.query });
+    if (youtube !== context) return;
+    $('youtube-results').replaceChildren();
+    for (const entry of result.results) {
+      const row = node('div', undefined, $('youtube-results'), { class: 'youtube-result' }); node('span', entry.title, row);
+      button('Play here', row, () => { if (youtube === context) playYoutube(entry.url, true); }, local);
+    }
+    if (result.results[0]) playYoutube(result.results[0].url);
+    else node('p', 'No results. Try another query.', $('youtube-results'));
+  } catch (error) { if (youtube === context) { context.draft.error = error.message; remember(context.key, context.draft); $('youtube-error').textContent = error.message; } }
+  finally { context.searching = false; if (youtube === context) { $('youtube-search').disabled = false; updateYoutube(); } }
+};
+$('youtube-import-form').onsubmit = async event => {
+  event.preventDefault(); const context = youtube; if (!context || context.submitting) return;
+  saveYoutubeDraft(); const op = youtubeOperation(context);
+  if (op && ['queued','paused','running','canceling','interrupted'].includes(op.status)) return;
+  if (op?.status === 'canceled') delete context.draft.pending;
+  context.draft.pending ??= { key: uid(), input: { url: context.draft.url, start_seconds: Number(context.draft.start), end_seconds: Number(context.draft.end) } };
+  delete context.draft.error; remember(context.key, context.draft); context.submitting = true; updateYoutube();
+  try {
+    if (op?.status === 'failed') await api(`jobs/${op.job_id}/recover`, {});
+    else await api(`batches/${context.batch}/sounds/${context.sound}/youtube`, context.draft.pending.input, context.draft.pending.key);
+    await refresh();
+  } catch (error) {
+    const draft = recall(context.key, context.draft); draft.error = error.message;
+    if (error.status >= 400 && error.status < 500 && !op) delete draft.pending;
+    remember(context.key, draft); context.draft = draft;
+  } finally { context.submitting = false; if (youtube === context) updateYoutube(); }
+};
+$('youtube-cancel').onclick = async () => {
+  const context = youtube, op = context && youtubeOperation(context); if (!op) return;
+  $('youtube-cancel').disabled = true;
+  try { await api(`jobs/${op.job_id}/cancel`, {}); await refresh(); }
+  catch (error) { if (youtube === context) { context.draft.error = error.message; updateYoutube(); } }
+};
+
 $('loop').checked = recall('loop', false) === true;
 $('loop').addEventListener('change', () => remember('loop', $('loop').checked));
 const drafts = ['prompt', 'constraints', 'events', 'duration', 'seed'];
@@ -62,6 +200,7 @@ function groupTakes(records, requests) {
   const root = job => { const seen = new Set(); while (!job?.sound_id && job?.parent_id && !seen.has(job.id)) { seen.add(job.id); const parent = requests.find(j => j.id === job.parent_id); if (!parent) break; job = parent; } return job?.sound_id ?? job?.id; };
   const ordered = [...requests].sort((a,b) => (a.started_at ?? '').localeCompare(b.started_at ?? '') || a.id.localeCompare(b.id));
   for (const c of records) {
+    if (c.evidence.generation.runtime?.backend === 'youtube' && !c.evidence.cut) continue;
     const run = c.evidence.generation;
     const job = requests.find(j => j.candidate_ids.includes(c.candidate_sha256) || j.attempts?.some(a => a.id === c.attempt_id));
     const attempt = job?.attempts?.find(a => a.id === c.attempt_id), variant = attempt?.variant_index ?? 0;
@@ -73,7 +212,7 @@ function groupTakes(records, requests) {
   for (const take of result) {
     const preceding = ordered.filter(j => root(j) === take.sound).slice(0, ordered.filter(j => root(j) === take.sound).indexOf(take.job));
     const legacyIndex = result.filter(t => t.job === take.job && t.sound === take.sound).indexOf(take);
-    take.number = 1 + (take.job?.variants ? take.variant : legacyIndex) + preceding.reduce((n,j) => n + (j.variants?.length ?? (result.filter(t => t.job === j).length || 1)), 0);
+    take.number = 1 + (take.job?.variants ? take.variant : legacyIndex) + preceding.reduce((n,j) => n + (j.provider === 'youtube' ? result.filter(t => t.job === j).length : j.variants?.length ?? (result.filter(t => t.job === j).length || 1)), 0);
     take.preferred = take.records.find(c => c.candidate_sha256 === take.job?.variants?.find(v => v.index === take.variant)?.result?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === take.job?.result?.candidate_sha256) ?? take.records.find(c => take.job?.attempts?.some(a => a.result?.candidate_sha256 === c.candidate_sha256));
     const versions = new Map();
     for (const c of take.records) { const cut = c.evidence.cut; const key = cut ? JSON.stringify([cut.audio_sha256, cut.id, cut.bounds]) : c.evidence.generation.id; if (!versions.has(key)) versions.set(key, []); versions.get(key).push(c); }
@@ -83,7 +222,8 @@ function groupTakes(records, requests) {
 }
 const takeFor = id => takes.find(t => t.records.some(c => c.candidate_sha256 === id));
 const versionFor = (take, id) => take.versions.find(v => v.records.some(c => c.candidate_sha256 === id));
-const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${take.job?.provider === 'elevenlabs' ? 'ElevenLabs' : 'Local'} · ${clipDuration(c).toFixed(2)} s${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
+const sourceLabel = provider => provider === 'youtube' ? 'YouTube' : provider === 'elevenlabs' ? 'ElevenLabs' : 'Local';
+const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${sourceLabel(take.job?.provider ?? c.evidence.generation.runtime?.backend)} · ${clipDuration(c).toFixed(2)} s${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
 const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
@@ -92,12 +232,14 @@ function stopLoopPreview() { loopPlayer?.pause(); loopPlayer = undefined; }
 function closeEditor() { stopLoopPreview(); if (!editorId) return; const editor = document.querySelector('.trim-editor'); editor?.dispose?.(); editor?.querySelectorAll('audio').forEach(a => a.pause()); editor?.remove(); editorId = undefined; }
 function audio(c, parent, label, source = false) {
   const player = node('audio', undefined, parent, { controls: '', preload: 'metadata', 'aria-label': label, src: `/studio/candidates/${c.candidate_sha256}/${source || !c.evidence.cut ? 'source' : 'audio'}` });
-  player.addEventListener('play', () => { stopLoopPreview(); document.querySelector('.trim-editor')?.playback?.pause(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
+  player.addEventListener('play', () => { unloadYoutube(); stopLoopPreview(); document.querySelector('.trim-editor')?.playback?.pause(); document.querySelectorAll('audio').forEach(other => { if (other !== player) other.pause(); }); if (editorId && editorId !== c.candidate_sha256) closeEditor(); });
+  player.addEventListener('canplay', () => parent.querySelector('.playback-error')?.remove());
   player.addEventListener('error', () => { let error = parent.querySelector('.playback-error'); if (!error) error = node('p', '', parent, { class: 'playback-error error', role: 'status' }); error.textContent = 'Audio could not load. Reconnect and replay this clip.'; });
   return player;
 }
 function saveLocation() { history.replaceState({ ...history.state, selected, scroll: scrollY }, ''); }
 function navigate(next, push = true) {
+  if (youtube && next !== 'batch/' + youtube.batch && next !== 'listen') closeYoutube();
   if (reviewBatchId && next === 'listen') next = 'batch/' + reviewBatchId;
   if (push) { saveLocation(); history.pushState({ selected, scroll: 0 }, '', '#' + next); }
   const batchMatch = /^batch\/([a-f0-9]{32})$/.exec(next);
@@ -190,7 +332,7 @@ function trimPlayback(media, render, bounds, repeating = false) {
     await context.resume();
     const rendered = await render();
     if (disposed || token !== epoch) return;
-    document.querySelectorAll('audio').forEach(audio => audio.pause());
+    unloadYoutube(); document.querySelectorAll('audio').forEach(audio => audio.pause());
     install(rendered); if (playing) { emit('play'); emit('playing'); }
   };
   player.refresh = async () => {
@@ -573,6 +715,7 @@ function renderHistory() {
 $('search').oninput = renderHistory; $('human-filter').onchange = renderHistory;
 function renderGeneration() {
   const current = jobs.find(j => j.id === currentJob);
+  if (current?.provider === 'youtube') { $('generation-progress').hidden = true; $('active-link').hidden = true; return; }
   const sound = reviewBatchId ? batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === reviewSoundKey)?.sound_id : (current?.sound_id ?? current?.id ?? takeFor(selected)?.sound);
   const active = !submitting && (!submissionError || current) && jobs.find(job => ['running', 'canceling'].includes(job.status) && (job.sound_id ?? job.id) === sound);
   const job = active ?? current;
@@ -602,17 +745,17 @@ function renderGeneration() {
 async function refreshQa() {
   const ready = await api('readiness'); readiness = ready;
   const text = `${ready.generation === 'fixture' ? 'Synthetic test workspace' : ready.generation === 'setup_required' ? 'Local models will be prepared before generation' : 'Local Stable Audio ready'} · ElevenLabs ${ready.elevenlabs === 'configured' ? 'key configured' : 'key required for recreation'}`;
-  $('readiness').textContent = text; $('settings-readiness').textContent = text;
+  $('readiness').textContent = text + (ready.planner === 'unavailable' ? ' · Generation planner unavailable; import and editing remain available' : ''); $('settings-readiness').textContent = $('readiness').textContent + (ready.youtube?.ready ? ' · YouTube ready' : ' · YouTube setup required: node scripts/setup-youtube.mjs');
 }
 async function refresh() {
   const [nextJobs, nextCandidates, nextSelections, nextBatches, nextLibrary] = await Promise.all([api('jobs'), api('candidates'), api('selections'), api('batches'), api('library'), refreshQa()]);
   if (currentJob) submissionError = '';
   batchReviews = nextBatches; libraryEntries = nextLibrary; updateLibraryButtons();
   selections = nextSelections;
-  const changed = JSON.stringify(candidates) !== JSON.stringify(nextCandidates); jobs = nextJobs; candidates = nextCandidates; takes = groupTakes(candidates, jobs);
+  const changed = JSON.stringify(candidates) !== JSON.stringify(nextCandidates); jobs = nextJobs; candidates = nextCandidates.filter(c => c.evidence.generation.runtime?.backend !== 'youtube' || c.evidence.cut); takes = groupTakes(candidates, jobs);
   if (changed) { await loadFeedback(); renderLibrary(); }
   renderReviewBatch(); renderGeneration();
-  renderBatch(); renderLibrary(); renderDiagnostics();
+  renderBatch(); renderLibrary(); renderDiagnostics(); syncYoutube();
   const signature = JSON.stringify(jobs); if ($('jobs').dataset.signature === signature) return;
   $('jobs').dataset.signature = signature; $('jobs').replaceChildren();
   if (!jobs.length) node('p', 'No requests yet.', $('jobs'));
@@ -630,7 +773,7 @@ function updateRecreate() {
   for (const b of document.querySelectorAll('[data-recreate]')) {
     const c = candidates.find(c => c.candidate_sha256 === b.dataset.recreate); if (!c) continue;
     const queued = pendingButtons.has('recreate-' + c.candidate_sha256) || batchReviews.some(batch => batch.sounds.some(sound => sound.operations.some(o => o.input.recreation_parent === c.candidate_sha256 && ['queued','paused','running','canceling'].includes(o.status)))) || jobs.some(j => j.input.recreation_parent === c.candidate_sha256 && ['queued','running','canceling'].includes(j.status));
-    const reason = c.evidence.generation.request.duration_seconds > 30 ? 'ElevenLabs supports at most 30 seconds.' : readiness.elevenlabs !== 'configured' ? 'Configure an ElevenLabs key in Settings to generate.' : queued ? 'An equivalent ElevenLabs request is already pending.' : '';
+    const reason = (takeFor(c.candidate_sha256)?.job?.provider === 'youtube' ? takeFor(c.candidate_sha256).job.input.request.duration_seconds : c.evidence.generation.request.duration_seconds) > 30 ? 'ElevenLabs supports at most 30 seconds.' : readiness.elevenlabs !== 'configured' ? 'Configure an ElevenLabs key in Settings to generate.' : queued ? 'An equivalent ElevenLabs request is already pending.' : '';
     if (!b.hasAttribute('aria-busy')) b.disabled = Boolean(reason);
     b.parentElement.querySelector('[data-recreate-reason]').textContent = reason || 'Makes a new rendition from the prompt; your current clip and winner stay saved.';
   }
@@ -696,12 +839,21 @@ function renderBatch() {
     let details = box.querySelector(`[data-generation="${id}"]`);
     if (!details) { details = node('details', undefined, box, { class: 'generation-group', 'data-generation': id }); details.open = index === groups.length - 1; details.addEventListener('click', event => { if (event.target.closest('summary')) details.dataset.manual = 'true'; }); details.addEventListener('keydown', event => { if (event.target.tagName === 'SUMMARY' && ['Enter', ' '].includes(event.key)) details.dataset.manual = 'true'; }); node('summary', '', details); node('p', '', details, { class: 'group-status', role: 'status' }); const after = index === groups.length - 1 ? best : box.querySelector(`[data-generation="${groups[index + 1].job_id}"]`); after.after(details); }
     if (!details.dataset.manual) details.open = index === groups.length - 1;
-    const groupTakes = takes.filter(t => (t.job?.id ?? t.id) === id), provider = (group.job?.provider ?? group.input?.provider) === 'elevenlabs' ? 'ElevenLabs' : 'Local';
+    const groupTakes = takes.filter(t => (t.job?.id ?? t.id) === id), provider = sourceLabel(group.job?.provider ?? group.input?.provider), imported = provider === 'YouTube';
     const contains = groupTakes.some(t => t.records.some(c => c.candidate_sha256 === winner));
-    const state = ['queued', 'paused'].includes(group.status) ? 'Queued' : ['running','canceling'].includes(group.status) ? 'Generating' : ['failed','interrupted'].includes(group.status) ? 'Failed' : 'Ready';
+    const state = ['queued', 'paused'].includes(group.status) ? 'Queued' : ['running','canceling'].includes(group.status) ? (imported ? 'Importing audio' : 'Generating') : ['failed','interrupted'].includes(group.status) ? 'Failed' : group.status === 'canceled' ? 'Canceled' : 'Ready';
     const clipCount = group.job?.variants?.length ?? groupTakes.length;
-    details.querySelector('summary').textContent = `Generation ${index + 1} · ${provider} · ${clipCount} clip${clipCount === 1 ? '' : 's'} · ${index === groups.length - 1 ? 'Latest' : 'Earlier generation'}${contains ? ' · Contains selected winner' : ''}`;
-    details.querySelector('.group-status').textContent = state + (state === 'Failed' ? '. Generate more or check Settings diagnostics.' : '');
+    details.querySelector('summary').textContent = `${imported ? 'Import' : 'Generation'} ${index + 1} · ${provider} · ${clipCount} clip${clipCount === 1 ? '' : 's'} · ${index === groups.length - 1 ? 'Latest' : 'Earlier operation'}${contains ? ' · Contains selected winner' : ''}`;
+    details.querySelector('.group-status').textContent = imported ? `${state} · ${group.job?.progress ?? group.status}${['running','canceling'].includes(group.status) ? ' · ' + Math.floor((Date.now() - Date.parse(group.job.started_at)) / 1000) + 's elapsed' : ''}${group.error ?? group.job?.error ? ' · ' + (group.error ?? group.job.error) : ''}` : state + (state === 'Failed' ? '. Generate more or check Settings diagnostics.' : '');
+    if (imported) {
+      let controls = details.querySelector('.import-controls');
+      if (!controls) controls = node('div', '', details, { class: 'import-controls actions' });
+      if (controls.dataset.status !== group.status) {
+        controls.dataset.status = group.status; controls.replaceChildren();
+        if (['queued','paused','running'].includes(group.status)) button('Cancel import', controls, async () => { await api(`jobs/${id}/cancel`, {}); await refresh(); });
+        if (['failed','interrupted'].includes(group.status) && group.job) button('Retry import', controls, async () => { await api(`jobs/${id}/recover`, {}); await refresh(); });
+      }
+    }
     for (const take of groupTakes) {
       let row = details.querySelector(`[data-take="${take.id}"]`);
       if (!row) { row = node('article', undefined, details, { class: 'clip-row', 'data-take': take.id }); renderClip(preferred(take), row); }
@@ -725,6 +877,7 @@ async function batchMutation(pending) {
 }
 async function openReviewSound(key) {
   if (reviewSoundKey !== key || $('batch-results').dataset.sound !== batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === key)?.sound_id) { closeEditor(); document.querySelectorAll('audio').forEach(p => p.pause()); }
+  if (reviewSoundKey !== key) closeYoutube();
   reviewSoundKey = key; remember('batch-sound-' + reviewBatchId, key); renderReviewBatch();
   const sound = batchReviews.find(b => b.id === reviewBatchId)?.sounds.find(s => s.key === key);
   selected = sound?.selection?.candidate_sha256 ?? takes.find(t => t.sound === sound?.sound_id)?.records[0]?.candidate_sha256;
@@ -735,18 +888,19 @@ function renderReviewBatch() {
   if (list.dataset.signature !== signature) { list.dataset.signature = signature; list.replaceChildren(); if (batchReviews.length) node('h2', 'Batch reviews', list); for (const b of batchReviews) button(`${b.name} · ${b.progress.selected}/${b.progress.total} selected`, list, async () => { reviewSoundKey = undefined; navigate('batch/' + b.id); await openReviewSound($('batch-sound').value); }, local); }
   const batch = batchReviews.find(b => b.id === reviewBatchId), box = $('review-batch');
   box.hidden = !reviewBatchId; document.body.classList.toggle('reviewing-batch', Boolean(reviewBatchId)); if (!reviewBatchId) return;
+  $('batch-youtube').disabled = !batch;
   $('batch-title').textContent = batch?.name ?? 'Loading batch…'; if (!batch) { $('batch-error').textContent = 'Batch not loaded. Reconnect if it does not appear.'; return; }
   if (box.dataset.id !== reviewBatchId) { box.dataset.id = reviewBatchId; reviewSoundKey = recall('batch-sound-' + reviewBatchId, null); }
   const sound = batch.sounds.find(s => s.key === reviewSoundKey) ?? batch.sounds[0]; reviewSoundKey = sound.key;
   $('batch-progress').textContent = `${batch.progress.selected} of ${batch.progress.total} sounds selected`;
-  $('batch-error').textContent = batch.queue_error ? 'The queue needs attention. Check Settings diagnostics.' : sound.operations.at(-1)?.error ? 'Generation failed. Try generating this sound again.' : '';
+  $('batch-error').textContent = batch.queue_error ? 'The queue needs attention. Check Settings diagnostics.' : sound.operations.at(-1)?.error ? (sound.operations.at(-1).input.provider === 'youtube' ? sound.operations.at(-1).error : 'Generation failed. Try generating this sound again.') : '';
   const focusedSound = $('sound-list').contains(document.activeElement) ? document.activeElement.dataset.soundKey : null;
   const choices = $('batch-sound'), choicesSignature = JSON.stringify(batch.sounds.map(s => [s.key,s.status,Boolean(s.selection)]));
   if (choices.dataset.signature !== choicesSignature) { choices.dataset.signature = choicesSignature; choices.replaceChildren(); $('sound-list').replaceChildren(); for (const s of batch.sounds) { const state = s.selection ? 'Selected' : s.status === 'generating' ? 'Generating' : s.status === 'needs_attention' ? 'Failed' : 'Needs selection'; const label = `${soundName(s.sound_id)} · ${state}`; node('option', label, choices, { value: s.key }); const b = button(label, $('sound-list'), () => openReviewSound(s.key), local); b.dataset.soundKey = s.key; } }
   choices.value = sound.key; for (const b of $('sound-list').querySelectorAll('button')) { b.setAttribute('aria-current', String(b.dataset.soundKey === sound.key)); if (focusedSound === b.dataset.soundKey && document.activeElement !== b) b.focus({ preventScroll: true }); }
   currentJob = sound.operations.at(-1)?.job_id;
   const editorKey = reviewBatchId + ':' + sound.key;
-  if ($('batch-edit').dataset.key !== editorKey) { $('batch-edit').dataset.key = editorKey; const value = recall('batch-edit-' + editorKey, sound.operations.at(-1)?.input.request ?? sound.original_request); $('batch-prompt').value = value.prompt; $('batch-duration').value = String(value.duration_seconds); $('batch-loop').checked = value.loop === true; }
+  if ($('batch-edit').dataset.key !== editorKey) { $('batch-edit').dataset.key = editorKey; const value = recall('batch-edit-' + editorKey, sound.operations.findLast(o => o.input.provider !== 'youtube')?.input.request ?? sound.original_request); $('batch-prompt').value = value.prompt; $('batch-duration').value = String(value.duration_seconds); $('batch-loop').checked = value.loop === true; }
   $('batch-regenerate').disabled = $('batch-regenerate').hasAttribute('aria-busy') || !jobs.some(j => j.id === sound.sound_id);
   $('batch-generate-more').disabled = $('batch-generate-more').hasAttribute('aria-busy') || $('batch-regenerate').disabled;
   $('batch-generation-readiness').textContent = !jobs.some(j => j.id === sound.sound_id) ? 'Generation controls become available when this sound’s first request starts.' : '';
@@ -789,6 +943,7 @@ $('compose').onsubmit = event => { event.preventDefault(); if ($('generate').dis
 };
 async function connect() {
   const response = await fetch('/studio/session', { headers: { 'X-Studio-Bootstrap': '1' } }); if (!response.ok) throw new Error('Local session unavailable'); csrf = (await response.json()).csrf;
+  document.querySelectorAll('audio').forEach(player => { if (player.error) player.load(); });
   const next = location.hash.slice(1) || 'create';
   currentJob = next === 'listen' ? recall('current-job', null) : undefined; await refresh(); await loadFeedback(); renderLibrary();
   const active = jobs.find(j => ['running', 'canceling'].includes(j.status));

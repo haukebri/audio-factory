@@ -7,14 +7,23 @@ import { isDeepStrictEqual } from "node:util";
 import { GgufBackend } from "./dist/backend.js";
 import { ElevenLabsBackend, elevenKey } from "./dist/elevenlabs.js";
 import { config, hash, root as factoryRoot, validateRequest } from "./dist/config.js";
-import { processIdentity } from "./dist/ownership.js";
+import { acquireCompute, processIdentity } from "./dist/ownership.js";
 import { qaRequest, qaOperation } from "./dist/qa.js";
 import { atomicJson, createFactory } from "./dist/service.js";
 import { ensureSetup } from "./dist/setup.js";
 import { preparePromptPlan } from './prompt-plan.mjs';
+import { inspectWav } from "./dist/wav.js";
+import { acquire, importInput, recoverAcquisition, publicError } from "./youtube.mjs";
 import { openReviewStore } from "./review-store.mjs";
 
 export function workflowInput(input) {
+  if (input?.provider === 'youtube') {
+    if (Object.keys(input).some(k => !['provider', 'request', 'import', 'sound_parent_id'].includes(k)) ||
+        !validateRequest(input.request) || input.request.seed !== undefined || !/^[a-f0-9]{32}$/.test(input.sound_parent_id ?? ''))
+      throw Object.assign(new Error('Expected a YouTube interval and existing sound intent'), { status: 400 });
+    return { provider: 'youtube', request: { prompt: input.request.prompt, duration_seconds: input.request.duration_seconds ?? 5,
+      ...(input.request.loop ? { loop: true } : {}) }, import: importInput(input.import), sound_parent_id: input.sound_parent_id };
+  }
   if (!input || Object.keys(input).some(key => !["request", "qa", "mode", "provider", "sound_parent_id", "recreation_parent"].includes(key)) || !validateRequest(input.request))
     throw new Error("Invalid workflow request; semantic QA and search budgets were removed. Use the five-variant local workflow or provider: elevenlabs.");
   if (input.mode !== undefined && input.mode !== 'manual') throw new Error('Semantic QA modes were removed');
@@ -30,6 +39,64 @@ export function workflowInput(input) {
   if (input.recreation_parent && provider !== 'elevenlabs') throw new Error('Recreation requires ElevenLabs');
   return { request: { ...request, duration_seconds: input.request.duration_seconds ?? config.default_duration_seconds }, provider,
     ...(input.sound_parent_id ? { sound_parent_id: input.sound_parent_id } : {}), ...(input.recreation_parent ? { recreation_parent: input.recreation_parent } : {}) };
+}
+
+// Acquisition shares the candidate store and cut renderer; it never enters generation.
+export async function runYoutube(job, { root, store, save, signal, acquireYoutube = acquire, setup = ensureSetup, fixture = false }) {
+  const attempt = job.attempts[0];
+  const claim = acquireCompute();
+  let temporary;
+  const temporaryPrefix = `youtube-import-${job.id}-`;
+  const stage = async progress => { signal.throwIfAborted(); job.progress = progress; await save(); };
+  const preserve = async (evidence, source, audio = null) => {
+    const c = store.saveCandidate({ attempt_id: attempt.id, fixture, evidence, evaluation: null }, source, audio);
+    if (!job.candidate_ids.includes(c.candidate_sha256)) job.candidate_ids.push(c.candidate_sha256);
+    attempt.candidate_id = c.candidate_sha256;
+    await save();
+    return c;
+  };
+  try {
+    await recoverAcquisition(root, job.id);
+    for (const name of await readdir(join(root, '.runtime'))) if (name.startsWith(temporaryPrefix)) await rm(join(root, '.runtime', name), { recursive: true, force: true });
+    // Candidate publication is atomic and may precede its job checkpoint.
+    const saved = store.listCandidates().filter(c => c.attempt_id === attempt.id);
+    for (const c of saved) if (!job.candidate_ids.includes(c.candidate_sha256)) job.candidate_ids.push(c.candidate_sha256);
+    let candidate = saved.find(c => c.evidence.cut?.request.start_seconds === 0 && c.evidence.cut.request.end_seconds === c.evidence.generation.audio.seconds && c.evidence.cut.request.loop === false) ?? saved.find(c => !c.evidence.cut);
+    if (!candidate) {
+      temporary = await mkdtemp(join(root, '.runtime', temporaryPrefix));
+      const result = await acquireYoutube(job.input.import, temporary, { signal, stage, owner: { root, job_id: job.id } });
+      const source = await readFile(result.file), audio = inspectWav(source);
+      if (Math.round(audio.seconds * 44100) !== Math.round((job.input.import.end_seconds - job.input.import.start_seconds) * 44100))
+        throw new Error('Decoded audio does not cover the requested interval');
+      const generation = { schema: 'urban:audio-factory-run@1', id: attempt.id, signature: job.signature,
+        status: 'completed', request: { prompt: job.input.request.prompt, duration_seconds: audio.seconds, loop: false },
+        started_at: job.started_at, finished_at: new Date().toISOString(), elapsed_ms: Date.now() - Date.parse(job.started_at),
+        audio_path: `out/runs/${attempt.id}/audio.wav`, audio, audio_sha256: hash(source),
+        models: [], licenses: [], runtime: { backend: 'youtube' }, settings: { postprocess: 'full-interval-pcm16-v1' },
+        review: 'Imported interval; awaiting human selection' };
+      signal.throwIfAborted();
+      candidate = await preserve({ generation, analyses: [], cut_failure: null, reason: 'Imported source retained before delivery' }, source);
+    }
+    if (!candidate.evidence.cut) {
+      await stage('Preparing audio');
+      await setup(false, signal, claim.name);
+      temporary ??= await mkdtemp(join(root, '.runtime', temporaryPrefix));
+      const run = candidate.evidence.generation, directory = join(temporary, 'out/runs', run.id);
+      await mkdir(directory, { recursive: true });
+      const source = store.readAsset(candidate.candidate_sha256, 'source');
+      await writeFile(join(directory, 'run.json'), JSON.stringify(run));
+      await writeFile(join(directory, 'audio.wav'), source);
+      signal.throwIfAborted();
+      const cut = await qaOperation(temporary, run.id, 'cuts', { start_seconds: 0, end_seconds: run.audio.seconds, loop: false }, signal);
+      if (cut.status !== 'completed') throw new Error(cut.error ?? 'Import delivery failed');
+      signal.throwIfAborted();
+      candidate = await preserve(JSON.parse(await readFile(cut.delivery.metadata, 'utf8')), source, await readFile(cut.delivery.audio));
+    }
+    return { id: attempt.id, candidate_sha256: candidate.candidate_sha256,
+      audio: join(root, '.runtime/studio/candidates', candidate.candidate_sha256, 'audio.wav'),
+      evaluation: null, outcome: 'needs_review', reason_tags: [] };
+  } catch (error) { throw Object.assign(new Error(publicError(error)), { status: error.status }); }
+  finally { if (temporary) await rm(temporary, { recursive: true, force: true }); claim.release(); }
 }
 
 // The CLI and studio both use this single setup/generation/QA/cut/bundle workflow.
@@ -252,14 +319,25 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     delete job.finished_at; delete job.error;
     job.progress = "queued";
     job.attempts ??= [];
-    job.used_seeds ??= [];
-    for (const a of job.attempts) if (!job.used_seeds.includes(a.seed)) job.used_seeds.push(a.seed);
+    if (job.provider !== 'youtube') {
+      job.used_seeds ??= [];
+      for (const a of job.attempts) if (!job.used_seeds.includes(a.seed)) job.used_seeds.push(a.seed);
+    }
     const persisted = save(job);
     operation.promise = (async () => {
       try {
         await persisted;
         await execution.beforeCompute?.();
         controller.signal.throwIfAborted();
+        if (job.provider === 'youtube') {
+          job.variants ??= [{ index: 0, status: 'pending', attempt_ids: [hash(`${job.id}:import`).slice(0, 32)] }];
+          job.attempts[0] ??= { id: job.variants[0].attempt_ids[0], variant_index: 0, number: 1, reason: 'Audio import' };
+          job.attempt = 1;
+          await save(job);
+          job.result = await runYoutube(job, { root, token, store, save: () => save(job), signal: controller.signal, ...execution });
+          job.attempts[0].result = job.result;
+          job.variants[0].result = job.result; job.variants[0].status = 'completed';
+        } else {
         if (!job.variants) {
           if (job.provider === 'local') {
             if (job.planning_started) throw new Error('Prompt planning interrupted; start an explicit new batch');
@@ -295,10 +373,11 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
             if (variant.status !== 'pending') break;
           }
         }
+        }
         job.outcome = job.variants.some(v => v.status === 'exhausted') ? 'exhausted' : 'needs_review';
         job.status = 'completed';
       } catch (error) {
-        job.status = controller.signal.aborted ? "canceled" : "failed";
+        job.status = closing && job.provider === "youtube" ? "interrupted" : controller.signal.aborted ? "canceled" : "failed";
         job.outcome = controller.signal.aborted ? 'cancelled' : 'operational-error';
         job.error = String(error);
       } finally {
@@ -321,6 +400,9 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     busy: () => Boolean(active || cutting),
     selectionHistory: id => store.selectionHistory(candidateSound(id)),
     selectTake(id, input) {
+      const candidate = store.loadCandidate(id);
+      if (candidate.evidence.generation.runtime.backend === 'youtube' && !candidate.evidence.cut)
+        throw Object.assign(new Error('Finish import delivery before selecting this take'), { status: 409 });
       if (!input || Object.keys(input).sort().join() !== 'event_id,supersedes') throw Object.assign(new Error('Invalid selection'), { status: 400 });
       try { return store.selectTake({ ...input, sound_id: candidateSound(id), candidate_sha256: id }); }
       catch (error) { throw Object.assign(error, { status: /conflict|Stale/.test(error.message) ? 409 : 400 }); }
@@ -328,8 +410,11 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     async recreate(id, key, input = {}) {
       if (!input || Object.keys(input).some(k => k !== "loop") || (input.loop !== undefined && typeof input.loop !== "boolean")) throw Object.assign(new Error("Expected optional boolean loop"), { status: 400 });
       const candidate = store.loadCandidate(id);
-      const { prompt, duration_seconds } = candidate.evidence.generation.request;
-      return this.submit(key, { provider: 'elevenlabs', request: { prompt, duration_seconds, loop: input.loop ?? candidate.evidence.cut?.request?.loop ?? candidate.evidence.generation.request.loop ?? false }, recreation_parent: id });
+      const owner = [...jobs.values()].find(j => j.attempts?.some(a => a.id === candidate.attempt_id));
+      const imported = candidate.evidence.generation.runtime.backend === 'youtube';
+      const intent = imported ? owner?.input.request ?? candidate.evidence.generation.request : candidate.evidence.generation.request;
+      const { prompt, duration_seconds } = intent;
+      return this.submit(key, { provider: 'elevenlabs', request: { prompt, duration_seconds, loop: input.loop ?? (imported ? intent.loop ?? false : candidate.evidence.cut?.request?.loop ?? candidate.evidence.generation.request.loop ?? false) }, recreation_parent: id });
     },
     readiness: () => ({ generation: execution.fixture ? 'fixture' : existsSync(`${factoryRoot}/.runtime/sa3-gguf/build-manifest.json`) ? 'local' : 'setup_required',
       elevenlabs: (() => { try { elevenKey(); return 'configured'; } catch { return 'key_required'; } })() }),
@@ -366,7 +451,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     },
     async recover(id) {
       const job = jobs.get(id);
-      if (!job || job.status !== 'interrupted' || !job.attempts) throw Object.assign(new Error('No recoverable workflow checkpoint'), { status: 409 });
+      if (!job || !(job.status === 'interrupted' || job.provider === 'youtube' && job.status === 'failed') || !job.attempts) throw Object.assign(new Error('No recoverable workflow checkpoint'), { status: 409 });
       return start(job);
     },
     async continue() { throw Object.assign(new Error('Legacy search budgets were removed; start a new batch'), { status: 410 }); },
@@ -386,11 +471,11 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       workflowInput(input);
       const prior = jobs.get(hash(key).slice(0, 32));
       const parent = input.sound_parent_id ? jobs.get(input.sound_parent_id) : null;
-      const latest = parent ? [...jobs.values()].filter(j => soundId(j) === soundId(parent)).sort((a, b) => a.started_at.localeCompare(b.started_at)).at(-1) : null;
+      const latest = parent ? [...jobs.values()].filter(j => j.provider !== 'youtube' && soundId(j) === soundId(parent)).sort((a, b) => a.started_at.localeCompare(b.started_at)).at(-1) : null;
       const recreated = input.recreation_parent ? store.loadCandidate(input.recreation_parent) : null;
       const loop = input.request.loop ?? (prior ? prior.input.request.loop ?? false :
         recreated ? recreated.evidence.cut?.request?.loop ?? recreated.evidence.generation.request.loop ?? false : latest?.input.request.loop ?? false);
-      input = workflowInput({ ...input, request: { ...input.request, ...(loop ? { loop: true } : { loop: false }) } });
+      input = input.provider === 'youtube' ? workflowInput(input) : workflowInput({ ...input, request: { ...input.request, ...(loop ? { loop: true } : { loop: false }) } });
       const id = hash(key).slice(0, 32);
       const signature = hash(JSON.stringify(input));
       const existing = jobs.get(id);
@@ -398,7 +483,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
         if (existing.signature !== signature) throw Object.assign(new Error("Idempotency key conflict"), { status: 409 });
         return existing;
       }
-      if ([...jobs.values()].some(job => job.status === "interrupted" && !jobs.has(job.resumed_by) && !jobs.has(hash(job.retry_key ?? "").slice(0,32)) &&
+      if ([...jobs.values()].some(job => job.status === "interrupted" && job.provider !== "youtube" && !jobs.has(job.resumed_by) && !jobs.has(hash(job.retry_key ?? "").slice(0,32)) &&
           !(job === resuming && (job.resumed_by === id || job.retry_key === key))))
         throw Object.assign(new Error("Interrupted outcome requires explicit resume before new generation"), { status: 409 });
       const soundParent = input.sound_parent_id ? jobs.get(input.sound_parent_id) : resuming;
@@ -408,9 +493,9 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
       const sound_id = soundParent ? soundId(soundParent) : originalJob ? soundId(originalJob) : original ? original.evidence.generation.id : id;
       const usedSeeds = [...new Set([...jobs.values()].filter(job => soundId(job) === sound_id).flatMap(job => job.used_seeds ?? [job.input.request.seed]))];
       let seed = input.request.seed;
-      if (seed === undefined) do { seed = randomInt(2147483648); } while (usedSeeds.includes(seed));
-      const job = { version: 2, id, signature, sound_id, provider: input.provider, input: { ...input, request: { ...input.request, seed } },
-        started_at: new Date().toISOString(), candidate_ids: [], used_seeds: [...new Set([...usedSeeds, ...(resuming?.used_seeds ?? [])])],
+      if (input.provider !== 'youtube' && seed === undefined) do { seed = randomInt(2147483648); } while (usedSeeds.includes(seed));
+      const job = { version: 2, id, signature, sound_id, provider: input.provider, input: input.provider === 'youtube' ? input : { ...input, request: { ...input.request, seed } },
+        started_at: new Date().toISOString(), candidate_ids: [], ...(input.provider === 'youtube' ? {} : { used_seeds: [...new Set([...usedSeeds, ...(resuming?.used_seeds ?? [])])] }),
         ...(resuming ? { parent_id: resuming.id } : {}), attempt: 0 };
       // Reserve synchronously before the first persistence await.
       const started = start(job);
@@ -420,6 +505,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
     async resume(id, key) {
       const job = jobs.get(id);
       if (!job || !["interrupted", "canceled", "failed"].includes(job.status)) throw Object.assign(new Error("Job is not resumable"), { status: 409 });
+      if (job.provider === 'youtube') return start(job);
       if (typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error("New Idempotency-Key required"), { status: 400 });
       const replacement = hash(key).slice(0, 32);
       if (replacement === id) throw Object.assign(new Error("Resume requires a new idempotency key"), { status: 400 });
@@ -447,7 +533,7 @@ export async function openJobs({ root = factoryRoot, token, execute = runWorkflo
         closing = true;
         if (active) {
           const operation = active;
-          operation.job.status = "canceling";
+          operation.job.status = operation.job.provider === "youtube" ? "interrupted" : "canceling";
           try { await save(operation.job); } finally { operation.controller.abort(); }
           await operation.promise;
         }

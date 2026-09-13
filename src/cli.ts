@@ -149,8 +149,8 @@ if (command === "make" || command === "generate" || command === "workflow") {
   process.once("SIGTERM", interrupt);
   process.once("SIGINT", interrupt);
   try {
-    await ollama.start();
     if (!interrupted) studio = await createStudio({ root, token });
+    if (!interrupted) void ollama.start().catch(error => console.error(`Generation planner unavailable: ${error.message}. Import and editing remain available.`));
     if (interrupted) { await studio?.close(); await ollama.stop(); }
     else console.error("Audio Factory studio ready on http://127.0.0.1:8767; Ctrl-C stops owned work");
   } catch (error) {

@@ -3,6 +3,7 @@ import { constants, closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSy
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
+import { inspectWav } from "./dist/wav.js";
 import { verifyExport } from "./export-lineage.mjs";
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -77,6 +78,10 @@ function verify(candidate, source, audio) {
   const { generation, analyses } = evidence;
   if (generation.status !== "completed" || hash(source) !== generation.audio_sha256)
     throw new Error("Candidate source hash or generation mismatch");
+  if (generation.runtime.backend === 'youtube') {
+    const actual = inspectWav(source);
+    if (Object.keys(actual).some(key => actual[key] !== generation.audio[key])) throw new Error('Imported audio properties mismatch');
+  }
   if (evidence.cut) {
     if (!Buffer.isBuffer(audio)) throw new Error("Candidate requires delivered audio");
     verifyExport(evidence, audio, () => source);

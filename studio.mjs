@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { openLibrary } from "./library.mjs";
 import { openBatches } from "./batches.mjs";
+import { readiness as youtubeReadiness, search as youtubeSearch } from "./youtube.mjs";
 import { openJobs } from "./workflow.mjs";
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
@@ -19,6 +20,22 @@ async function body(req, limit = 16384) {
 export async function createStudio({ port = 8767, ...options }) {
   const assets = Object.fromEntries(await Promise.all([['/', 'studio.html', 'text/html; charset=utf-8'], ['/studio.js', 'studio.js', 'text/javascript'], ['/qa-config.json', 'qa-config.json', 'application/json'], ['/loop-audio.mjs', 'loop-audio.mjs', 'text/javascript'], ['/studio.css', 'studio.css', 'text/css']].map(async ([route, file, type]) => [route, { type, bytes: await readFile(new URL(file, import.meta.url)) }])));
   let jobs, batches, library;
+  let readyPromise, readyAt = 0, plannerPromise, plannerAt = 0;
+  const plannerReadiness = () => {
+    if (!plannerPromise || Date.now() - plannerAt > 30000) {
+      plannerAt = Date.now();
+      plannerPromise = options.fixture ? Promise.resolve("fixture") : fetch("http://127.0.0.1:11434/api/tags", { signal: AbortSignal.timeout(1000) })
+        .then(async r => r.ok && (await r.json()).models?.some(m => m.name === "gemma4:latest") ? "ready" : "unavailable").catch(() => "unavailable");
+    }
+    return plannerPromise;
+  };
+  const importReadiness = () => {
+    if (!readyPromise || Date.now() - readyAt > 30000) {
+      readyAt = Date.now();
+      readyPromise = (options.youtubeReadiness ?? youtubeReadiness)({ root: options.root }).catch(error => ({ ready: false, tools: [], error: error.message }));
+    }
+    return readyPromise;
+  };
   let closing;
   const sessions = new Map();
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
@@ -31,7 +48,7 @@ export async function createStudio({ port = 8767, ...options }) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
-      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
+      res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; media-src 'self'; connect-src 'self'; frame-src https://www.youtube.com; frame-ancestors 'none'; base-uri 'none'");
       const path = req.url; // Exact paths only: no URL normalization of traversal.
       if (req.method === 'GET' && Object.hasOwn(assets, path)) {
         res.writeHead(200, { 'Content-Type': assets[path].type }); res.end(assets[path].bytes); return;
@@ -71,32 +88,56 @@ export async function createStudio({ port = 8767, ...options }) {
       if (libraryMatch && ((req.method === 'PATCH' && !libraryMatch[2]) || (req.method === 'POST' && libraryMatch[2]))) {
         json(res, 200, await library.edit(libraryMatch[1], await body(req), Boolean(libraryMatch[2]))); return;
       }
+      if (req.method === 'POST' && path === '/studio/youtube/search') {
+        const input = await body(req);
+        if (!input || Object.keys(input).join() !== 'query') fail(400, 'Expected query');
+        const ready = await importReadiness();
+        if (!ready.ready) fail(503, ready.error ?? 'YouTube tools need setup; run node scripts/setup-youtube.mjs');
+        const controller = new AbortController();
+        const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+        res.once('close', disconnected);
+        try { json(res, 200, { results: await (options.searchYoutube ?? youtubeSearch)(input.query, { signal: controller.signal }) }); }
+        finally { res.off('close', disconnected); }
+        return;
+      }
       if (path === '/studio/batches') {
         if (req.method === 'GET') { json(res, 200, batches.list()); return; }
         if (req.method === 'POST') { const batch = await batches.submit(req.headers['idempotency-key'], await body(req, 131072)); res.setHeader('Location', `/studio/batches/${batch.id}`); json(res, 202, batch); return; }
       }
-      const batchMatch = /^\/studio\/batches\/([a-f0-9]{32})(?:\/(winners|pause|resume)|\/sounds\/([a-zA-Z0-9_-]{1,128})\/(regenerate|recreate))?$/.exec(path);
+      const batchMatch = /^\/studio\/batches\/([a-f0-9]{32})(?:\/(winners|pause|resume)|\/sounds\/([a-zA-Z0-9_-]{1,128})\/(regenerate|recreate|youtube))?$/.exec(path);
       if (batchMatch) {
         const [, id, action, assetKey, soundAction] = batchMatch;
         if (req.method === 'GET' && !soundAction && (!action || action === 'winners')) { json(res, 200, action ? batches.winners(id) : batches.get(id)); return; }
         if (req.method === 'POST') {
           const input = await body(req);
           if (['pause', 'resume'].includes(action)) { if (!input || Object.keys(input).length) fail(400, 'Expected empty object'); json(res, 200, await batches.pause(id, action === 'pause')); return; }
+          if (soundAction === 'youtube') {
+            const ready = await importReadiness();
+            if (!ready.ready) fail(503, ready.error ?? 'YouTube tools need setup; run node scripts/setup-youtube.mjs');
+            json(res, 202, await batches.youtube(id, assetKey, req.headers['idempotency-key'], input)); return;
+          }
           if (soundAction) { json(res, 202, soundAction === 'regenerate' ? await batches.revise(id, assetKey, req.headers['idempotency-key'], input) : await batches.recreate(id, assetKey, req.headers['idempotency-key'], input)); return; }
         }
       }
       if (req.method === 'POST' && ['/studio/qa/setup', '/studio/qa/cancel'].includes(path)) { await body(req); json(res, 202, await jobs.setupQa(path.endsWith('/cancel'))); return; }
-      if (req.method === 'GET' && path === '/studio/readiness') { json(res, 200, jobs.readiness()); return; }
+      if (req.method === 'GET' && path === '/studio/readiness') { json(res, 200, { ...jobs.readiness(), youtube: await importReadiness(), planner: await plannerReadiness() }); return; }
       if (req.method === 'GET' && path === '/studio/jobs') { json(res, 200, jobs.list()); return; }
       if (req.method === 'POST' && path === '/studio/jobs') {
         const input = await body(req);
+        if (input?.provider === 'youtube') fail(400, 'Import YouTube audio through the batch sound route');
         let job; try { job = await jobs.submit(req.headers['idempotency-key'], input); } catch (error) { error.status ??= 400; throw error; }
         json(res, 202, job); return;
       }
       const jobMatch = /^\/studio\/jobs\/([a-f0-9]{32})(?:\/(cancel|resume|retry|acknowledge|recover|continue))?$/.exec(path);
       if (jobMatch) {
         const [, id, action] = jobMatch;
-        if (!jobs.get(id)) fail(404, 'Unknown job');
+        if (!jobs.get(id)) {
+          const queued = batches.queuedJob(id);
+          if (!queued) fail(404, 'Unknown job');
+          if (req.method === 'GET' && !action) { json(res, 200, queued); return; }
+          if (req.method === 'POST' && action === 'cancel') { await body(req); json(res, 202, await batches.cancelQueued(id)); return; }
+          fail(409, 'Queued work must start before recovery');
+        }
         if (req.method === 'GET' && !action) { json(res, 200, jobs.get(id)); return; }
         if (req.method === 'POST' && action) {
           const input = await body(req);

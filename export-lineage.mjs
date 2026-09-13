@@ -32,6 +32,9 @@ export function verifyExport(record, bytes, readOriginal) {
     bounds.end_sample > Math.round(generation.audio.seconds * bounds.sample_rate)
   )
     throw new Error("Invalid export sample bounds");
+  if (generation.runtime.backend === 'youtube' && !cut.loop &&
+      Math.round(inspectWav(bytes, cut.request.gain_db > 0 ? 10 ** (-0.1 / 20) + 1 / 32768 : 0.708).seconds * bounds.sample_rate) !== bounds.end_sample - bounds.start_sample)
+    throw new Error('Imported delivery frame count mismatch');
   if (cut.loop) {
     const loop = cut.loop;
     if (loop.start_sample !== bounds.start_sample || loop.end_sample !== bounds.end_sample ||

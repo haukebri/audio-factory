@@ -47,7 +47,7 @@ export async function openLibrary(jobs, batches, { root = factoryRoot, origin, s
     return { candidate_sha256: candidateId, audio_sha256: cut?.audio_sha256 ?? run.audio_sha256,
       original_request: run.prompt_plan?.intent ?? job?.input.request.prompt ?? run.request.prompt, prompt: run.generation_prompt ?? run.request.prompt,
       duration_seconds: cut ? (cut.loop?.output_frames ?? cut.bounds.end_sample - cut.bounds.start_sample) / cut.bounds.sample_rate : run.audio.seconds,
-      loop: (cut ? cut.request.loop : run.request.loop) === true, provider: job?.provider ?? run.provider ?? 'local' };
+      loop: (cut ? cut.request.loop : run.request.loop) === true, provider: job?.provider ?? (run.runtime?.backend === 'youtube' ? 'youtube' : run.provider ?? 'local') };
   }
   function draft(id, candidateId, previous, batch) {
     const data = metadata(candidateId), now = new Date().toISOString();

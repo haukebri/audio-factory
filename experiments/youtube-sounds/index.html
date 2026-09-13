@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sound scout</title><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script></head>
+<body>
+<header><a class="wordmark" href="/">sound scout<span aria-hidden="true">↗</span></a><span class="eyebrow">YouTube / standalone experiment</span><span id="readiness" role="status">Checking tools…</span></header>
+<main>
+<div class="intro"><div><p class="eyebrow">Find it. Cut it. Keep it.</p><h1>A good sound<br>is out there.</h1></div><p class="lede">Find a recording, bring back the useful seconds.<br>Make a clip you can actually use.</p></div>
+<div class="workspace">
+<section class="source" aria-labelledby="source-heading"><div class="section-title"><span class="step">01</span><h2 id="source-heading">Find a source</h2></div>
+<form id="search-form"><label for="query">What does it sound like?</label><div class="search-row"><input id="query" required maxlength="300" placeholder="Metal gate latch, field recording"><button id="search-button">Search ↗</button></div></form>
+<p id="search-message" class="hint" role="status">Search returns videos. Play a result here to find the moment.</p><div id="results"></div>
+<div id="video-preview" hidden><div class="preview-heading"><p id="preview-title"></p><button id="close-preview" type="button" class="quiet">Close player</button></div><iframe id="youtube-player" title="YouTube video preview" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe><p class="hint">Listen here, then enter the useful start and end times below. If this video blocks embedding, <a id="preview-external" target="_blank" rel="noopener noreferrer">open it on YouTube</a>.</p></div>
+<div class="rule"></div>
+<form id="import-form"><label for="video-url">YouTube video URL</label><input id="video-url" type="url" placeholder="https://www.youtube.com/watch?v=…">
+<div class="time-row"><div><label for="source-start">Start · seconds</label><input id="source-start" type="number" min="0" step="0.001" value="0" required></div><div><label for="source-end">End · seconds</label><input id="source-end" type="number" min="0.001" step="0.001" value="5" required></div><span class="hint">60 seconds<br>maximum</span></div>
+<button id="import-button" class="primary wide">Bring in audio <span aria-hidden="true">↓</span></button></form>
+<details><summary>Already have an audio or video file?</summary><label for="local-file">Local file · up to 256 MiB</label><input type="file" id="local-file" accept="audio/*,video/*"><p class="hint">Uses the start and end times above.</p><button id="upload-button" type="button">Import file</button></details>
+<p id="error" class="error" role="alert"></p>
+<div id="progress" hidden><div class="progress-top"><span id="stage" role="status"></span><span id="elapsed"></span></div><div class="progress-line"></div><button id="cancel-button" class="quiet">Cancel</button></div>
+</section>
+<section class="editor" aria-labelledby="editor-heading"><div class="section-title"><span class="step">02</span><h2 id="editor-heading">Make the cut</h2><span id="duration" class="eyebrow">No clip yet</span></div>
+<div id="empty-editor"><span class="empty-symbol" aria-hidden="true">⌁</span><h3>Your listening space.</h3><p>Import a few seconds from a video<br>or open a saved clip below.</p></div>
+<div id="loaded-editor" hidden><p id="clip-title"></p><div class="wave-wrap"><canvas id="waveform" aria-label="Audio waveform with selected trim interval" role="img"></canvas><span class="wave-label">44.1 kHz / WAV</span></div><audio id="player" controls preload="metadata" aria-label="Selected sound"></audio><label class="repeat"><input id="repeat" type="checkbox"> Repeat playback</label>
+<form id="trim-form"><div class="time-row"><div><label for="trim-start">Trim start · seconds</label><input id="trim-start" type="number" min="0" step="0.001" value="0" required></div><div><label for="trim-end">Trim end · seconds</label><input id="trim-end" type="number" min="0.001" step="0.001" required></div></div>
+<div class="gain-row"><label for="gain">Level</label><input id="gain" type="range" min="-12" max="12" step="1" value="0"><output id="gain-value" for="gain">0 dB</output></div><p class="hint">Save normalizes to −3 dBFS, then applies Level with peak limiting.</p><div class="editor-actions"><button id="trim-button" class="primary">Save edited clip</button><a id="download" class="button" download>Download WAV ↓</a></div></form><p class="hint">The player plays the saved clip. Save to hear the new trim and level.</p></div>
+</section></div>
+<section class="saved" aria-labelledby="saved-heading"><div class="section-title"><span class="step">03</span><h2 id="saved-heading">Your clips</h2><span id="clip-count" class="eyebrow">0 saved</span></div><div id="clips"><p class="hint">Saved WAVs stay here after a restart.</p></div></section>
+<footer><span>Local extraction. No generation models.</span><span>Proof of concept / Audio Factory</span></footer>
+</main></body></html>

@@ -1,5 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+{
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -638,5 +640,162 @@
         }
       }
     }
+  ]
+},
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "signature",
+    "status",
+    "started_at",
+    "finished_at",
+    "elapsed_ms",
+    "audio_sha256",
+    "audio_path",
+    "review",
+    "request",
+    "audio",
+    "runtime",
+    "models",
+    "licenses",
+    "settings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urban:audio-factory-run@1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "status": {
+      "const": "completed"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "audio_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "audio_path": {
+      "type": "string",
+      "pattern": "^(out/)?runs/[a-f0-9]{32}/audio\\.wav$"
+    },
+    "review": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt",
+        "duration_seconds",
+        "loop"
+      ],
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "loop": {
+          "const": false
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_rate",
+        "channels",
+        "seconds",
+        "peak",
+        "rms",
+        "bytes"
+      ],
+      "properties": {
+        "sample_rate": {
+          "const": 44100
+        },
+        "channels": {
+          "const": 2
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 2.2675736961451248e-05,
+          "maximum": 60
+        },
+        "peak": {
+          "type": "number",
+          "maximum": 0.708,
+          "minimum": 0
+        },
+        "rms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 44
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend"
+      ],
+      "properties": {
+        "backend": {
+          "const": "youtube"
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "licenses": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "postprocess"
+      ],
+      "properties": {
+        "postprocess": {
+          "const": "full-interval-pcm16-v1"
+        }
+      }
+    }
+  }
+}
   ]
 }
