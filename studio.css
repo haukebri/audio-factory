@@ -118,6 +118,8 @@ nav summary { min-width: 44px; }
 .trim-editor { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--boundary); }
 .trim-editor h5 { font-size: 16px; margin: 0 0 12px; }
 .trim-editor output { margin-left: 12px; font-variant-numeric: tabular-nums; color: var(--primary); }
+.trim-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 12px; }
+@media (max-width: 480px) { .trim-controls { grid-template-columns: 1fr; gap: 0; } }
 input[type=range] { padding: 0; border: 0; accent-color: var(--primary); }
 button:active { transform: translateY(1px); background: var(--selected); }
 button[aria-busy=true] { cursor: progress; }
@@ -153,6 +155,7 @@ button[aria-busy=true] { cursor: progress; }
 .trim-waveform { padding: 28px 22px; margin: 12px 0 8px; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; }
 .trim-timeline { position: relative; height: 96px; cursor: crosshair; }
 .trim-timeline canvas { display: block; width: 100%; height: 96px; }
+.trim-timeline .trim-envelope { position: absolute; inset: 0; pointer-events: none; }
 .trim-timeline::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, var(--canvas) 0 var(--start), transparent var(--start) var(--end), var(--canvas) var(--end)); opacity: .72; }
 .trim-selection { position: absolute; top: 0; bottom: 0; background: #006b6610; border-inline: 2px solid var(--primary); pointer-events: none; }
 .trim-handle { position: absolute; z-index: 3; width: 44px; height: 44px; transform: translateX(-50%); display: grid; place-items: center; color: white; font-size: 26px; font-weight: 700; cursor: ew-resize; touch-action: none; user-select: none; }
@@ -186,3 +189,29 @@ button[aria-busy=true] { cursor: progress; }
 #youtube-external { display: block; margin-bottom: 18px; }
 #youtube-external[hidden] { display: none; }
 @media (max-width: 500px) { #youtube-dialog { padding: 16px; } .youtube-result { gap: 8px; } }
+.trim-editor .trim-controls { row-gap: 6px; }
+.trim-controls label { margin-top: 8px; }
+.trim-controls button { min-height: 28px; padding: 2px 8px; font-size: 14px; }
+.trim-editor .actions .check { margin: 0; }
+
+.trim-editor .trim-controls { gap: 4px 20px; margin: 8px 0; }
+.trim-controls label { font-size: 14px; margin: 0; }
+.trim-editor input[type=range] { min-height: 32px; }
+.trim-editor .hint, .trim-editor .trim-times { font-size: 13px; margin: 4px 0; }
+.trim-editor p:empty { display: none; }
+.trim-editor details { margin: 6px 0; }
+.trim-editor .actions { margin: 6px 0; }
+.trim-editor .loop-choice { margin: 6px 0; }
+
+@media (pointer: coarse) { .trim-editor input[type=range] { min-height: 44px; } }
+
+.trim-editor .edit-group { border: 0; padding: 0; margin: 10px 0; min-width: 0; }
+.edit-group legend { font-size: 14px; padding: 0; }
+.trim-editor .clean-controls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.trim-editor .tone-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trim-editor .reset-effects { color: #b42318; font-size: 14px; text-decoration: underline; padding: 8px 0; }
+.loop-controls { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) auto; align-items: end; gap: 16px; margin: 8px 0 12px; }
+.loop-controls label { font-size: 14px; margin: 0 0 4px; }
+.loop-controls[hidden] { display: none; }
+@media (max-width: 650px) { .trim-editor .clean-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); } .loop-controls { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .trim-editor .tone-controls { grid-template-columns: 1fr; } }

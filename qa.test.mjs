@@ -139,7 +139,8 @@ test("QA preserves source bytes and exports bounded, repeatable derivatives", as
     assert.equal(report.bounds.start_sample, 8820);
     assert.equal(report.bounds.end_sample - report.bounds.start_sample, 17640);
     assert.equal(report.bounds.region, null);
-    assert.equal(report.bounds.fade_seconds, 0.005);
+    assert.equal(report.bounds.fade_in_seconds, 0.01);
+    assert.equal(report.bounds.fade_out_seconds, 0.1);
     // The explicit cut starts inside the tone, so a missing fade would be audible.
     const data = audio.indexOf(Buffer.from("data")) + 8;
     assert.equal(audio.readInt16LE(data), 0);
@@ -202,7 +203,7 @@ test("offline CLI retains a verifiable bundle after the temporary run is removed
     })).stdout);
   try {
     for (const name of ["dist", "package.json", "config.json", "qa-config.json", "qa.py",
-      "bundle.mjs", "loop-audio.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json",
+      "bundle.mjs", "loop-audio.mjs", "denoise.mjs", "edit-audio.mjs", "export-lineage.mjs", "retain.mjs", "qa-model.lock.json",
       ...(await readdir(root)).filter((name) => name.endsWith(".schema.json"))]) {
       await cp(`${root}/${name}`, `${directory}/${name}`, { recursive: true });
     }

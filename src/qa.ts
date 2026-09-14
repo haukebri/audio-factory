@@ -32,6 +32,8 @@ export function qaRequest(kind: string, input: unknown) {
     throw new QaError(400, "Semantic QA was removed; use deterministic signal checks");
   const value = { kind, request: input };
   if (!validate(value)) throw new QaError(400, JSON.stringify(validate.errors));
+  const filters = input as { low_cut_hz?: number; high_cut_hz?: number };
+  if (filters.low_cut_hz && filters.high_cut_hz && filters.low_cut_hz >= filters.high_cut_hz) throw new QaError(400, "Low cut must be below high cut");
   return input as {
     loop?: boolean;
     crossfade_seconds?: number;
@@ -39,6 +41,8 @@ export function qaRequest(kind: string, input: unknown) {
     normalize?: boolean;
     peak_db?: number;
     gain_db?: number;
+    noise_reduction_db?: number;
+    pitch_semitones?: number; speed?: number; reverse?: boolean; low_cut_hz?: number; high_cut_hz?: number;
     clap?: boolean;
     target?: string;
     alternatives?: string[];
@@ -71,7 +75,7 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
         readFile(`${factoryRoot}/export-lineage.mjs`),
         readFile(`${factoryRoot}/export.schema.json`),
         readFile(`${factoryRoot}/dist/qa.js`),
-        ...(kind === "cuts" ? [readFile(`${factoryRoot}/loop-audio.mjs`)] : []),
+        ...(kind === "cuts" ? [readFile(`${factoryRoot}/loop-audio.mjs`), readFile(`${factoryRoot}/denoise.mjs`), readFile(`${factoryRoot}/edit-audio.mjs`)] : []),
       ]),
     ),
   );
@@ -169,17 +173,22 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       report.result = await runAnalysis();
     } else if (request.loop || bounds) {
       const modulePath = `${factoryRoot}/loop-audio.mjs`;
-      const { renderLoop, renderTrim, quantizeLoop } = await import(modulePath);
-      const { stdout: raw } = await execute("ffmpeg", ["-v", "error", "-nostdin", "-i", source, "-f", "f32le", "-"], {
-        encoding: "buffer", signal, timeout: Math.max(1, deadline - Date.now()), maxBuffer: 32 * 1024 * 1024,
-        killSignal: "SIGKILL",
+      const { renderLoop, renderTrim, quantizeLoop, mixNoiseReduction } = await import(modulePath);
+      const denoisePath = `${factoryRoot}/denoise.mjs`;
+      const { denoise, prepareEdit } = await import(denoisePath);
+      const { hasEdits } = await import(`${factoryRoot}/edit-audio.mjs`);
+      const edited = hasEdits(request) ? await prepareEdit(await readFile(source), { ...request, ...(bounds ? { start_seconds: bounds.start / run.audio.sample_rate, end_seconds: bounds.end / run.audio.sample_rate } : {}) }, { signal, timeout: Math.max(1, deadline - Date.now()) }) : null;
+      const processed = edited ? { samples: mixNoiseReduction(edited.samples, edited.cleaned, request.noise_reduction_db ?? 0), evidence: request.noise_reduction_db ? { ...edited.noiseEvidence, reduction_db: request.noise_reduction_db } : undefined } : await denoise(await readFile(source), request.noise_reduction_db ?? 0, {
+        signal, timeout: Math.max(1, deadline - Date.now()),
       });
-      const samples = new Float32Array(raw.length / 4);
-      for (let i = 0; i < samples.length; i++) samples[i] = raw.readFloatLE(i * 4);
+      const samples = processed.samples;
+      if (edited) report.edit = edited.edit;
+      if (processed.evidence) report.noise_reduction = processed.evidence;
       const rendered = (request.loop ? renderLoop : renderTrim)(samples, run.audio.sample_rate, run.audio.channels, {
-        ...request, peak_db: request.peak_db ?? settings.export_peak_db, fade_ms: settings.fade_ms,
+        ...request, peak_db: request.peak_db ?? settings.export_peak_db, fade_in_ms: settings.fade_in_ms, fade_out_ms: settings.fade_out_ms,
         ...(!request.loop && bounds ? { start_seconds: bounds.start / run.audio.sample_rate, end_seconds: bounds.end / run.audio.sample_rate } : {}),
-        native_provider_loop: run.runtime?.backend === "elevenlabs" && run.settings?.loop === true,
+        ...(edited ? { start_seconds: 0, end_seconds: samples.length / run.audio.channels / run.audio.sample_rate } : {}),
+        native_provider_loop: !edited && run.runtime?.backend === "elevenlabs" && run.settings?.loop === true,
       });
       const evidence = rendered.evidence;
       const quantized = quantizeLoop(rendered.samples);
@@ -195,8 +204,10 @@ export async function qaOperation(root: string, runId: string, kind: string, inp
       } finally { await rm(temporary, { force: true }); }
       if (request.loop) report.loop = { ...evidence, native_provider_loop: run.runtime?.backend === "elevenlabs" && run.settings?.loop === true };
       report.bounds = { region: request.loop || request.start_seconds !== undefined ? null : 1,
-        start_sample: evidence.start_sample, end_sample: evidence.end_sample,
-        sample_rate: run.audio.sample_rate, fade_seconds: request.loop ? 0 : evidence.fade_seconds };
+        start_sample: edited?.start ?? evidence.start_sample, end_sample: edited?.end ?? evidence.end_sample,
+        sample_rate: run.audio.sample_rate, fade_seconds: request.loop ? 0 : evidence.fade_seconds,
+        ...(!request.loop ? { fade_in_seconds: evidence.fade_in_seconds, fade_out_seconds: evidence.fade_out_seconds,
+          processing_version: evidence.processing_version } : {}) };
       report.normalization = { enabled: request.normalize !== false, target_peak_db: request.peak_db ?? settings.export_peak_db,
         gain_db: evidence.gain_db, input_peak: evidence.input_peak, ...rendered.level };
       report.ffmpeg = (await execute("ffmpeg", ["-version"], { signal, timeout: Math.max(1, deadline - Date.now()) })).stdout.split("\n")[0];

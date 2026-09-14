@@ -32,18 +32,21 @@ export function verifyExport(record, bytes, readOriginal) {
     bounds.end_sample > Math.round(generation.audio.seconds * bounds.sample_rate)
   )
     throw new Error("Invalid export sample bounds");
-  if (generation.runtime.backend === 'youtube' && !cut.loop &&
-      Math.round(inspectWav(bytes, cut.request.gain_db > 0 ? 10 ** (-0.1 / 20) + 1 / 32768 : 0.708).seconds * bounds.sample_rate) !== bounds.end_sample - bounds.start_sample)
+  const outputFrames = cut.edit?.output_frames ?? bounds.end_sample - bounds.start_sample;
+  if (cut.edit && outputFrames !== Math.round((bounds.end_sample - bounds.start_sample) / (cut.request.speed ?? 1))) throw new Error('Edited frame count mismatch');
+  if ((generation.runtime.backend === 'youtube' || cut.edit) && !cut.loop &&
+      Math.round(inspectWav(bytes, cut.request.gain_db > 0 ? 10 ** (-0.1 / 20) + 1 / 32768 : 0.708).seconds * bounds.sample_rate) !== outputFrames)
     throw new Error('Imported delivery frame count mismatch');
   if (cut.loop) {
     const loop = cut.loop;
-    if (loop.start_sample !== bounds.start_sample || loop.end_sample !== bounds.end_sample ||
+    const start = cut.edit ? 0 : bounds.start_sample, end = cut.edit ? outputFrames : bounds.end_sample;
+    if (loop.start_sample !== start || loop.end_sample !== end ||
         loop.sample_rate !== bounds.sample_rate || loop.channels !== generation.audio.channels ||
         (loop.processing_version === 'native-gain-v1'
           ? loop.split_sample !== null || loop.overlap_frames !== 0 || bounds.start_sample !== 0 || bounds.end_sample !== Math.round(generation.audio.seconds * bounds.sample_rate)
-          : loop.split_sample <= bounds.start_sample || loop.split_sample >= bounds.end_sample ||
-            loop.overlap_frames > Math.min(loop.split_sample - bounds.start_sample, bounds.end_sample - loop.split_sample)) ||
-        loop.output_frames !== bounds.end_sample - bounds.start_sample - loop.overlap_frames ||
+          : loop.split_sample <= start || loop.split_sample >= end ||
+            loop.overlap_frames > Math.min(loop.split_sample - start, end - loop.split_sample)) ||
+        loop.output_frames !== end - start - loop.overlap_frames ||
         Math.round(inspectWav(bytes, cut.request.gain_db > 0 ? 10 ** (-0.1 / 20) + 1 / 32768 : 0.708).seconds * bounds.sample_rate) !== loop.output_frames)
       throw new Error("Invalid loop frame evidence");
   }
@@ -64,6 +67,6 @@ export function verifyExport(record, bytes, readOriginal) {
   return {
     generation,
     review,
-    duration_seconds: (cut.loop?.output_frames ?? (bounds.end_sample - bounds.start_sample)) / bounds.sample_rate,
+    duration_seconds: (cut.loop?.output_frames ?? outputFrames) / bounds.sample_rate,
   };
 }

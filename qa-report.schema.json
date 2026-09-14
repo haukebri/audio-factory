@@ -21,7 +21,10 @@
       "pattern": "^[a-f0-9]{32}$"
     },
     "kind": {
-      "enum": ["analyses", "cuts"]
+      "enum": [
+        "analyses",
+        "cuts"
+      ]
     },
     "run_id": {
       "type": "string",
@@ -61,7 +64,12 @@
       "const": "urban:audio-factory-qa@1"
     },
     "status": {
-      "enum": ["running", "completed", "failed", "interrupted"]
+      "enum": [
+        "running",
+        "completed",
+        "failed",
+        "interrupted"
+      ]
     },
     "advisory": {
       "const": true
@@ -78,7 +86,12 @@
     "bounds": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["start_sample", "end_sample", "sample_rate", "fade_seconds"],
+      "required": [
+        "start_sample",
+        "end_sample",
+        "sample_rate",
+        "fade_seconds"
+      ],
       "properties": {
         "start_sample": {
           "type": "integer",
@@ -91,12 +104,26 @@
         "sample_rate": {
           "const": 44100
         },
+        "fade_in_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fade_out_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "processing_version": {
+          "const": "cosine-fades-v1"
+        },
         "fade_seconds": {
           "type": "number",
           "minimum": 0
         },
         "region": {
-          "enum": [1, null]
+          "enum": [
+            1,
+            null
+          ]
         }
       }
     },
@@ -124,7 +151,10 @@
           "minimum": 1
         },
         "split_sample": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "overlap_frames": {
@@ -140,16 +170,79 @@
         }
       }
     },
+    "noise_reduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processing_version",
+        "reduction_db",
+        "noise_floor_db",
+        "track_noise",
+        "gain_smooth",
+        "delay_frames"
+      ],
+      "properties": {
+        "processing_version": {
+          "enum": [
+            "afftdn-v1",
+            "profiled-afftdn-v2"
+          ]
+        },
+        "reduction_db": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 24
+        },
+        "noise_floor_db": {
+          "type": "number",
+          "minimum": -80,
+          "maximum": -20
+        },
+        "track_noise": {
+          "type": "boolean"
+        },
+        "gain_smooth": {
+          "const": 3
+        },
+        "delay_frames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_reduction_db": {
+          "const": 24
+        },
+        "profile_start_sample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profile_end_sample": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "normalization": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "target_peak_db", "gain_db", "input_peak"],
+      "required": [
+        "enabled",
+        "target_peak_db",
+        "gain_db",
+        "input_peak"
+      ],
       "properties": {
         "enabled": {
           "type": "boolean"
         },
-        "adjustment_db": { "type": "number", "minimum": -12, "maximum": 12 },
-        "limiter_reduction_db": { "type": "number", "minimum": 0 },
+        "adjustment_db": {
+          "type": "number",
+          "minimum": -12,
+          "maximum": 12
+        },
+        "limiter_reduction_db": {
+          "type": "number",
+          "minimum": 0
+        },
         "target_peak_db": {
           "type": "number"
         },
@@ -165,7 +258,11 @@
     "delivery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["audio", "metadata", "original"],
+      "required": [
+        "audio",
+        "metadata",
+        "original"
+      ],
       "properties": {
         "audio": {
           "type": "string",
@@ -178,6 +275,60 @@
         "original": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processing_version",
+        "output_frames"
+      ],
+      "properties": {
+        "pitch_semitones": {
+          "type": "number",
+          "minimum": -12,
+          "maximum": 12
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2
+        },
+        "reverse": {
+          "type": "boolean"
+        },
+        "low_cut_hz": {
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 1000
+            }
+          ]
+        },
+        "high_cut_hz": {
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "type": "number",
+              "minimum": 1000,
+              "maximum": 20000
+            }
+          ]
+        },
+        "processing_version": {
+          "const": "ffmpeg-edit-v1"
+        },
+        "output_frames": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     }
@@ -195,7 +346,12 @@
         }
       },
       "then": {
-        "required": ["audio_sha256", "bounds", "finished_at", "ffmpeg"],
+        "required": [
+          "audio_sha256",
+          "bounds",
+          "finished_at",
+          "ffmpeg"
+        ],
         "properties": {
           "audio_sha256": true,
           "bounds": true,
@@ -216,7 +372,10 @@
         }
       },
       "then": {
-        "required": ["result", "finished_at"],
+        "required": [
+          "result",
+          "finished_at"
+        ],
         "properties": {
           "result": true,
           "finished_at": true

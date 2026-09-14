@@ -1,0 +1,62 @@
+// Run against scripts/studio-ui-fixture.mjs; all saves stay in its isolated workspace.
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const manifest = JSON.parse(readFileSync('.test-artifacts/studio-ui-session.json'));
+assert.ok(manifest.root.includes('/.runtime/studio-ui-'));
+const run = (...args) => {
+  const result = JSON.parse(execFileSync('agent-browser', ['--session', 'cleanup-check', '--json', ...args], { encoding: 'utf8', timeout: 60000 }));
+  assert.ok(result.success, result.error); return result.data;
+};
+const evaluate = code => run('eval', code).result;
+const wait = code => run('wait', '--fn', code);
+const check = code => assert.equal(evaluate(code), true, code);
+const changeNoise = value => evaluate(`$('cut-noise').value=${JSON.stringify(String(value))};$('cut-noise').dispatchEvent(new Event('input'))`);
+const open = () => {
+  evaluate(`(()=>{closeEditor();const row=document.querySelector('#batch-results [data-take]');trim(candidates.find(c=>c.candidate_sha256===row.dataset.clip),row);window.editor=document.querySelector('.trim-editor');window.player=editor.playback;window.play=editor.querySelector('.actions button');})()`);
+  wait('!play.disabled');
+};
+try {
+  run('open', manifest.url); wait('Boolean(csrf) && !busy');
+  check('candidates.length > 0 && candidates.every(c => c.fixture)');
+  evaluate(`(async()=>{await select(preferred(takes[0]).candidate_sha256);navigate('listen');await useTake(preferred(takes[0]));})()`);
+  evaluate(`window.playedBuffers=[];window.gainRamps=[];window.realBuffer=AudioContext.prototype.createBuffer;AudioContext.prototype.createBuffer=function(...args){const b=realBuffer.apply(this,args);playedBuffers.push(b);return b;};window.realRamp=AudioParam.prototype.linearRampToValueAtTime;AudioParam.prototype.linearRampToValueAtTime=function(value,time){gainRamps.push({value,time});return realRamp.call(this,value,time);};window.noiseCalls=[];window.realFetch=fetch;window.noiseFailure=false;window.fetch=async(input,init)=>{if(String(input).endsWith('/denoise-preview')){const body=JSON.parse(init.body);noiseCalls.push(body.noise_reduction_db);if(noiseFailure)return new Response(JSON.stringify({error:'Synthetic cleanup failure'}),{status:503});const response=await realFetch(input,init);if(window.delayNoise)await new Promise(r=>setTimeout(r,450));return response;}return realFetch(input,init);};`);
+  open();
+  changeNoise(0); wait(`editor.textContent.includes('Original detail preserved')`);
+  run('focus', '#cut-noise'); run('press', 'ArrowRight'); check(`$('cut-noise').value==='1'`);
+  evaluate(`for(let i=2;i<=12;i++){$('cut-noise').value=String(i);$('cut-noise').dispatchEvent(new Event('input'));}`);
+  wait(`editor.textContent.includes('Cleanup ready')`);
+  check(`noiseCalls.length===1 && noiseCalls[0]===24`);
+  check(`$('cut-noise').getBoundingClientRect().top===$('cut-gain').getBoundingClientRect().top && $('cut-noise').getBoundingClientRect().right<$('cut-gain').getBoundingClientRect().left`);
+  evaluate('play.click()'); wait('!player.paused && playedBuffers.length>0');
+  check(`playedBuffers.at(-1).getChannelData(0)[0]===0 && playedBuffers.at(-1).getChannelData(0).at(-1)===0`);
+  evaluate('window.beforeNoiseTime=player.currentTime;window.beforeBuffers=playedBuffers.length;window.changeStarted=performance.now()');
+  changeNoise(6); changeNoise(20);
+  wait(`$('cut-noise').value==='20' && editor.textContent.includes('Cleanup ready') && playedBuffers.length>beforeBuffers`);
+  check('noiseCalls.length===1');
+  check('!player.paused && player.currentTime>=beforeNoiseTime');
+  evaluate('player.pause();window.noiseFailure=true'); open(); changeNoise(8);
+  wait(`editor.textContent.includes('Synthetic cleanup failure')`); check('player.paused');
+  evaluate('window.noiseFailure=false'); changeNoise(12); wait(`editor.textContent.includes('Cleanup ready')`);
+  evaluate(`$('cut-loop').checked=true;$('cut-loop').dispatchEvent(new Event('change'));window.rampsBefore=gainRamps.length;[...editor.querySelectorAll('button')].find(b=>b.textContent==='Preview loop').click();`);
+  wait(`editor.textContent.includes('Processed loop preview')`);
+  check('gainRamps.slice(rampsBefore).some(r=>r.value===1)');
+  evaluate(`window.rampsBefore=gainRamps.length;stopLoopPreview()`);
+  check('gainRamps.slice(rampsBefore).some(r=>r.value===0)');
+  evaluate(`$('cut-loop').checked=false;$('cut-loop').dispatchEvent(new Event('change'));window.previousID=editor.dataset.editor;`);
+  wait(`!Array.from(editor.querySelectorAll('button')).find(b=>b.textContent==='Save edit').disabled`);
+  run('find', 'role', 'button', 'click', '--name', 'Save edit', '--exact');
+  wait(`document.querySelector('.trim-editor')?.dataset.editor!==previousID && document.querySelector('#cut-noise')?.value==='12'`);
+  check(`candidates.find(c=>c.candidate_sha256===document.querySelector('.trim-editor').dataset.editor).evidence.cut.request.noise_reduction_db===12`);
+  evaluate(`window.lastID=document.querySelector('.trim-editor').dataset.editor;closeEditor();localStorage.removeItem('studio-trim-'+lastID);`);
+  open(); check(`$('cut-noise').value==='12'`);
+  evaluate(`editor.scrollIntoView({block:'center'})`);
+  run('set', 'viewport', '1280', '1200');
+  evaluate(`editor.scrollIntoView({block:'start'})`);
+  run('screenshot', resolve('.test-artifacts/studio-cleanup.png'));
+  evaluate('window.delayNoise=true;window.callsBefore=noiseCalls.length'); open();
+  wait('noiseCalls.length>callsBefore'); evaluate('closeEditor()');
+  check(`!document.querySelector('.trim-editor')`);
+  console.log('Browser cleanup checks passed: locally applied controls, one prepared cleanup per editor, playback continuity, errors, fade ramps and saved settings.');
+} finally { run('close'); }

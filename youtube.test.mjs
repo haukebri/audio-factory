@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { processIdentity } from './dist/ownership.js';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { videoURL, importInput, convert, run, recoverAcquisition } from './youtube.mjs';
+import { pathToFileURL } from 'node:url';
+import { videoURL, importInput, convert, acquire, run, recoverAcquisition } from './youtube.mjs';
 import { wavFixture } from './wav-fixture.mjs';
 import { inspectWav } from './dist/wav.js';
 
@@ -42,5 +43,33 @@ test('YouTube boundaries, actual fractional/sample decoding and owned-process li
     for (let i = 0; i < 100 && processIdentity(record.pid) === record.identity; i++) await new Promise(r => setTimeout(r, 10));
     assert.notEqual(processIdentity(record.pid), record.identity);
     assert.deepEqual(await readdir(registry), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('YouTube 19–25 seconds imports the selected audio, not WebM seek preroll', async () => {
+  const root = await mkdtemp(resolve('.runtime/youtube-timestamps-'));
+  try {
+    const source = join(root, 'recording.webm'), metadata = join(root, 'recording.json');
+    await writeFile(join(root, 'recording.wav'), wavFixture(t => t >= 19 && t < 25, 30));
+    await run('ffmpeg', ['-nostdin', '-v', 'error', '-i', join(root, 'recording.wav'), '-c:a', 'libopus', source]);
+    // Select yt-dlp's remote FFmpeg downloader while keeping the media fixture local.
+    await writeFile(metadata, JSON.stringify({ id: 'local', title: 'Timestamp fixture', duration: 30,
+      url: pathToFileURL(source).href, protocol: 'https', ext: 'webm', vcodec: 'none', acodec: 'opus' }));
+    const result = await acquire({ url: 'https://youtu.be/CBDZg1Jb_T4', start_seconds: 19, end_seconds: 25 }, root, {
+      execute: async (command, args, options) => {
+        if (args.includes('--dump-single-json')) return { stdout: Buffer.from('{"duration":30}') };
+        assert.ok(args.includes('--download-sections'), 'window download must succeed');
+        return run(command, [...args.slice(0, -1), '--enable-file-urls', '--load-info-json', metadata], options);
+      },
+    });
+    const clip = await readFile(result.file);
+    assert.equal(inspectWav(clip).seconds, 6);
+    // Every interior second must contain the selected tone; preroll contains silence.
+    for (let second = 0; second < 6; second++) {
+      let energy = 0;
+      for (let i = Math.round((second + .25) * 44100); i < (second + .75) * 44100; i++)
+        energy += (clip.readInt16LE(44 + i * 4) / 32768) ** 2;
+      assert.ok(Math.sqrt(energy / 22050) > .3, `selected tone missing at second ${second}`);
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

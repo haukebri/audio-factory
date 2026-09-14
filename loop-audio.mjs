@@ -119,6 +119,17 @@ export function quantizeLoop(samples) {
   return samples.map(sample => Math.max(-32768, Math.min(32767, Math.round(sample * 32768))) / 32768);
 }
 
+// Use the same prepared cleanup in the browser and export; slider changes need no subprocess.
+export function mixNoiseReduction(original, cleaned, strength) {
+  if (!Number.isFinite(strength) || strength < 0 || strength > 24 ||
+      !(original instanceof Float32Array) || !(cleaned instanceof Float32Array) || original.length !== cleaned.length)
+    throw new Error('Choose noise reduction from 0 to 24 dB with matching source samples.');
+  if (!strength) return original;
+  if (strength === 24) return cleaned;
+  const wet = (1 - 10 ** (-strength / 20)) / (1 - 10 ** (-24 / 20));
+  return original.map((sample, i) => sample + wet * (cleaned[i] - sample));
+}
+
 // Shared post-normalization gain and stereo-linked, latency-compensated peak limiter.
 export function applyLevel(samples, sampleRate, channels, gainDb = 0, loop = false) {
   if (!Number.isFinite(gainDb) || gainDb < -12 || gainDb > 12) throw new Error('Choose a level from -12 to +12 dB');
@@ -157,28 +168,42 @@ export function applyLevel(samples, sampleRate, channels, gainDb = 0, loop = fal
   return { samples: output, level: { adjustment_db: gainDb, limiter_reduction_db: -20 * Math.log10(reduction) } };
 }
 
+export function trimFades(frames, sampleRate, { fade_in_ms = 10, fade_out_ms = 100 } = {}) {
+  if (!Number.isInteger(frames) || frames < 1 || !Number.isInteger(sampleRate) || sampleRate < 1 ||
+      ![fade_in_ms, fade_out_ms].every(value => Number.isFinite(value) && value >= 0))
+    throw new Error('Choose valid fade durations and audio frames');
+  const total = (fade_in_ms + fade_out_ms) * sampleRate / 1000;
+  const scale = total ? Math.min(1, frames / (2 * total)) : 1;
+  return { in_frames: Math.floor(fade_in_ms * sampleRate / 1000 * scale),
+    out_frames: Math.floor(fade_out_ms * sampleRate / 1000 * scale) };
+}
+
 export function renderTrim(samples, sampleRate, channels, options = {}) {
   const { start_seconds = 0, end_seconds = samples.length / channels / sampleRate,
-    fade_ms = 5, peak_db = -3, normalize = true } = options;
+    fade_ms, peak_db = -3, normalize = true } = options;
   const start = Math.round(start_seconds * sampleRate), end = Math.round(end_seconds * sampleRate);
   if (!(samples instanceof Float32Array) || !Number.isInteger(sampleRate) || sampleRate < 1 ||
       !Number.isInteger(channels) || channels < 1 || samples.length % channels || samples.some(value => !Number.isFinite(value)) ||
       !Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > samples.length / channels || end <= start ||
-      !Number.isFinite(fade_ms) || fade_ms < 0 || !Number.isFinite(peak_db) || peak_db < -30 || peak_db > -3 || typeof normalize !== 'boolean')
+      (fade_ms !== undefined && (!Number.isFinite(fade_ms) || fade_ms < 0)) || !Number.isFinite(peak_db) || peak_db < -30 || peak_db > -3 || typeof normalize !== 'boolean')
     throw new Error('Choose valid trim bounds, fades and normalization');
   const output = samples.slice(start * channels, end * channels), frames = end - start;
-  const fade = Math.min(fade_ms / 1000, frames / sampleRate / 2);
+  const legacy = fade_ms !== undefined, fades = trimFades(frames, sampleRate, options);
+  const fade = legacy ? Math.min(fade_ms / 1000, frames / sampleRate / 2) : Math.max(fades.in_frames, fades.out_frames) / sampleRate;
   // FFmpeg parses duration options in microseconds, then rounds to source frames.
   const fadeFrames = Math.floor((Math.trunc(fade * 1e6) * sampleRate + 5e5) / 1e6);
   const fadeStart = Math.floor((Math.trunc((frames / sampleRate - fade) * 1e6) * sampleRate + 5e5) / 1e6);
   let peak = 0;
+  const cosine = value => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, value)))) / 2;
   for (let frame = 0; frame < frames; frame++) {
-    const fadeIn = fadeFrames ? Math.min(1, frame / fadeFrames) : 1;
-    const fadeOut = fadeFrames ? Math.min(1, Math.max(0, (fadeStart + fadeFrames - frame) / fadeFrames)) : 1;
+    const fadeIn = legacy ? (fadeFrames ? Math.min(1, frame / fadeFrames) : 1)
+      : frame === 0 ? 0 : fades.in_frames ? cosine(frame / fades.in_frames) : 1;
+    const fadeOut = legacy ? (fadeFrames ? Math.min(1, Math.max(0, (fadeStart + fadeFrames - frame) / fadeFrames)) : 1)
+      : frame === frames - 1 ? 0 : fades.out_frames ? cosine((frames - 1 - frame) / fades.out_frames) : 1;
     for (let channel = 0; channel < channels; channel++) {
       const i = frame * channels + channel;
       // Match the original FFmpeg PCM16 fade stages before measuring normalization.
-      output[i] = Math.trunc(Math.trunc(output[i] * 32768 * fadeIn) * fadeOut) / 32768;
+      output[i] = legacy ? Math.trunc(Math.trunc(output[i] * 32768 * fadeIn) * fadeOut) / 32768 : output[i] * fadeIn * fadeOut;
       peak = Math.max(peak, Math.abs(output[i]));
     }
   }
@@ -187,6 +212,7 @@ export function renderTrim(samples, sampleRate, channels, options = {}) {
   for (let i = 0; i < output.length; i++) output[i] *= amplitude;
   return { ...applyLevel(output, sampleRate, channels, options.gain_db ?? 0), evidence: {
     start_sample: start, end_sample: end, sample_rate: sampleRate, fade_seconds: fade,
+    ...(!legacy ? { processing_version: 'cosine-fades-v1', fade_in_seconds: fades.in_frames / sampleRate, fade_out_seconds: fades.out_frames / sampleRate } : {}),
     input_peak: peak, gain_db: gain, output_frames: frames,
   } };
 }

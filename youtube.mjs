@@ -169,13 +169,13 @@ export async function convert(source, output, input, { signal, owner } = {}) {
   return audio;
 }
 
-export async function acquire(input, directory, { signal, stage = () => {}, owner } = {}) {
+export async function acquire(input, directory, { signal, stage = () => {}, owner, execute = run } = {}) {
   const { url, start_seconds: start, end_seconds: end } = importInput(input);
   const callerSignal = signal;
   const deadline = AbortSignal.timeout(600000);
   signal = signal ? AbortSignal.any([signal, deadline]) : deadline;
   await stage('Checking video');
-  const { stdout } = await run(ytdlp, [...base, '--skip-download', '--dump-single-json', url], { signal, owner, timeout: 60000 });
+  const { stdout } = await execute(ytdlp, [...base, '--skip-download', '--dump-single-json', url], { signal, owner, timeout: 60000 });
   const meta = JSON.parse(stdout);
   if (meta.is_live || meta.is_upcoming || ['is_live', 'is_upcoming', 'post_live'].includes(meta.live_status)) throw fail('Choose a finished video, not a live or upcoming stream.');
   if (!Number.isFinite(meta.duration) || end > meta.duration) throw fail('Requested interval is outside the video.');
@@ -184,13 +184,14 @@ export async function acquire(input, directory, { signal, stage = () => {}, owne
   let offset = from;
   await stage('Downloading audio window');
   try {
-    await run(ytdlp, [...common, '--download-sections', `*${from}-${to}`, url], { signal, owner, timeout: 600000, directory });
+    // Stream-copy seeks can retain earlier WebM clusters and shift the requested interval.
+    await execute(ytdlp, [...common, '--download-sections', `*${from}-${to}`, '--force-keyframes-at-cuts', url], { signal, owner, timeout: 600000, directory });
   } catch (error) {
     signal.throwIfAborted();
     if (error.status === 413 || meta.duration > 600) throw error;
     for (const name of await readdir(directory)) if (name.startsWith('source.')) await rm(join(directory, name), { force: true });
     await stage('Retrying with complete short recording');
-    await run(ytdlp, [...common, url], { signal, owner, timeout: 600000, directory });
+    await execute(ytdlp, [...common, url], { signal, owner, timeout: 600000, directory });
     offset = 0;
   }
   const files = (await readdir(directory)).filter(name => /^source\.[a-z0-9]+$/.test(name));

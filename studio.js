@@ -183,12 +183,12 @@ function runButton(b, operation, enqueue = action) {
   const label = b.textContent, minWidth = b.style.minWidth;
   b.style.minWidth = b.getBoundingClientRect().width + 'px';
   b.disabled = true; b.setAttribute('aria-busy', 'true');
-  b.textContent = /Use this/.test(label) ? 'Selecting…' : /Save (?:trim|loop)/.test(label) ? 'Saving…' : /Generate|Queue/.test(label) ? 'Queueing…' : label === 'Replay' || label === 'Replay selection' ? 'Playing…' : 'Working…';
+  b.textContent = /Use this/.test(label) ? 'Selecting…' : /Save (?:edit|loop)/.test(label) ? 'Saving…' : /Generate|Queue/.test(label) ? 'Queueing…' : label === 'Replay' || label === 'Replay selection' ? 'Playing…' : 'Working…';
   let status = b.parentElement.querySelector(':scope > .action-status');
   if (!status) status = node('p', '', b.parentElement, { class: 'action-status', role: 'status', 'aria-live': 'polite' });
   status.textContent = b.textContent;
   return enqueue(async () => {
-    try { await operation(); status.textContent = /Use this/.test(label) ? 'Selected' : /Save (?:trim|loop)/.test(label) ? 'Trim saved.' : /Generate|Queue/.test(label) ? 'Queued. You can keep listening.' : 'Done.'; }
+    try { await operation(); status.textContent = /Use this/.test(label) ? 'Selected' : /Save (?:edit|loop)/.test(label) ? 'Edit saved.' : /Generate|Queue/.test(label) ? 'Queued. You can keep listening.' : 'Done.'; }
     catch (error) { status.textContent = error.message; if (enqueue === action) { say('Operation not completed. Saved work is preserved.'); $('reconnect').hidden = false; } }
     finally { pendingButtons.delete(key); b.disabled = false; b.removeAttribute('aria-busy'); b.textContent = label; b.style.minWidth = minWidth; updateSelected(); updateRecreate(); updateLibraryButtons(); if (['batch-pause', 'batch-export', 'batch-regenerate', 'batch-generate-more'].includes(b.id)) renderReviewBatch(); if (b.id === 'cancel-generation') renderGeneration(); }
   });
@@ -228,7 +228,7 @@ function groupTakes(records, requests) {
       let name = 'Original';
       if (cut) {
         const rate = cut.bounds.sample_rate;
-        const scope = cut.loop ? `Loop ${formatDuration((cut.loop.output_frames ?? (cut.bounds.end_sample - cut.bounds.start_sample)) / rate)}` : `Trim ${formatDuration(cut.bounds.start_sample / rate)}–${formatDuration(cut.bounds.end_sample / rate)}`;
+        const scope = cut.edit ? `Edit ${formatDuration((cut.loop?.output_frames ?? cut.edit.output_frames) / rate)}` : cut.loop ? `Loop ${formatDuration((cut.loop.output_frames ?? (cut.bounds.end_sample - cut.bounds.start_sample)) / rate)}` : `Trim ${formatDuration(cut.bounds.start_sample / rate)}–${formatDuration(cut.bounds.end_sample / rate)}`;
         name = automatic ? `Automatic · ${scope}` : scope;
       }
       named.push({ records, candidate: c, name, automatic, at: cut?.started_at ?? '' });
@@ -243,7 +243,7 @@ const versionFor = (take, id) => take.versions.find(v => v.records.some(c => c.c
 const sourceLabel = provider => provider === 'youtube' ? 'YouTube' : provider === 'elevenlabs' ? 'ElevenLabs' : 'Local';
 const identity = c => { const take = takeFor(c.candidate_sha256); return `${soundName(take.sound)} · Clip ${take.number} · ${sourceLabel(take.job?.provider ?? c.evidence.generation.runtime?.backend)} · ${formatDuration(clipDuration(c))}${c.evidence.cut ? ' · ' + versionFor(take, c.candidate_sha256).name : ''}`; };
 function preferred(take) { const remembered = recall('version-' + take.id, null) ?? take.records.map(c => recall('version-' + c.evidence.generation.id, null)).find(Boolean); return take.records.find(c => c.candidate_sha256 === selections.find(s => s.sound_id === take.sound)?.candidate_sha256) ?? take.records.find(c => c.candidate_sha256 === remembered) ?? take.preferred ?? take.records.find(c => c.evidence.cut) ?? take.records[0]; }
-const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
+const clipDuration = c => c.evidence.cut ? (c.evidence.cut.loop?.output_frames ?? c.evidence.cut.edit?.output_frames ?? (c.evidence.cut.bounds.end_sample - c.evidence.cut.bounds.start_sample)) / c.evidence.cut.bounds.sample_rate : c.evidence.generation.audio.seconds;
 function soundName(sound) { const item = batchReviews.flatMap(b => b.sounds).find(s => s.sound_id === sound); return item ? item.key.replaceAll('_', ' ').replaceAll('-', ' ') : title(takes.find(t => t.sound === sound)?.records[0]).split('\n')[0]; }
 let loopPlayer;
 function stopLoopPreview() { loopPlayer?.pause(); loopPlayer = undefined; }
@@ -316,10 +316,20 @@ function trimPlayback(media, render, bounds, repeating = false) {
   const emit = name => player.dispatchEvent(new Event(name));
   const time = () => {
     if (!playing) return offset;
-    const elapsed = offset - bounds().start + context.currentTime - started;
-    return bounds().start + (repeating ? elapsed % duration : Math.min(duration, elapsed));
+    const span = bounds().end - bounds().start;
+    const elapsed = (offset - bounds().start) / span * duration + context.currentTime - started;
+    return bounds().start + (repeating ? elapsed % duration : Math.min(duration, elapsed)) / duration * span;
   };
-  const clear = () => { for (const entry of nodes) { entry.source.onended = null; entry.source.stop(); entry.source.disconnect(); entry.gain.disconnect(); } nodes.clear(); current = undefined; };
+  const clear = () => {
+    const now = context?.currentTime ?? 0, fade = repeating ? .1 : .01;
+    for (const entry of nodes) {
+      if (entry.stopping) continue;
+      entry.stopping = true;
+      entry.gain.gain.cancelAndHoldAtTime(now); entry.gain.gain.linearRampToValueAtTime(0, now + fade);
+      entry.source.stop(now + fade);
+    }
+    current = undefined;
+  };
   player.pause = () => { epoch++; offset = time(); playing = false; clear(); emit('pause'); };
   const install = rendered => {
     const pcm = rendered.pcm, channels = rendered.channels;
@@ -329,7 +339,7 @@ function trimPlayback(media, render, bounds, repeating = false) {
       for (let frame = 0; frame < data.length; frame++) data[frame] = pcm[frame * channels + channel];
     }
     offset = time(); duration = buffer.duration;
-    const at = Math.max(0, Math.min(duration, offset - bounds().start));
+    const at = Math.max(0, Math.min(duration, (offset - bounds().start) / (bounds().end - bounds().start) * duration));
     if (!repeating && at >= duration) { player.pause(); return; }
     const previous = current, now = context.currentTime;
     const source = context.createBufferSource(), gain = context.createGain();
@@ -338,12 +348,14 @@ function trimPlayback(media, render, bounds, repeating = false) {
     const entry = current;
     source.onended = () => {
       nodes.delete(entry); source.disconnect(); gain.disconnect();
-      if (current === entry && playing) { offset = bounds().start + duration; playing = false; current = undefined; emit('ended'); emit('pause'); }
+      if (current === entry && playing) { offset = bounds().end; playing = false; current = undefined; emit('ended'); emit('pause'); }
     };
     if (previous) {
       gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + 0.005);
       previous.gain.gain.cancelAndHoldAtTime(now); previous.gain.gain.linearRampToValueAtTime(0, now + 0.005);
       previous.source.stop(now + 0.005);
+    } else if (repeating || at > 0) {
+      gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(1, now + .01);
     }
     started = now; playing = true; source.start(now, repeating ? at % duration : at);
   };
@@ -362,11 +374,11 @@ function trimPlayback(media, render, bounds, repeating = false) {
     const token = ++epoch, rendered = await render();
     if (!disposed && playing && token === epoch) install(rendered);
   };
-  player.dispose = () => { disposed = true; player.pause(); if (context) void context.close(); };
+  player.dispose = () => { disposed = true; player.pause(); if (context) setTimeout(() => { void context.close(); }, 110); };
   player.load = () => { player.error = null; media.load(); };
   Object.defineProperties(player, {
     currentTime: { get: time, set(value) { const resume = playing; player.pause(); offset = value; emit('seeked'); if (resume) void player.play().catch(error => { player.error = error; emit('error'); }); } },
-    paused: { get: () => !playing }, ended: { get: () => !playing && offset >= bounds().start + duration },
+    paused: { get: () => !playing }, ended: { get: () => !playing && offset >= bounds().end },
     src: { get: () => media.src, set(value) { media.src = value; } }, readyState: { get: () => media.readyState },
   });
   media.addEventListener('loadedmetadata', () => emit('loadedmetadata'));
@@ -376,9 +388,11 @@ function trimPlayback(media, render, bounds, repeating = false) {
 
 function waveformTrim(c, editor, form, preview, draft, changed) {
   const seconds = c.evidence.generation.audio.seconds, gap = Math.min(0.01, seconds);
+  node('p', 'Source selection', form, { class: 'hint' });
   const frame = node('div', undefined, form, { class: 'trim-waveform' });
   const timeline = node('div', undefined, frame, { class: 'trim-timeline' });
   const canvas = node('canvas', undefined, timeline, { 'aria-hidden': 'true' });
+  const envelope = node('canvas', undefined, timeline, { class: 'trim-envelope', 'aria-hidden': 'true' });
   const selection = node('div', undefined, timeline, { class: 'trim-selection', 'aria-hidden': 'true' });
   const cursor = node('div', undefined, timeline, { class: 'trim-playhead', 'aria-hidden': 'true' });
   const handles = {};
@@ -387,7 +401,7 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
   const play = node('button', '▶ Play', actions, { type: 'button' }); play.disabled = true;
   const status = node('p', '', form, { class: 'hint', role: 'status' });
   const retry = node('button', 'Retry audio', form, { type: 'button' }); retry.hidden = true;
-  let source, sourcePromise, loading, disposed = false, animation, drag, playEpoch = 0;
+  let source, sourcePromise, fadeBounds, loading, disposed = false, animation, drag, playEpoch = 0;
   const controller = new AbortController();
   const position = () => { cursor.style.left = `${100 * Math.max(draft.start, Math.min(draft.end, preview.currentTime)) / seconds}%`; };
   const pause = () => { playEpoch++; preview.pause(); cancelAnimationFrame(animation); play.textContent = '▶ Play'; position(); };
@@ -416,6 +430,26 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
       ctx.moveTo(x + 0.5, 48 - high * 46); ctx.lineTo(x + 0.5, 48 - low * 46);
     }
     ctx.stroke();
+    drawEnvelope();
+  };
+  const drawEnvelope = () => {
+    if (!source || !fadeBounds || disposed) return;
+    const width = Math.max(1, Math.round(timeline.clientWidth)), ratio = devicePixelRatio || 1;
+    envelope.width = width * ratio; envelope.height = 96 * ratio;
+    if (draft.loop) return;
+    const ctx = envelope.getContext('2d'); ctx.scale(ratio, ratio);
+    const rate = source.sampleRate, frames = Math.round((draft.end - draft.start) * rate);
+    const fades = fadeBounds(frames, rate);
+    ctx.strokeStyle = getComputedStyle(editor).getPropertyValue('--primary'); ctx.globalAlpha = .65; ctx.setLineDash([3, 2]);
+    ctx.beginPath();
+    for (const [edge, length, direction] of [[draft.start, fades.in_frames / rate, 1], [draft.end, fades.out_frames / rate, -1]]) {
+      for (const sign of [-1, 1]) for (let i = 0; i <= 24; i++) {
+        const t = i / 24, x = (edge + direction * length * t) / seconds * width;
+        const y = 48 + sign * 42 * (1 - Math.cos(Math.PI * t)) / 2;
+        if (!i) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
   };
   const update = () => {
     for (const name of ['start', 'end']) {
@@ -428,6 +462,7 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
     timeline.style.setProperty('--start', `${100 * draft.start / seconds}%`); timeline.style.setProperty('--end', `${100 * draft.end / seconds}%`);
     readout.textContent = `Start ${formatDuration(draft.start)} · End ${formatDuration(draft.end)} · Selected ${formatDuration(draft.end - draft.start)}`;
     position();
+    drawEnvelope();
   };
   const adjust = (name, value) => {
     pause(); stopLoopPreview();
@@ -469,7 +504,8 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
     catch (error) { if (!disposed && epoch === playEpoch) { pause(); status.textContent = `Playback failed: ${error.message}. Press Play to retry.`; } }
   };
   const getSource = () => sourcePromise ??= (async () => {
-    const { decodeLoopWav } = await import('/loop-audio.mjs');
+    const { decodeLoopWav, trimFades } = await import('/loop-audio.mjs');
+    fadeBounds = trimFades;
     const response = await fetch(preview.src, { signal: controller.signal });
     if (!response.ok) throw new Error('Original audio could not load.');
     return decodeLoopWav(await response.arrayBuffer());
@@ -487,7 +523,7 @@ function waveformTrim(c, editor, form, preview, draft, changed) {
   const resize = new ResizeObserver(draw); resize.observe(timeline);
   editor.dispose = () => { disposed = true; pause(); preview.dispose(); controller.abort(); resize.disconnect(); };
   update(); void load();
-  return { update, pause, getSource };
+  return { update, pause, getSource, setSource(value) { source = value; draw(); } };
 }
 
 function trim(c, box) {
@@ -496,65 +532,206 @@ function trim(c, box) {
   const draft = recall('trim-' + id, { loop: c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false, crossfade: c.evidence.cut?.loop?.overlap_frames ? c.evidence.cut.loop.overlap_frames / bounds.sample_rate : 0.5, preserveNative: c.evidence.cut?.loop?.processing_version === 'native-gain-v1', start: bounds ? bounds.start_sample / bounds.sample_rate : 0, end: bounds ? bounds.end_sample / bounds.sample_rate : seconds });
   draft.loop ??= c.evidence.cut?.request?.loop ?? c.evidence.generation.request.loop ?? false; draft.crossfade ??= 0.5; draft.curve ??= c.evidence.cut?.loop?.curve ?? 'equal-power';
   draft.gain = Number.isFinite(draft.gain) ? Math.max(-12, Math.min(12, draft.gain)) : c.evidence.cut?.request?.gain_db ?? 0;
+  draft.noise = Number.isFinite(draft.noise) ? Math.max(0, Math.min(24, draft.noise)) : c.evidence.cut?.request?.noise_reduction_db ?? 0;
+  for (const [key, fallback] of Object.entries({ pitch_semitones: 0, speed: 1, reverse: false, low_cut_hz: 0, high_cut_hz: 0 })) draft[key] ??= c.evidence.cut?.request?.[key] ?? fallback;
   draft.start = Math.max(0, Math.min(seconds, Number(draft.start) || 0)); draft.end = Math.max(0, Math.min(seconds, Number(draft.end) || seconds));
   if (draft.end <= draft.start) { draft.start = 0; draft.end = seconds; }
-  const editor = node('section', undefined, box, { class: 'trim-editor', 'data-editor': id }); node('h5', `Trim · ${identity(c)}`, editor);
+  const editor = node('section', undefined, box, { class: 'trim-editor', 'data-editor': id }); node('h5', `Edit · ${identity(c)}`, editor);
   const form = node('form', undefined, editor), duration = node('p', '', form, { class: 'trim-duration', role: 'status' });
-  const media = audio(c, editor, `Trim source · ${identity(c)}`, true); media.controls = false;
+  const media = audio(c, editor, `Edit source · ${identity(c)}`, true); media.controls = false;
   let settingsPromise;
+  const effectSettings = () => Object.fromEntries(['pitch_semitones', 'speed', 'reverse', 'low_cut_hz', 'high_cut_hz'].map(key => [key, draft[key]]));
+  const transformed = () => draft.pitch_semitones !== 0 || draft.speed !== 1 || draft.reverse || draft.low_cut_hz !== 0 || draft.high_cut_hz !== 0;
+  let editCache, editController, editTimer, editReady = false, editEpoch = 0;
+  const getEdited = () => {
+    const input = { ...effectSettings(), start_seconds: draft.start, end_seconds: draft.end }, key = JSON.stringify(input);
+    if (editCache?.key === key) return editCache.promise;
+    editController?.abort();
+    const controller = editController = new AbortController(), entry = { key };
+    entry.promise = (async () => {
+      const response = await fetch(`/studio/candidates/${id}/edit-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf }, body: JSON.stringify(input), signal: controller.signal });
+      if (!response.ok) throw new Error((await response.json()).error || 'Edit processing failed.');
+      const bytes = await response.arrayBuffer(), sampleRate = Number(response.headers.get('X-Audio-Sample-Rate')), channels = Number(response.headers.get('X-Audio-Channels')), frames = Number(response.headers.get('X-Audio-Frames'));
+      if (sampleRate !== 44100 || channels !== 2 || !Number.isInteger(frames) || frames < 1 || frames > 120 * sampleRate || bytes.byteLength !== frames * channels * 8) throw new Error('Invalid edited audio response.');
+      const view = new DataView(bytes), samples = new Float32Array(frames * channels), cleaned = new Float32Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = view.getFloat32(i * 4, true); cleaned[i] = view.getFloat32((samples.length + i) * 4, true);
+        if (!Number.isFinite(samples[i]) || !Number.isFinite(cleaned[i])) throw new Error('Invalid edited audio samples.');
+      }
+      return { samples, cleaned, sampleRate, channels };
+    })().catch(failure => { if (editCache === entry) editCache = undefined; throw failure; });
+    editCache = entry; return entry.promise;
+  };
+  let noiseCache, noiseController, noiseFrame, noiseEpoch = 0, disposed = false;
+  const getCleaned = async () => {
+    const original = await waveform.getSource();
+    if (disposed) throw new DOMException("Editor closed", "AbortError");
+    if (noiseCache) return noiseCache.promise;
+    noiseController?.abort();
+    const controller = noiseController = new AbortController();
+    const entry = {};
+    entry.promise = (async () => {
+      const response = await fetch(`/studio/candidates/${id}/denoise-preview`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Studio-CSRF': csrf },
+        body: JSON.stringify({ noise_reduction_db: 24 }), signal: controller.signal });
+      if (!response.ok) throw new Error((await response.json()).error || 'Noise reduction failed.');
+      const bytes = await response.arrayBuffer();
+      if (Number(response.headers.get('X-Audio-Sample-Rate')) !== original.sampleRate ||
+          Number(response.headers.get('X-Audio-Channels')) !== original.channels || bytes.byteLength !== original.samples.length * 4)
+        throw new Error('Processed preview does not match the original timing.');
+      const view = new DataView(bytes), samples = new Float32Array(original.samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = view.getFloat32(i * 4, true);
+        if (!Number.isFinite(samples[i])) throw new Error('Processed preview contains invalid audio.');
+      }
+      return { samples, channels: original.channels, sampleRate: original.sampleRate };
+    })().catch(error => {
+      if (noiseCache === entry) noiseCache = undefined;
+      throw error;
+    });
+    noiseCache = entry;
+    return entry.promise;
+  };
+  const getProcessed = async () => {
+    const original = await waveform.getSource();
+    if (!draft.noise) return original;
+    const cleaned = await getCleaned();
+    const { mixNoiseReduction } = await import('/loop-audio.mjs');
+    return { ...original, samples: mixNoiseReduction(original.samples, cleaned.samples, draft.noise) };
+  };
   const render = async (repeating = false) => {
+    const epoch = noiseEpoch;
     const { renderTrim, renderLoop, quantizeLoop } = await import('/loop-audio.mjs');
-    const source = await waveform.getSource();
-    settingsPromise ??= fetch('/qa-config.json').then(response => { if (!response.ok) throw new Error('Trim settings could not load'); return response.json(); }).catch(error => { settingsPromise = undefined; throw error; });
+    let source;
+    const edited = transformed();
+    if (edited) {
+      const pair = await getEdited(), { mixNoiseReduction } = await import('/loop-audio.mjs');
+      source = { ...pair, samples: mixNoiseReduction(pair.samples, pair.cleaned, draft.noise) };
+    } else source = await getProcessed();
+    settingsPromise ??= fetch('/qa-config.json').then(response => { if (!response.ok) throw new Error('Edit settings could not load'); return response.json(); }).catch(error => { settingsPromise = undefined; throw error; });
     const settings = await settingsPromise;
+    if (epoch !== noiseEpoch && !disposed) return render(repeating);
     const options = { ...cutInput(), peak_db: c.evidence.cut?.request?.peak_db ?? settings.export_peak_db,
-      normalize: c.evidence.cut?.request?.normalize ?? true, fade_ms: settings.fade_ms,
-      native_provider_loop: c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true };
+      normalize: c.evidence.cut?.request?.normalize ?? true, fade_in_ms: settings.fade_in_ms, fade_out_ms: settings.fade_out_ms,
+      native_provider_loop: !edited && c.evidence.generation.runtime.backend === 'elevenlabs' && c.evidence.generation.settings.loop === true };
     const rendered = (repeating ? renderLoop : renderTrim)(source.samples, source.sampleRate, source.channels,
-      repeating ? options : { ...options, start_seconds: draft.start, end_seconds: draft.end });
-    return { pcm: quantizeLoop(rendered.samples), channels: source.channels, sampleRate: source.sampleRate };
+      edited ? { ...options, start_seconds: 0, end_seconds: source.samples.length / source.channels / source.sampleRate } : repeating ? options : { ...options, start_seconds: draft.start, end_seconds: draft.end });
+    const result = { pcm: quantizeLoop(rendered.samples), channels: source.channels, sampleRate: source.sampleRate };
+    return result;
   };
   const preview = trimPlayback(media, () => render(false), () => draft);
   editor.playback = preview;
   const error = node('p', '', form, { class: 'error', role: 'status' });
-  const valid = () => draft.start < draft.end && (!draft.loop || draft.crossfade >= 0.05 && draft.crossfade <= 2 && draft.end - draft.start >= 0.2);
-  const cutInput = () => ({ gain_db: draft.gain, ...(c.evidence.cut?.request?.peak_db === undefined ? {} : { peak_db: c.evidence.cut.request.peak_db }), ...(c.evidence.cut?.request?.normalize === undefined ? {} : { normalize: c.evidence.cut.request.normalize }), ...(draft.loop && draft.preserveNative ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) }) });
+  const valid = () => draft.start < draft.end && !(draft.low_cut_hz && draft.high_cut_hz && draft.low_cut_hz >= draft.high_cut_hz) && (!draft.loop || draft.crossfade >= 0.05 && draft.crossfade <= 2 && (draft.end - draft.start) / draft.speed >= 0.2);
+  const cutInput = () => ({ ...effectSettings(), gain_db: draft.gain, noise_reduction_db: draft.noise, ...(c.evidence.cut?.request?.peak_db === undefined ? {} : { peak_db: c.evidence.cut.request.peak_db }), ...(c.evidence.cut?.request?.normalize === undefined ? {} : { normalize: c.evidence.cut.request.normalize }), ...(draft.loop && draft.preserveNative && !transformed() ? { loop: true } : { start_seconds: draft.start, end_seconds: draft.end, loop: draft.loop, ...(draft.loop ? { crossfade_seconds: draft.crossfade, curve: draft.curve } : {}) }) });
   let save;
-  const update = () => { remember('trim-' + id, draft); duration.textContent = ''; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid(); if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save trim'; } preview.pause(); stopLoopPreview(); };
+  const update = () => { remember('trim-' + id, draft); duration.textContent = ''; error.textContent = valid() ? '' : 'Choose Start before End; loops need at least 0.2 seconds and a 0.05–2 second crossfade.'; if (save) { save.disabled = save.hasAttribute('aria-busy') || !valid() || !editReady; if (!save.hasAttribute('aria-busy')) save.textContent = draft.loop ? 'Save loop' : 'Save edit'; } preview.pause(); stopLoopPreview(); queueEdit(); };
   const waveform = waveformTrim(c, editor, form, preview, draft, update);
-  const levelLabel = node('label', 'Level ', form, { for: 'cut-gain' });
+  const cleanGroup = node('fieldset', undefined, form, { class: 'edit-group' }); node('legend', 'Clean sound', cleanGroup);
+  const controls = node('div', undefined, cleanGroup, { class: 'trim-controls clean-controls' });
+  const noiseControl = node('div', undefined, controls), levelControl = node('div', undefined, controls);
+  const noiseLabel = node('label', 'Noise reduction ', noiseControl, { for: 'cut-noise' });
+  const noiseValue = node('output', '', noiseLabel, { for: 'cut-noise' });
+  const noise = node('input', undefined, noiseControl, { id: 'cut-noise', type: 'range', min: '0', max: '24', step: '1', value: draft.noise });
+  const noiseStatus = node('p', '', cleanGroup, { class: 'hint', role: 'status' });
+  const showNoise = () => { noiseValue.textContent = draft.noise ? `${draft.noise} dB` : 'Off'; noise.setAttribute('aria-valuetext', noiseValue.textContent); };
+  const refreshNoise = async () => {
+    const epoch = ++noiseEpoch;
+    noiseStatus.textContent = 'Updating preview…';
+    try {
+      const processed = await getProcessed();
+      if (transformed()) await render(false);
+      if (disposed || epoch !== noiseEpoch) return;
+      waveform.setSource(processed);
+      await Promise.all([preview.refresh(), repeatingPreview.refresh()]);
+      if (!disposed && epoch === noiseEpoch) noiseStatus.textContent = draft.noise ? 'Cleanup ready. Lower the amount if wanted detail fades.' : 'Original detail preserved. Increase to reduce steady background noise.';
+    } catch (failure) {
+      if (disposed || epoch !== noiseEpoch) return;
+      preview.pause(); stopLoopPreview(); noiseStatus.textContent = `Cleanup failed: ${failure.message} Adjust the slider or press Play to retry.`;
+    }
+  };
+  noise.oninput = () => {
+    draft.noise = Number(noise.value); remember('trim-' + id, draft); showNoise();
+    queueEdit(); noiseEpoch++; cancelAnimationFrame(noiseFrame);
+    noiseStatus.textContent = 'Updating preview…'; noiseFrame = requestAnimationFrame(refreshNoise);
+  };
+  showNoise();
+  const levelLabel = node('label', 'Level ', levelControl, { for: 'cut-gain' });
   const levelValue = node('output', '', levelLabel, { for: 'cut-gain' });
-  const level = node('input', undefined, form, { id: 'cut-gain', type: 'range', min: '-12', max: '12', step: '0.5', value: draft.gain });
+  const level = node('input', undefined, levelControl, { id: 'cut-gain', type: 'range', min: '-12', max: '12', step: '0.5', value: draft.gain });
   const showLevel = () => { levelValue.textContent = `${draft.gain > 0 ? '+' : ''}${draft.gain.toFixed(1)} dB`; level.setAttribute('aria-valuetext', levelValue.textContent); };
   let levelFrame;
   const adjustLevel = () => {
     draft.gain = Number(level.value); remember('trim-' + id, draft); showLevel();
-    cancelAnimationFrame(levelFrame);
+    queueEdit(); cancelAnimationFrame(levelFrame);
     levelFrame = requestAnimationFrame(() => { void Promise.all([preview.refresh(), repeatingPreview.refresh()]).catch(failure => { preview.pause(); stopLoopPreview(); error.textContent = failure.message; }); });
   };
   level.oninput = adjustLevel;
-  const resetLevel = node('button', 'Reset level', form, { type: 'button' });
-  resetLevel.onclick = () => { level.value = '0'; adjustLevel(); }; showLevel();
-  const loopLabel = node('label', undefined, form, { class: 'loop-choice' });
+  showLevel();
+  const effectInputs = [];
+  const effectSlider = (parent, label, key, min, max, step, format, logarithmic = false) => {
+    const group = node('div', undefined, parent), text = node('label', label + ' ', group, { for: 'edit-' + key });
+    const value = node('output', '', text), slider = node('input', undefined, group, { id: 'edit-' + key, type: 'range', min: logarithmic ? 0 : min, max: logarithmic ? 100 : max, step: logarithmic ? 1 : step });
+    const show = () => { slider.value = logarithmic ? draft[key] ? 1 + 99 * Math.log(draft[key] / min) / Math.log(max / min) : 0 : draft[key]; value.textContent = format(draft[key]); slider.setAttribute('aria-valuetext', value.textContent); };
+    slider.oninput = () => { draft[key] = logarithmic ? Number(slider.value) ? Math.round(min * (max / min) ** ((Number(slider.value) - 1) / 99)) : 0 : Number(slider.value); show(); effectsChanged(); };
+    show(); effectInputs.push(show);
+  };
+  effectSlider(controls, 'Low cut', 'low_cut_hz', 20, 1000, 1, value => value ? `${value} Hz` : 'Off', true);
+  effectSlider(controls, 'High cut', 'high_cut_hz', 1000, 20000, 1, value => value ? `${value} Hz` : 'Off', true);
+  const tone = node('fieldset', undefined, form, { class: 'edit-group' }); node('legend', 'Tone', tone);
+  const toneControls = node('div', undefined, tone, { class: 'trim-controls tone-controls' });
+  effectSlider(toneControls, 'Pitch', 'pitch_semitones', -12, 12, .5, value => `${value > 0 ? '+' : ''}${value} semitones`);
+  effectSlider(toneControls, 'Speed', 'speed', .5, 2, .05, value => `${value.toFixed(2)}×`);
+  const effectActions = node('div', undefined, form, { class: 'actions' });
+  const reverseLabel = node('label', undefined, effectActions, { class: 'check' }), reverse = node('input', undefined, reverseLabel, { type: 'checkbox', id: 'edit-reverse' });
+  reverse.checked = draft.reverse; reverseLabel.append(document.createTextNode(' Reverse'));
+  reverse.onchange = () => { draft.reverse = reverse.checked; preview.currentTime = draft.start; effectsChanged(); };
+  const resetEffects = node('a', 'Reset effects', effectActions, { href: '', class: 'reset-effects' });
+  resetEffects.onclick = event => { event.preventDefault(); Object.assign(draft, { pitch_semitones: 0, speed: 1, reverse: false, low_cut_hz: 0, high_cut_hz: 0, noise: 0, gain: 0 }); reverse.checked = false; noise.value = '0'; level.value = '0'; showNoise(); showLevel(); effectInputs.forEach(show => show()); effectsChanged(); };
+  const editStatus = node('p', '', form, { class: 'hint', role: 'status' });
+  const retryEdit = node('button', 'Retry edit', form, { type: 'button' }); retryEdit.hidden = true; retryEdit.onclick = () => queueEdit();
+  const refreshEdit = async () => {
+    const epoch = ++editEpoch;
+    try {
+      if (!valid()) throw new Error('Choose valid bounds and filters; loops need at least 0.2 seconds after changing speed.');
+      await render(false);
+      if (disposed || epoch !== editEpoch) return;
+      await Promise.all([preview.refresh(), repeatingPreview.refresh()]);
+      if (disposed || epoch !== editEpoch) return;
+      editReady = true; editStatus.textContent = ''; retryEdit.hidden = true;
+      if (save) save.disabled = save.hasAttribute('aria-busy') || !valid();
+    } catch (failure) {
+      if (disposed || epoch !== editEpoch) return;
+      editReady = false; editStatus.textContent = `Preview outdated: ${failure.message}`; retryEdit.hidden = false;
+    }
+  };
+  function queueEdit() {
+    editReady = false; editEpoch++; noiseEpoch++; clearTimeout(editTimer);
+    if (save) save.disabled = true;
+    editStatus.textContent = 'Updating preview…'; retryEdit.hidden = true;
+    editTimer = setTimeout(refreshEdit, 150);
+  }
+  function effectsChanged() { remember('trim-' + id, draft); queueEdit(); }
+  const loopLabel = node('label', undefined, effectActions, { class: 'check' }); effectActions.insertBefore(loopLabel, resetEffects);
   const loop = node('input', undefined, loopLabel, { type: 'checkbox', id: 'cut-loop' }); loop.checked = draft.loop;
   loopLabel.append(document.createTextNode(' Loop'));
-  node('label', 'Crossfade (seconds)', form, { for: 'cut-crossfade' });
-  const fade = node('input', undefined, form, { id: 'cut-crossfade', type: 'number', min: '0.05', max: '2', step: '0.05', value: draft.crossfade });
+  const loopControls = node('div', undefined, form, { class: 'loop-controls' }); loopControls.hidden = !draft.loop;
+  const fadeGroup = node('div', undefined, loopControls);
+  node('label', 'Crossfade (seconds)', fadeGroup, { for: 'cut-crossfade' });
+  const fade = node('input', undefined, fadeGroup, { id: 'cut-crossfade', type: 'number', min: '0.05', max: '2', step: '0.05', value: draft.crossfade });
   fade.disabled = !draft.loop;
-  loop.onchange = () => { draft.loop = loop.checked; fade.disabled = !draft.loop; update(); };
+  loop.onchange = () => { draft.loop = loop.checked; fade.disabled = !draft.loop; loopControls.hidden = !draft.loop; update(); waveform.update(); };
   fade.oninput = () => { draft.crossfade = Number(fade.value); draft.preserveNative = false; update(); };
-  const details = node('details', undefined, form); node('summary', 'Loop details', details);
-  const curveLabel = node('label', 'Crossfade curve', details);
-  const curve = node('select', undefined, curveLabel);
+  const curveGroup = node('div', undefined, loopControls);
+  node('label', 'Crossfade curve', curveGroup, { for: 'cut-curve' });
+  const curve = node('select', undefined, curveGroup, { id: 'cut-curve' });
   node('option', 'Equal power · diffuse ambience', curve, { value: 'equal-power' });
   node('option', 'Equal gain · correlated sound', curve, { value: 'equal-gain' }); curve.value = draft.curve;
   curve.onchange = () => { draft.curve = curve.value; draft.preserveNative = false; update(); };
-  if (draft.preserveNative) node('p', 'Native loop retained. Changing bounds, curve or crossfade creates a repair.', details, { class: 'hint' });
   const repeatingPreview = trimPlayback(media, () => render(true), () => draft, true);
   const disposeWaveform = editor.dispose;
-  editor.dispose = () => { cancelAnimationFrame(levelFrame); repeatingPreview.dispose(); disposeWaveform(); };
-  const actions = node('div', undefined, form, { class: 'actions' });
-  const loopPlay = node('button', 'Preview loop', actions, { type: 'button' });
+  editor.dispose = () => { disposed = true; editEpoch++; clearTimeout(editTimer); editController?.abort(); editCache = undefined; noiseEpoch++; cancelAnimationFrame(noiseFrame); noiseController?.abort(); noiseCache = undefined; cancelAnimationFrame(levelFrame); repeatingPreview.dispose(); disposeWaveform(); };
+  const loopPlay = node('button', 'Preview loop', loopControls, { type: 'button' });
   repeatingPreview.addEventListener('error', () => { stopLoopPreview(); duration.textContent = 'Audio could not load. Retry audio to continue.'; });
   repeatingPreview.addEventListener('pause', () => { loopPlay.textContent = 'Preview loop'; duration.textContent = ''; });
   loopPlay.onclick = async () => {
@@ -567,10 +744,9 @@ function trim(c, box) {
       if (!repeatingPreview.paused) duration.textContent = 'Processed loop preview · repeating';
     } catch (failure) { stopLoopPreview(); duration.textContent = failure.message; }
   };
-  node('p', 'Play includes fades, normalization and Level. Preview loop repeats the processed blend. Boosts are peak-limited to prevent clipping. Saving selects the new version as the main track. Download uses that saved version.', form, { class: 'hint' });
-  save = node('button', 'Save trim', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
+  save = node('button', 'Save edit', form, { type: 'button' }); save.dataset.pendingKey = 'trim-' + id;
   save.onclick = () => {
-    if (!valid()) return;
+    if (!valid() || !editReady) return;
     const input = cutInput(), row = editor.parentElement;
     runButton(save, async () => {
       const result = await api(`candidates/${id}/cut`, input);
@@ -583,7 +759,7 @@ function trim(c, box) {
       if (stillEditing && row.isConnected && !editorId) { row.dataset.manualVersion = 'true'; row.replaceChildren(); renderClip(saved, row); trim(saved, row); node('p', 'Saved and selected as main track.', row, { role: 'status' }); }
     });
   };
-  form.onsubmit = event => event.preventDefault(); update();
+  form.onsubmit = event => event.preventDefault(); update(); void refreshNoise(); void getCleaned().catch(() => {});
 }
 async function select(id) {
   const c = candidates.find(c => c.candidate_sha256 === id); if (!c) return;
@@ -610,7 +786,7 @@ function renderClip(c, row, pinned = false) {
   const player = audio(c, row, identity(c)); const actions = node('div', undefined, row, { class: 'actions' });
   button('Replay', actions, async () => { player.currentTime = 0; await player.play().catch(error => { if (error.name !== 'AbortError' || !player.paused) throw error; }); }, local);
   const choose = button('Use this take', actions, () => useTake(c)); choose.dataset.choose = ''; choose.dataset.pendingKey = 'select-' + c.candidate_sha256;
-  button('Trim', actions, () => {
+  button('Edit', actions, () => {
     if (!pinned) return trim(c, row);
     const target = $('batch-results').querySelector(`[data-take="${takeFor(c.candidate_sha256).id}"]`); if (!target) return;
     const group = target.closest('details'); group.open = true; group.dataset.manual = 'true';

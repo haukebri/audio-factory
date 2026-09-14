@@ -22,7 +22,7 @@ try {
   const files = ["run", "src", "package.json", "pnpm-lock.yaml", "tsconfig.json",
     "config.json", "qa-config.json", "qa-model.lock.json", "requirements.lock", "signal-requirements.lock",
     "setup.mjs", "download_models.py",
-    "qa.py", "prompt-plan.mjs", "docs/tasks/m02/clap-m1-baseline.lock.json", "bundle.mjs", "loop-audio.mjs", "export-lineage.mjs", "retain.mjs", "workflow.mjs", "youtube.mjs", "batches.mjs", "library.mjs", "studio.mjs", "studio.html", "studio.css", "studio.js", "review-store.mjs",
+    "qa.py", "prompt-plan.mjs", "docs/tasks/m02/clap-m1-baseline.lock.json", "bundle.mjs", "loop-audio.mjs", "denoise.mjs", "edit-audio.mjs", "export-lineage.mjs", "retain.mjs", "workflow.mjs", "youtube.mjs", "batches.mjs", "library.mjs", "studio.mjs", "studio.html", "studio.css", "studio.js", "review-store.mjs",
     ...readdirSync(root).filter((name) => name.endsWith(".schema.json"))];
   for (const file of files) cpSync(join(root, file), join(isolated, file), { recursive: true });
   for (const args of [["install", "--frozen-lockfile"], ["build"]]) {

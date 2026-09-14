@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "frame_ms": 20,
   "silence_db": -50,
   "minimum_gap_ms": 120,
@@ -14,6 +14,8 @@
   "rhythm_min_modulation": 0.2,
   "rhythm_min_persistence": 0.65,
   "fade_ms": 5,
+  "fade_in_ms": 10,
+  "fade_out_ms": 100,
   "timeout_ms": 120000,
   "rhythm_min_wave_correlation": 0.38,
   "export_peak_db": -3,

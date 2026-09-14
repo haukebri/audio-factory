@@ -93,7 +93,7 @@ test('trim levels normalize the selection, preserve stereo and limit peaks with 
     }
     assert.equal(cut.level.limiter_reduction_db > 0, gain_db > 0);
   }
-  const faded = renderTrim(new Float32Array(35280).fill(0.25), 44100, 2, { normalize: false }).samples;
+  const faded = renderTrim(new Float32Array(35280).fill(0.25), 44100, 2, { normalize: false, fade_ms: 5 }).samples;
   assert.equal(faded[200], Math.trunc(8192 * 100 / 221) / 32768, 'FFmpeg rounds 5 ms to 221 frames and truncates PCM16 fades');
   assert.equal(faded.at(-1), Math.trunc(8192 * 2 / 221) / 32768);
   const transient = new Float32Array(1000).fill(0.2); transient[100] = 1;
@@ -124,8 +124,29 @@ test('zero-level manual cuts retain the previous FFmpeg fades and normalized PCM
     let peak = 0;
     for (let i = 0; i < faded.length; i += 4) peak = Math.max(peak, Math.abs(faded.readFloatLE(i)));
     const previous = ffmpeg(`${filters},volume=${-3 - 20 * Math.log10(peak)}dB`, 's16le');
-    const current = quantizeLoop(renderTrim(source.samples, 44100, 2, { start_seconds, end_seconds }).samples);
+    const current = quantizeLoop(renderTrim(source.samples, 44100, 2, { start_seconds, end_seconds, fade_ms: 5 }).samples);
     assert.equal(current.length * 2, previous.length);
     for (let i = 0; i < current.length; i++) assert.ok(Math.abs(current[i] * 32768 - previous.readInt16LE(i * 2)) <= 1, JSON.stringify({ start_seconds, end_seconds, frame: i / 2, current: current[i] * 32768, previous: previous.readInt16LE(i * 2) }));
   }
+});
+
+
+test('automatic cosine fades preserve attacks and soften tails, including tiny clips', () => {
+  const source = new Float32Array(1000).fill(.5), original = source.slice();
+  const result = renderTrim(source, 1000, 1, { normalize: false });
+  assert.equal(result.samples[0], 0); assert.equal(result.samples[999], 0);
+  assert.equal(result.samples[10], .5); assert.equal(result.samples[899], .5);
+  assert.ok(Math.abs(result.samples[5] - .25) < 1e-7);
+  assert.ok(Math.abs(result.samples[949] - .25) < 1e-7);
+  assert.equal(result.evidence.fade_in_seconds, .01); assert.equal(result.evidence.fade_out_seconds, .1);
+  assert.deepEqual(source, original);
+  for (const frames of [1, 2, 3, 20, 100]) {
+    const clip = renderTrim(source.slice(0, frames), 1000, 1, { normalize: false });
+    assert.equal(clip.samples.length, frames);
+    assert.equal(clip.samples[0], 0); assert.equal(clip.samples.at(-1), 0);
+    assert.ok(clip.evidence.fade_in_seconds + clip.evidence.fade_out_seconds <= frames / 2000);
+    if (frames > 2) assert.ok(clip.samples.includes(.5));
+  }
+  for (const value of [-1, NaN, Infinity, '10']) assert.throws(() => renderTrim(source, 1000, 1, { fade_in_ms: value }), /fade/);
+  assert.deepEqual(renderLoop(source, 1000, 1).samples, renderLoop(source, 1000, 1, { fade_in_ms: 10, fade_out_ms: 100 }).samples);
 });

@@ -9,6 +9,7 @@ import { openLibrary } from "./library.mjs";
 import { openBatches } from "./batches.mjs";
 import { readiness as youtubeReadiness, search as youtubeSearch } from "./youtube.mjs";
 import { openJobs } from "./workflow.mjs";
+import { denoise, noiseReduction, prepareEdit } from './denoise.mjs';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 async function body(req, limit = 16384) {
@@ -38,6 +39,7 @@ export async function createStudio({ port = 8767, ...options }) {
   };
   let closing;
   const sessions = new Map();
+  const denoisePreviews = new Set();
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
   const server = createServer((req, res) => {
     void (async () => {
@@ -147,7 +149,7 @@ export async function createStudio({ port = 8767, ...options }) {
       if (path.startsWith('/studio/evaluation')) fail(410, 'Semantic evaluation tools were removed; historical evidence remains in candidate exports');
       if (req.method === 'GET' && path === '/studio/candidates') { json(res, 200, jobs.store.listCandidates()); return; }
       if (req.method === 'GET' && path === '/studio/selections') { json(res, 200, jobs.store.selections()); return; }
-      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut|select|recreate|selection-history))?$/.exec(path);
+      const candidateMatch = /^\/studio\/candidates\/([a-f0-9]{64})(?:\/(source|audio|feedback|export|cut|select|recreate|selection-history|denoise-preview|edit-preview))?$/.exec(path);
       if (candidateMatch) {
         const [, id, action] = candidateMatch;
         const candidate = jobs.store.loadCandidate(id);
@@ -156,6 +158,27 @@ export async function createStudio({ port = 8767, ...options }) {
         if (req.method === 'POST' && action === 'select') { const selection = jobs.selectTake(id, await body(req)); await library.reconcile(); json(res, 200, selection); return; }
         if (req.method === 'POST' && action === 'recreate') { const input = await body(req); json(res, 202, await jobs.recreate(id, req.headers['idempotency-key'], input)); return; }
         if (req.method === 'POST' && action === 'cut') { json(res, 200, await jobs.cut(id, await body(req))); return; }
+        if (req.method === 'POST' && ['denoise-preview', 'edit-preview'].includes(action)) {
+          const input = await body(req);
+          if (action === 'denoise-preview' && (!input || Object.keys(input).join() !== 'noise_reduction_db')) fail(400, 'Expected noise_reduction_db');
+          const editing = action === 'edit-preview';
+          if (editing && (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['start_seconds', 'end_seconds', 'pitch_semitones', 'speed', 'reverse', 'low_cut_hz', 'high_cut_hz'].includes(key)))) fail(400, 'Invalid edit preview settings');
+          const strength = editing ? 0 : noiseReduction(input.noise_reduction_db);
+          if (closing || denoisePreviews.size >= 2) fail(429, 'Audio preview busy; retry shortly.');
+          const controller = new AbortController();
+          const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+          denoisePreviews.add(controller); res.once('close', disconnected);
+          try {
+            const processed = editing ? await prepareEdit(jobs.store.readAsset(id, 'source'), input, { signal: controller.signal }) : await denoise(jobs.store.readAsset(id, 'source'), strength, { signal: controller.signal });
+            const pcm = Buffer.alloc(processed.samples.length * 4 * (editing ? 2 : 1));
+            for (let i = 0; i < processed.samples.length; i++) pcm.writeFloatLE(processed.samples[i], i * 4);
+            if (editing) for (let i = 0; i < processed.cleaned.length; i++) pcm.writeFloatLE(processed.cleaned[i], (processed.samples.length + i) * 4);
+            res.writeHead(200, { 'X-Audio-Frames': processed.samples.length / processed.channels, 'Content-Type': 'application/octet-stream', 'Content-Length': pcm.length,
+              'X-Audio-Sample-Rate': processed.sampleRate, 'X-Audio-Channels': processed.channels });
+            res.end(pcm);
+          } finally { denoisePreviews.delete(controller); res.off('close', disconnected); }
+          return;
+        }
         if (action === 'feedback') {
           if (req.method === 'GET') { json(res, 200, jobs.store.history(id)); return; }
           if (req.method === 'POST') {
@@ -197,6 +220,7 @@ export async function createStudio({ port = 8767, ...options }) {
   });
   server.requestTimeout = 30000;
   const close = () => closing ??= (async () => {
+    for (const controller of denoisePreviews) controller.abort();
     try { try { await library?.close(); } finally { try { await batches?.close(); } finally { await jobs?.close(); } } } finally {
       server.closeAllConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));

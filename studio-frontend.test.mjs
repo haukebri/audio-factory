@@ -272,7 +272,7 @@ function setup(connected, failSelection = false) {
   const requests = [], messages = [], remembered = new Map();
   const row = { isConnected: connected, dataset: {}, replaceChildren() {} };
   const context = vm.createContext({
-    save: {}, valid: () => true, cutInput: () => ({ start_seconds: .1, end_seconds: .2 }),
+    save: {}, editReady: true, valid: () => true, cutInput: () => ({ start_seconds: .1, end_seconds: .2 }),
     editor: { parentElement: row, isConnected: connected }, editorId: 'automatic', id: 'automatic',
     runButton: (_, operation) => { context.done = operation(); },
     api: async path => { requests.push(path); return saved; },

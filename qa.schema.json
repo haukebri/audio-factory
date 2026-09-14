@@ -4,7 +4,10 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "request"],
+      "required": [
+        "kind",
+        "request"
+      ],
       "properties": {
         "kind": {
           "const": "analyses"
@@ -40,7 +43,9 @@
           "allOf": [
             {
               "if": {
-                "required": ["clap"],
+                "required": [
+                  "clap"
+                ],
                 "properties": {
                   "clap": {
                     "const": true
@@ -48,7 +53,9 @@
                 }
               },
               "then": {
-                "required": ["target"],
+                "required": [
+                  "target"
+                ],
                 "properties": {
                   "target": true
                 }
@@ -61,7 +68,10 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "request"],
+      "required": [
+        "kind",
+        "request"
+      ],
       "properties": {
         "kind": {
           "const": "cuts"
@@ -84,10 +94,30 @@
               "type": "string",
               "pattern": "^[a-zA-Z0-9_-]{1,128}$"
             },
-            "loop": { "type": "boolean" },
-            "crossfade_seconds": { "type": "number", "minimum": 0.05, "maximum": 2 },
-            "curve": { "enum": ["equal-power", "equal-gain"] },
-            "gain_db": { "type": "number", "minimum": -12, "maximum": 12 },
+            "loop": {
+              "type": "boolean"
+            },
+            "crossfade_seconds": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 2
+            },
+            "curve": {
+              "enum": [
+                "equal-power",
+                "equal-gain"
+              ]
+            },
+            "gain_db": {
+              "type": "number",
+              "minimum": -12,
+              "maximum": 12
+            },
+            "noise_reduction_db": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
             "normalize": {
               "type": "boolean"
             },
@@ -95,11 +125,52 @@
               "type": "number",
               "minimum": -30,
               "maximum": -3
+            },
+            "pitch_semitones": {
+              "type": "number",
+              "minimum": -12,
+              "maximum": 12
+            },
+            "speed": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 2
+            },
+            "reverse": {
+              "type": "boolean"
+            },
+            "low_cut_hz": {
+              "anyOf": [
+                {
+                  "const": 0
+                },
+                {
+                  "type": "number",
+                  "minimum": 20,
+                  "maximum": 1000
+                }
+              ]
+            },
+            "high_cut_hz": {
+              "anyOf": [
+                {
+                  "const": 0
+                },
+                {
+                  "type": "number",
+                  "minimum": 1000,
+                  "maximum": 20000
+                }
+              ]
             }
           },
           "dependentRequired": {
-            "start_seconds": ["end_seconds"],
-            "end_seconds": ["start_seconds"]
+            "start_seconds": [
+              "end_seconds"
+            ],
+            "end_seconds": [
+              "start_seconds"
+            ]
           }
         }
       }
